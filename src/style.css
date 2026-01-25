@@ -1,0 +1,75 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Verhindert Scrollbalken */
+  background-color: #000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  width: 100vw;
+}
+
+#app {
+
+  width: 100%;
+
+  height: 100%;
+
+}
+
+
+
+/* Orientation Warning Overlay */
+
+#orientation-warning {
+
+  display: none;
+
+  position: fixed;
+
+  top: 0;
+
+  left: 0;
+
+  width: 100%;
+
+  height: 100%;
+
+  background: #000;
+
+  color: #fff;
+
+  z-index: 9999;
+
+  flex-direction: column;
+
+  justify-content: center;
+
+  align-items: center;
+
+  text-align: center;
+
+  font-family: 'Press Start 2P', cursive;
+
+  padding: 20px;
+
+}
+
+
+
+@media (max-width: 900px) and (orientation: landscape) {
+
+  #orientation-warning {
+
+    display: flex;
+
+  }
+
+}
