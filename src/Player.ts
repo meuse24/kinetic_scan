@@ -206,7 +206,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     });
   }
 
-  public updateBounds(width: number, height: number) {
+  public updateBounds(_width: number, height: number) {
     this.minBoundY = height * 0.66;
     this.maxBoundY = height;
   }
