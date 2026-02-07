@@ -3,6 +3,7 @@ import { AudioManager } from './AudioManager';
 import { creditManager } from './CreditManager';
 import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize, recalculateDimensions } from './gameConfig';
 import { performanceMonitor } from './PerformanceMonitor';
+import { musicManager } from './MusicManager';
 
 interface GameOverData {
   score?: number;
@@ -78,6 +79,7 @@ export default class GameOverScene extends Phaser.Scene {
     const centerY = GAME_HEIGHT / 2;
 
     this.audio = new AudioManager(this);
+    musicManager.play();
 
     if (!this.scene.isActive('BezelScene')) {
       this.scene.launch('BezelScene');
@@ -199,6 +201,19 @@ export default class GameOverScene extends Phaser.Scene {
         }
       }
     });
+
+    this.input.on(
+      'wheel',
+      (_pointer: Phaser.Input.Pointer, _gx: number, _gy: number, _dx: number, dy: number) => {
+        if (!this.awaitingInitials) return;
+        this.resetIdleTimer();
+        if (dy < 0) {
+          this.changeLetter(1);
+        } else if (dy > 0) {
+          this.changeLetter(-1);
+        }
+      },
+    );
 
     this.creditListener = (credits) => {
       this.creditLabel.setText(`CREDITS: ${credits}`);
@@ -424,14 +439,9 @@ export default class GameOverScene extends Phaser.Scene {
     });
   }
 
-  private async startGame(requiredCredits: number) {
+  private startGame(requiredCredits: number) {
     if (!creditManager.spendCredits(requiredCredits)) return;
     void this.audio.resume();
-    try {
-      await document.documentElement.requestFullscreen?.();
-    } catch {
-      // Fullscreen not supported or denied
-    }
     recalculateDimensions();
     this.scene.start('MainScene', { players: requiredCredits });
   }
@@ -442,9 +452,6 @@ export default class GameOverScene extends Phaser.Scene {
   }
 
   private startAttract() {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
     this.scene.start('AttractScene');
   }
 

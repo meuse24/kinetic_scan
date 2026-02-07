@@ -27,7 +27,7 @@ Scenes are Phaser's unit of game state. The game flows: **AttractScene** (title/
 
 - `src/AttractScene.ts` — Title screen with attract-mode demo, credit system, 1P/2P start buttons, high scores
 - `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, 2-player turn switching
-- `src/GameOverScene.ts` — Game over screen with high score entry
+- `src/GameOverScene.ts` — Game over screen with high score entry (keyboard, touch swipe/tap, mouse wheel)
 - `src/PauseScene.ts` — Pause overlay
 - `src/HelpScene.ts` — Controls/help overlay
 - `src/BezelScene.ts` — Decorative CRT bezel frame with optional reflection effect
