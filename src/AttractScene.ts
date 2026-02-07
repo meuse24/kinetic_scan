@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize } from './gameConfig';
+import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize, recalculateDimensions } from './gameConfig';
 import { AudioManager, DEFAULT_VOLUME } from './AudioManager';
 import { creditManager } from './CreditManager';
 import { EnemyManager } from './EnemyManager';
@@ -445,10 +445,15 @@ export default class AttractScene extends Phaser.Scene {
     });
   }
 
-  private startGame(requiredCredits: number) {
+  private async startGame(requiredCredits: number) {
     if (!creditManager.spendCredits(requiredCredits)) return;
     void this.audio.resume();
-    document.documentElement.requestFullscreen?.().catch(() => {});
+    try {
+      await document.documentElement.requestFullscreen?.();
+    } catch {
+      // Fullscreen not supported or denied
+    }
+    recalculateDimensions();
     this.scene.start('MainScene', { players: requiredCredits });
   }
 
