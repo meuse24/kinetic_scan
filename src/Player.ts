@@ -54,7 +54,10 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
       this.handleHoming(delta);
     }
 
-    if (this.y < -150 || this.y > 1150 || this.x < -150 || this.x > 1150) {
+    const w = this.scene.scale.width;
+    const h = this.scene.scale.height;
+    const pad = 150;
+    if (this.y < -pad || this.y > h + pad || this.x < -pad || this.x > w + pad) {
       this.disableBody(true, true);
     }
   }
@@ -203,10 +206,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     });
   }
 
-  public updateBounds(_width: number, _height: number) {
-    // Playfield is always 1000x1000
-    this.minBoundY = 1000 * 0.66;
-    this.maxBoundY = 1000;
+  public updateBounds(width: number, height: number) {
+    this.minBoundY = height * 0.66;
+    this.maxBoundY = height;
   }
 
   public setMagnetic(active: boolean) {

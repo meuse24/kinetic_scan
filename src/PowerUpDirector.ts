@@ -90,10 +90,13 @@ export class PowerUpDirector {
     const now = this.scene.time.now;
     this.damageFreeTime += delta;
 
+    const w = this.scene.scale.width;
+    const margin = Math.round(w * 0.1);
+
     // Smart Trigger: Drones for high accuracy
     const accuracy = this.hits / Math.max(1, this.totalShots);
     if (accuracy > 0.8 && this.hits % 20 === 0 && this.hits > 0) {
-      this.spawnPowerUp(Phaser.Math.Between(100, 900), -50, PowerUpType.WINGMAN_DRONES);
+      this.spawnPowerUp(Phaser.Math.Between(margin, w - margin), -50, PowerUpType.WINGMAN_DRONES);
     }
 
     // Ghost Phase if taking too much heat (conceptual damage-free time check)
@@ -104,11 +107,11 @@ export class PowerUpDirector {
 
     if (score >= this.lastScoreThreshold + this.scoreInterval) {
       this.lastScoreThreshold = score;
-      this.spawnPowerUp(Phaser.Math.Between(100, 900), -50);
+      this.spawnPowerUp(Phaser.Math.Between(margin, w - margin), -50);
     }
 
     if (now - this.lastPowerUpTime > this.idleSpawnTime) {
-      this.spawnPowerUp(Phaser.Math.Between(100, 900), -50);
+      this.spawnPowerUp(Phaser.Math.Between(margin, w - margin), -50);
     }
   }
 

@@ -126,8 +126,10 @@ export class PowerUp extends Phaser.Physics.Arcade.Sprite {
       this.label.setVisible(false);
       return;
     }
-    // Check all bounds to prevent accumulation
-    if (this.y > 1100 || this.x < -100 || this.x > 1100) {
+    const w = this.scene.scale.width;
+    const h = this.scene.scale.height;
+    const pad = 100;
+    if (this.y > h + pad || this.x < -pad || this.x > w + pad) {
       this.deactivate();
     }
   }

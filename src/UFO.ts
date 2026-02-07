@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_SIZE } from './gameConfig';
+import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 import { AudioManager } from './AudioManager';
 
 export class UFO extends Phaser.Physics.Arcade.Sprite {
@@ -71,8 +71,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
 
   public spawn() {
     const side = Phaser.Math.Between(0, 1); // 0 = left, 1 = right
-    const x = side === 0 ? -50 : GAME_SIZE + 50;
-    const y = Phaser.Math.Between(100, 400);
+    const x = side === 0 ? -50 : GAME_WIDTH + 50;
+    const y = Phaser.Math.Between(100, Math.round(GAME_HEIGHT * 0.4));
     const speed = side === 0 ? 100 : -100;
 
     this.enableBody(true, x, y, true, true);
@@ -93,7 +93,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
 
     // Check bounds
     if (
-      (this.x > GAME_SIZE + 100 && this.body!.velocity.x > 0) ||
+      (this.x > GAME_WIDTH + 100 && this.body!.velocity.x > 0) ||
       (this.x < -100 && this.body!.velocity.x < 0)
     ) {
       this.deactivate();
