@@ -1,87 +1,96 @@
-# MEUSE24 Kinetic-Scan
+# Space Shooter (Phaser 3)
 
-**MEUSE24 Kinetic-Scan** is a fast-paced, retro-style arcade space shooter built with Phaser 3 and TypeScript. Experience classic 8-bit aesthetic combined with modern gameplay mechanics and procedural generation.
+Arcade-style space shooter built with Phaser 3 + TypeScript.  
+Fight asteroid waves, collect power-ups, and clear levels by defeating a mandatory boss UFO at the end of each level.
 
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
-![Version](https://img.shields.io/badge/version-0.0.0-blue)
-![Platform](https://img.shields.io/badge/platform-Web-orange)
+## Highlights
 
-## 🚀 Features
+- Phaser 3 game loop with Arcade Physics and responsive viewport scaling.
+- Difficulty presets: `EASY`, `NORMAL`, `HARD` (affects enemies, drops, UFO pressure, and level curve).
+- Two UFO variants:
+  - `Scout`: light pressure, occasional aimed shots.
+  - `Boss`: own silhouette, multi-phase behavior, dodge AI, multi-hit energy system.
+- Level progression with transition overlay between levels (`LEVEL N`, `3, 2, 1, GO!`).
+- Mandatory boss phase at level end before level can advance.
+- Dynamic bullet-pressure controls:
+  - adaptive bullet cap,
+  - collision-hit coalescing for mass scenes.
+- Enhanced ship visuals and power-up readability (thruster + effect overlays).
 
-### Core Gameplay
+## Power-Ups
 
-- **Retro Arcade Experience:** Inspired by classic vector shooters with a modern twist.
-- **Procedural Asteroids:** Irregularly shaped hazards that shatter into smaller fragments upon destruction.
-- **Combat & Heat System:** Manage your weapon's heat to avoid overheating while blasting through asteroid fields.
-- **Juicy VFX:** Particle-based explosions, dynamic camera shake, and a CRT post-processing shader for that authentic arcade feel.
+- `TRI` (Triple Shot): 3-way spread.
+- `SLO` (Slow Motion): slows world pacing.
+- `SHD` (Shield): absorbs one hit.
+- `EMP` (EMP Wave): heavy crowd-clear utility.
+- `GST` (Ghost Phase): temporary intangibility.
+- `DRN` (Wingman Drones): support fire.
+- `CLG` (Cannon Cooling): no heat build-up; thruster flame shifts to icy white.
+- `BLK` (Black Hole): gravity-like control effect.
 
-### Advanced Systems
+## Controls
 
-- **Universal Input:** Play with Keyboard, Mouse, or Touch.
-- **Adaptive Layout:**
-  - **Desktop:** Optimized 1000-unit base on the short axis, aspect-ratio-aware.
-  - **Mobile:** 600-unit base so game objects appear larger on small screens.
-  - **Dynamic Viewport:** Dimensions recalculate automatically on browser resize, device rotation, and fullscreen transitions. During gameplay, resize is deferred to the next scene transition to avoid disrupting play.
-- **Synthetic Audio:** Pure Web Audio API generated sounds — no external assets required.
-- **Power-up System:** 9 unique temporary effects including EMP Waves, Black Holes, Triple Shot, Homing Missiles, and Cannon Cooling (prevents overheat buildup).
-- **Multiplayer:** Authentic turn-based 2-player mode.
+### In-game
 
-## 🛠 Tech Stack
+- Move: `Arrow Keys` or pointer/touch drag.
+- Fire: hold `Space` or pointer.
+- Pause: UI button / scene controls.
+- Help: `H`.
 
-- **Engine:** [Phaser 3](https://phaser.io/)
-- **Language:** TypeScript
-- **Build Tool:** Vite
-- **Deployment:** Single-file HTML builds (bundled JS/CSS/Assets)
+### Attract / Game Over
 
-## 🕹 Getting Started
+- Insert coin: `I`.
+- Start game: `1`, `2`, `Enter`, `Space`.
+- Change difficulty: `A/D` or `Left/Right`.
 
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) (Latest LTS recommended)
-
-### Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/meuse24/kinetic_scan.git
-   cd space-shooter
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-### Development
-
-Start the development server:
+## Development
 
 ```bash
+npm install
 npm run dev
 ```
 
-### Build
-
-Generate a single-file production build in the `dist` folder:
+Build/lint:
 
 ```bash
+npm run lint
 npm run build
 ```
 
-## 🎮 Controls
+Preview production build:
 
-- **Desktop:**
-  - **Move:** Arrow keys or WASD
-  - **Fire:** Space or Left-click
-  - **Pause:** P or Esc
-- **Mobile:**
-  - **Move:** Drag anywhere (relative control)
-  - **Fire:** Auto-fires while touching
-  - **Touchpad:** Dedicated area below the screen for precise steering
+```bash
+npm run preview
+```
 
-## 📄 License
+## Capture / Automation Notes
 
-MIT License - Copyright (c) 2026 MEUSE24
+For headless capture stability, renderer can be forced to canvas:
 
----
+- `?renderer=canvas`
+- `?capture=1`
 
-_Built with ❤️ and Gemini CLI._
+Automation helpers are exposed on `window`:
+
+- `render_game_to_text()`
+- `advanceTime(ms)`
+
+## Project Structure
+
+- `src/main.ts`: entry + automation hooks.
+- `src/gameConfig.ts`: renderer/scaling configuration.
+- `src/MainScene.ts`: core gameplay loop (player, enemies, level/boss flow, overlays).
+- `src/UFO.ts`: scout/boss UFO logic, visuals, projectiles.
+- `src/Player.ts`: player movement/fire/heat + visual indicators.
+- `src/EnemyManager.ts`: asteroid spawning/splitting/difficulty scaling.
+- `src/PowerUpDirector.ts`: drop logic and support triggers.
+- `src/GameOverScene.ts`, `src/AttractScene.ts`, `src/HelpScene.ts`: meta flow.
+
+## Manual Smoke Test Checklist
+
+- Attract -> Start -> Gameplay -> Pause/Help -> Game Over.
+- Difficulty switch persists and affects pacing.
+- Level transition overlay appears (`3, 2, 1, GO!`).
+- Boss appears at level end and requires multiple hits.
+- Boss energy bar is shown directly on the boss UFO and decreases on hits.
+- Scout/Boss destruction uses full explosion and cleanup without freeze states.

@@ -205,6 +205,33 @@ export class AudioManager {
     osc.stop(this.audioContext.currentTime + 1.0);
   }
 
+  public playUFOShoot() {
+    if (this.audioContext.state !== 'running') return;
+    const now = this.audioContext.currentTime;
+    const oscA = this.audioContext.createOscillator();
+    const oscB = this.audioContext.createOscillator();
+    const gain = this.audioContext.createGain();
+
+    oscA.type = 'triangle';
+    oscB.type = 'sine';
+    oscA.frequency.setValueAtTime(980, now);
+    oscA.frequency.exponentialRampToValueAtTime(220, now + 0.16);
+    oscB.frequency.setValueAtTime(520, now);
+    oscB.frequency.exponentialRampToValueAtTime(120, now + 0.16);
+
+    gain.gain.setValueAtTime(0.24, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.16);
+
+    oscA.connect(gain);
+    oscB.connect(gain);
+    gain.connect(this.masterGain);
+
+    oscA.start(now);
+    oscB.start(now);
+    oscA.stop(now + 0.16);
+    oscB.stop(now + 0.16);
+  }
+
   public startUFOSound() {
     if (this.audioContext.state !== 'running' || this.ufoOsc) return;
     this.ufoOsc = this.audioContext.createOscillator();

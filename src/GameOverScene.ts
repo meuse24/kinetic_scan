@@ -1,6 +1,14 @@
 import Phaser from 'phaser';
 import { AudioManager } from './AudioManager';
 import { creditManager } from './CreditManager';
+import {
+  cycleDifficulty,
+  getCurrentDifficultyKey,
+  getDifficultyPreset,
+  resolveDifficultyKey,
+  setCurrentDifficultyKey,
+} from './Difficulty';
+import type { DifficultyPresetKey } from './Difficulty';
 import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize, recalculateDimensions } from './gameConfig';
 import { performanceMonitor } from './PerformanceMonitor';
 import { musicManager } from './MusicManager';
@@ -9,6 +17,7 @@ interface GameOverData {
   score?: number;
   scores?: number[];
   players?: number;
+  difficulty?: DifficultyPresetKey;
 }
 
 interface ScoreEntry {
@@ -38,6 +47,8 @@ export default class GameOverScene extends Phaser.Scene {
   private highlightIndex: number | null = null;
   private coinText!: Phaser.GameObjects.Text;
   private creditLabel!: Phaser.GameObjects.Text;
+  private difficultyKey: DifficultyPresetKey = getCurrentDifficultyKey();
+  private difficultyText!: Phaser.GameObjects.Text;
   private playerButtons: PlayerButton[] = [];
   private idleTimer?: Phaser.Time.TimerEvent;
   private audio!: AudioManager;
@@ -51,6 +62,8 @@ export default class GameOverScene extends Phaser.Scene {
   }
 
   init(data: GameOverData) {
+    this.difficultyKey = resolveDifficultyKey(data?.difficulty ?? null);
+    setCurrentDifficultyKey(this.difficultyKey);
     const scores = Array.isArray(data.scores) ? [...data.scores] : [data.score ?? 0];
     if (data.players === 2 || scores.length > 1) {
       this.playerCount = 2;
@@ -133,6 +146,15 @@ export default class GameOverScene extends Phaser.Scene {
     this.createLeaderboard(centerX, centerY - 40);
 
     this.createPlayerButtons(centerX, GAME_HEIGHT - 220);
+    this.difficultyText = this.add
+      .text(centerX, GAME_HEIGHT - 275, this.getDifficultyLabel(), {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '14px',
+        color: '#ffcc66',
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    this.difficultyText.on('pointerdown', () => this.changeDifficulty(1));
 
     this.coinText = this.add
       .text(centerX, GAME_HEIGHT - 140, 'INSERT COIN (I)', {
@@ -286,6 +308,10 @@ export default class GameOverScene extends Phaser.Scene {
         this.startGame(2);
       } else if (event.code === 'ArrowUp' || event.code === 'Space' || event.code === 'Enter') {
         this.startGame(1);
+      } else if (event.code === 'KeyA' || event.code === 'ArrowLeft') {
+        this.changeDifficulty(-1);
+      } else if (event.code === 'KeyD' || event.code === 'ArrowRight') {
+        this.changeDifficulty(1);
       }
     }
 
@@ -443,7 +469,17 @@ export default class GameOverScene extends Phaser.Scene {
     if (!creditManager.spendCredits(requiredCredits)) return;
     void this.audio.resume();
     recalculateDimensions();
-    this.scene.start('MainScene', { players: requiredCredits });
+    setCurrentDifficultyKey(this.difficultyKey);
+    this.scene.start('MainScene', { players: requiredCredits, difficulty: this.difficultyKey });
+  }
+
+  private getDifficultyLabel() {
+    return `DIFFICULTY: ${getDifficultyPreset(this.difficultyKey).label} (A/D)`;
+  }
+
+  private changeDifficulty(direction: 1 | -1) {
+    this.difficultyKey = cycleDifficulty(direction);
+    this.difficultyText.setText(this.getDifficultyLabel());
   }
 
   private resetIdleTimer() {

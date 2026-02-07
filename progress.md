@@ -90,3 +90,279 @@ TODOs for next agent
   - `npx tsc --noEmit` pass
   - `npm run build` pass
   - Playwright run: `output/web-game/powerup-cooling-pass` with visible `CANNON_COOLING` spawns and no captured errors.
+- Performance pass #4 (bullet/collision pressure) completed:
+  - Added dynamic bullet cap in `MainScene` (`dynamicBulletCap`) with pressure inputs from:
+    - active enemy count,
+    - live FPS,
+    - current bullet saturation.
+  - `Player.fireBullet` now respects scene-level `canSpawnBullet()` so burst fire and drones cannot overrun the bullet pool under load.
+  - Added hit coalescing queue in `MainScene`:
+    - bullet/enemy overlap now enqueues hit results instead of triggering full VFX/audio immediately.
+    - per-frame flush clusters nearby hits, limits explosion emits in mass scenes, and batches explosion SFX bursts.
+    - score and split/power-up logic remain preserved per destroyed asteroid.
+  - Added `bulletStats` (`active`, `cap`) to `render_game_to_text` in `src/main.ts`.
+  - Debug HUD now includes live bullet pressure (`B active/cap`).
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright stress run in capture mode:
+    - `output/web-game/perf-pass-6-bullet-collision`
+    - 4 screenshots + 4 state dumps generated, no `errors-*.json` emitted
+    - state samples show dynamic cap adapting during runtime (`cap` values observed: 37-43)
+    - FPS stayed near 58-60 in sampled frames
+    - screenshots visually inspected: gameplay rendering intact, no black frames/regression
+
+TODOs for next agent
+- Quantify coalescing impact more explicitly:
+  - Add temporary counters (hits queued, clusters emitted, SFX bursts) to state output for one profiling pass.
+- Consider applying similar coalescing to EMP mass-kill path if future perf traces show spikes there.
+
+- Performance pass #5 (collision telemetry + EMP path) completed:
+  - Added collision-pressure telemetry in `MainScene` and exposed it via `render_game_to_text`:
+    - queue/flush totals,
+    - coalesced vs direct flush counts,
+    - explosion emit + SFX burst totals,
+    - dropped clusters (when capped),
+    - last flush shape (hits/clusters/source mix).
+  - Added public accessor `getCollisionPressureStats()` for automation payload integration.
+  - Routed EMP asteroid kills through the same pending-hit queue/coalescing path (instead of immediate per-enemy explosion in EMP loop).
+  - Optimized EMP radius check to squared-distance math.
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright run `output/web-game/perf-pass-7-collision-metrics`:
+    - no `errors-*.json`
+    - collision metrics present in gameplay states
+    - sample values showed stable coalescing behavior under bullet load
+  - Playwright run `output/web-game/perf-pass-8-emp-sweep`:
+    - no `errors-*.json`
+    - run mostly reached GameOver quickly; one gameplay sample had collision metrics
+    - `queuedEmpTotal` remained `0` in captured states (no EMP trigger observed in sampled windows)
+
+TODOs for next agent
+- For explicit EMP verification, force-spawn/force-activate `EMP_WAVE` in a test scenario and confirm `queuedEmpTotal > 0` plus `lastFlushSourceMix` includes `emp` or `mixed`.
+
+- Ship visual polish pass started (power-up readability focus):
+  - `Player` base ship texture (`player_wireframe`) redesigned with stronger silhouette + cockpit/detail lines.
+  - Added dedicated power-up overlay layer in `Player` (`powerUpGraphics`) above ship.
+  - Thruster visuals reworked:
+    - default flame now warm red/orange,
+    - `CANNON_COOLING` flame now white/ice (as requested),
+    - added side mini-jets and pulse-based flicker for clearer motion.
+  - Added power-up indicators directly on ship:
+    - `MAGNETIC` (`isMagnetic`): cyan pulse ring + crosshair lines.
+    - `TRIPLE_SHOT`: three forward aim chevrons above ship.
+    - `SLOW_MOTION`: dual blue rings around ship.
+    - `BLACK_HOLE`: purple orbit ring + orbiting nodes.
+    - `SHIELD` and `GHOST` kept existing strong visuals (already adequate).
+  - Cooling tint adjusted to brighter icy tint.
+  - MainScene wiring added so player visual flags update immediately on activation/deactivation:
+    - `setSlowMotionVisual(...)`
+    - `setBlackHoleVisual(...)`
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright visual run: `output/web-game/ship-visual-pass-1`
+    - No `errors-*.json`.
+    - Gameplay screenshots confirm visible new ship silhouette + red thruster baseline.
+    - Sample run included many on-screen power-up drops; direct cooling-on-player capture not guaranteed due random pickup outcomes in sampled frames.
+
+TODOs for next agent
+- Capture deterministic screenshots for each active ship power-up visual state:
+  - especially `CANNON_COOLING` active on player (white thruster verification frame),
+  - plus one frame each for magnetic/triple/slowmo/black-hole indicators while active.
+
+- UFO overhaul pass completed (visual + combat):
+  - Replaced static UFO sprite with dynamic, procedural Phaser Graphics UFO in `src/UFO.ts`:
+    - layered saucer + dome with animated lights,
+    - moving dual antennas,
+    - animated tentacle strands under the hull.
+  - Added UFO combat mode:
+    - new `UFOProjectile` class + projectile pool,
+    - occasional aimed plasma shots at player with slight lead/spread,
+    - cannon muzzle flash on firing.
+  - Added new audio cue `playUFOShoot()` in `src/AudioManager.ts`.
+  - Integrated in `MainScene`:
+    - UFO created with `{ combatEnabled: true }`,
+    - player linked as combat target while active,
+    - overlap handling for `player` vs `ufo projectiles` wired to existing hit/life flow.
+  - Added UFO state to `render_game_to_text` (`ufo.active`, `ufo.x/y`, `ufo.shots`) in `src/main.ts`.
+  - Reduced MainScene UFO spawn window from `30-60s` to `15-26s` to ensure behavior appears in active runs.
+  - Added safety guards for `.children.each(...)` calls in affected areas (`MainScene`, `AttractScene`, `Player`, `UFO`) to avoid teardown race errors.
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright runs:
+    - `output/web-game/ufo-pass-5-short` (no `errors-*.json`)
+    - state confirms active UFO + active UFO shots in gameplay (`state-2.json`: `ufoActive=true`, `ufoShots=1`)
+    - screenshots visually confirm new UFO rendering and plasma projectile on screen.
+
+- Boss-UFO + Levelsystem pass completed:
+  - `src/UFO.ts` now supports two variants:
+    - `scout` (existing lightweight saucer pattern),
+    - `boss` (new larger silhouette with extended animated tentacles/antenna clusters, HP bar, burst/spread projectile volleys, and distinct movement behavior).
+  - Added UFO gameplay model updates:
+    - typed variant API (`getVariant()`, `spawn({ variant, level })`),
+    - level-aware HP scaling (`getHealth()/getMaxHealth()`),
+    - multi-hit damage handling via `applyBulletHit(...)`,
+    - stronger boss projectile pressure and alternating shot patterns.
+  - Added progression/difficulty system in `src/MainScene.ts`:
+    - score-based level tracking (`level`, `progressionScore`, `nextLevelScore`),
+    - on-level-up difficulty propagation to `EnemyManager`, `PowerUpDirector`, and `UFO`,
+    - HUD level banner (`LEVEL <n> NEXT <score to next>`),
+    - UFO spawn pacing scales with level and boss chance rises at higher levels.
+  - `src/EnemyManager.ts` now has difficulty scaling:
+    - enemy speed multiplier by level,
+    - active enemy cap increase by level,
+    - reduced min spawn interval and adjusted pressure penalty with level.
+  - `src/PowerUpDirector.ts` now has difficulty scaling:
+    - fewer random drops at higher levels (spawn roll gate),
+    - wider score/idle intervals and stricter support trigger cadence,
+    - leaner spawn pools at high levels.
+  - `src/main.ts` render payload now includes:
+    - `difficulty` block (`level`, `progressionScore`, `nextLevelScore`),
+    - richer `ufo` block (`variant`, `health`, `maxHealth`, `shots`).
+  - Updated UFO hit handling in `MainScene`:
+    - boss no longer dies to one bullet,
+    - boss kill yields bigger score, extra VFX, longer magnetic reward window, and occasional support power-up bonus.
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright run via skill client:
+    - `output/web-game/perf-pass-6-bullet-collision`
+    - no `errors-*.json`
+    - state confirms level progression (`level` values > 1) and boss variant activity (`ufo.variant = \"boss\"`, HP > 1 in active frame)
+    - screenshots visually inspected: boss silhouette and denser projectile pattern visible in gameplay.
+
+- Follow-up pass (requested next step 1+2) completed:
+  - Added boss phase system in `src/UFO.ts`:
+    - phase escalation by HP and elapsed boss uptime,
+    - distinct phase-dependent movement aggression and color accents,
+    - expanded phase-specific volley patterns (sweep/radial/lattice variants),
+    - exposed `ufo.bossPhase` in runtime state output.
+  - Added full difficulty preset system (`easy`, `normal`, `hard`) in `src/Difficulty.ts`.
+  - Wired presets across scenes and systems:
+    - Attract/GameOver: player can switch difficulty (`A/D` and `LEFT/RIGHT`) before starting.
+    - MainScene receives and persists selected difficulty key.
+    - EnemyManager/PowerUpDirector/UFO now consume preset multipliers.
+  - Gameplay scaling now includes preset-dependent:
+    - asteroid speed/spawn/cap pressure,
+    - power-up spawn frequency + duration scaling,
+    - UFO spawn cadence, boss chance, boss HP/aggression/projectile speed,
+    - level curve (score needed per level).
+  - HUD/telemetry updates:
+    - top HUD now shows preset label (`EASY|NORMAL|HARD`),
+    - debug line includes current preset,
+    - `render_game_to_text` difficulty payload now includes preset info and boss phase.
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright runs:
+    - capture run `output/web-game/ufo-hard-pass` (difficulty forced via URL):
+      - no `errors-*.json`,
+      - states confirm preset switching (`hard` and `easy` observed across iterations),
+      - boss activity + phases observed (`ufo.variant = \"boss\"`, `bossPhase = 2` in gameplay state).
+
+- UFO hit/freeze fix pass completed:
+  - Reworked `MainScene.handleBulletHitUFO` so every successful bullet hit now force-kills the UFO immediately:
+    - bullet is disabled,
+    - UFO is deactivated right away (prevents stuck/untargetable states),
+    - respawn timer is reset.
+  - Added dedicated destruction sequence `triggerUFODestructionFX(...)`:
+    - center blast + radial delayed sub-blasts,
+    - repeated explosion SFX,
+    - camera shake + short flash for stronger impact.
+  - Boss/scout reward flow retained, now applied on guaranteed UFO destruction.
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright run `output/web-game/perf-pass-6-bullet-collision`:
+    - no `errors-*.json`,
+    - no regression in scene flow observed.
+
+- UFO debris polish pass completed:
+  - Added procedural `ufo_shard` texture generation in `MainScene.createGraphics`.
+  - Extended `ExplosionManager` with dedicated `ufoDebrisEmitter` and `triggerUFODebrisRing(...)` for a visible scrap ring burst.
+  - Hooked debris ring into UFO destruction sequence in `MainScene.triggerUFODestructionFX(...)`.
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright run `output/web-game/perf-pass-6-bullet-collision`:
+    - no `errors-*.json`
+    - screenshots rendered correctly with no regression.
+- Level transition overlay implemented in `MainScene`:
+  - Added inter-level countdown overlay: `LEVEL <n>` + `3, 2, 1, GO!`.
+  - During countdown, gameplay is locked (`physics.world.pause`) and resumes automatically after `GO!`.
+  - Overlay state is exposed in `getDifficultyState()` as `transition.active` / `transition.countdown` for automation.
+  - Added guard so player cannot be hit during level transition (`handlePlayerHitEnemy` now checks `isLevelTransition`).
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright run (capture mode) via skill client:
+    - output: `output/web-game/perf-pass-6-bullet-collision`
+    - no `errors-*.json`
+    - verified screenshot shows overlay (`LEVEL 5` with countdown `1`)
+    - verified state payload sample: `difficulty.transition.active = true`, `difficulty.transition.countdown = "1"`.
+
+TODOs for next agent
+- Optional polish: add a subtle SFX tick per countdown step (`3/2/1`) and a stronger `GO!` cue.
+- Optional UX: temporarily dim/hide the top HUD while transition overlay is active.
+- Level/Boss progression overhaul (requested):
+  - Levels now require substantially more score before end-phase (`getNextLevelScore` raised; level-1 base now 2800 * preset scale).
+  - Level-up flow changed: score threshold now triggers mandatory boss phase (`levelBossPendingDefeat`) instead of immediate level increment.
+  - A level now advances only after the mandatory boss is destroyed (`completeLevelAfterBossDefeat`).
+  - During boss-pending phase, UFO spawner only emits boss variant; scouts are suppressed.
+- Boss combat updates:
+  - Replaced forced one-hit UFO kill path in `MainScene.handleBulletHitUFO` with `ufo.applyBulletHit(1)`.
+  - Boss now always needs multiple hits (UFO boss base HP increased in `UFO.spawn`; scaled by difficulty preset).
+  - Added boss energy HUD text (`BOSS ENERGY: current/max`) in `MainScene` that updates live per hit.
+- Boss behavior updates:
+  - Added light dodge AI in `UFO` (`setEvasionThreatGroup` + `computeBossDodgeOffset`) based on nearby upward player bullets.
+  - Evasion is intentionally bounded (small lateral offsets) so boss remains hittable.
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright skill run executed in capture mode (same approved command path), no `errors-*.json` emitted.
+  - Captured states confirm higher level threshold + new difficulty payload fields (`scoreToBoss`, `bossPending`, boss energy fields).
+
+TODOs for next agent
+- Add/adjust a deterministic test action profile that reliably reaches mandatory boss phase in automation captures (current random runs can end in GameOver before boss appears).
+- Scout UFO freeze/disappear regression fix:
+  - `MainScene.handleBulletHitUFO` now hard-kills scouts on any hit (`ufo.deactivate()` + destruction FX + reward path) before returning.
+  - Boss path remains multi-hit via `ufo.applyBulletHit(1)`.
+  - Goal: prevent stale scout visual states where scout appears frozen and only clears on next spawn.
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright run completed with no `errors-*.json`.
+- Boss first-hit freeze guard fix:
+  - Added `UFO.ensureCombatReady()` and call it after non-lethal boss hits in `MainScene.handleBulletHitUFO`.
+  - Added boss HP sanity guards in `UFO.spawn`/`UFO.applyBulletHit` to prevent invalid HP state causing early deactivation behavior.
+- Validation (without Playwright as requested):
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+- Boss energy/destruction feedback fix:
+  - Boss no longer hard-freezes on first hit.
+  - Boss energy logic remains active until 0.
+  - Destruction path now uses full boss explosion sequence on depletion.
+- Boss aggression tuning:
+  - Reduced boss firing frequency and active projectile pressure in `src/UFO.ts`.
+  - Increased volley skip chance and cooldown ranges for a less oppressive fight.
+- Documentation refresh:
+  - Recreated and updated `README.md` with current gameplay systems:
+    - difficulty presets,
+    - mandatory level-end boss flow,
+    - level transition countdown overlay,
+    - ship/UFO visual upgrades,
+    - current power-up set and controls.

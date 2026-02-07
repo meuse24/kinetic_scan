@@ -2,6 +2,13 @@ import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize, recalculateDimensions } from './gameConfig';
 import { AudioManager, DEFAULT_VOLUME } from './AudioManager';
 import { creditManager } from './CreditManager';
+import {
+  cycleDifficulty,
+  getCurrentDifficultyKey,
+  getDifficultyPreset,
+  setCurrentDifficultyKey,
+} from './Difficulty';
+import type { DifficultyPresetKey } from './Difficulty';
 import { EnemyManager } from './EnemyManager';
 import { soundManager } from './SoundManager';
 import { UFO } from './UFO';
@@ -32,6 +39,8 @@ export default class AttractScene extends Phaser.Scene {
   private heartbeatActive: boolean = false;
   private heartbeatTimer: Phaser.Time.TimerEvent | null = null;
   private playerButtons: PlayerButton[] = [];
+  private difficultyKey: DifficultyPresetKey = getCurrentDifficultyKey();
+  private difficultyText!: Phaser.GameObjects.Text;
   private creditListener?: (credits: number) => void;
   private soundListener?: (muted: boolean) => void;
 
@@ -82,6 +91,9 @@ export default class AttractScene extends Phaser.Scene {
     this.enemyManager = new EnemyManager(this);
     this.ufo = new UFO(this, this.audio);
     this.ufo.setDepth(6);
+    const preset = getDifficultyPreset(this.difficultyKey);
+    this.enemyManager.setDifficultyPreset(preset);
+    this.ufo.setDifficultyPreset(preset);
     this.ufoSpawnTimer = Phaser.Math.Between(20000, 45000);
 
     // Title Logo
@@ -140,6 +152,17 @@ export default class AttractScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
     this.soundText.on('pointerdown', () => this.toggleSound());
 
+    this.difficultyText = this.add
+      .text(centerX, GAME_HEIGHT - 230, this.getDifficultyLabel(), {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '16px',
+        color: '#ffcc66',
+      })
+      .setOrigin(0.5)
+      .setDepth(uiDepth)
+      .setInteractive({ useHandCursor: true });
+    this.difficultyText.on('pointerdown', () => this.cycleDifficulty(1));
+
     this.createPlayerButtons(centerX, centerY + 210, uiDepth);
 
     this.createPowerUpPreview(centerX, GAME_HEIGHT - 130, uiDepth);
@@ -151,6 +174,10 @@ export default class AttractScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-SPACE', () => this.startGame(1));
     this.input.keyboard?.on('keydown-ENTER', () => this.startGame(1));
     this.input.keyboard?.on('keydown-UP', () => this.startGame(1));
+    this.input.keyboard?.on('keydown-A', () => this.cycleDifficulty(-1));
+    this.input.keyboard?.on('keydown-D', () => this.cycleDifficulty(1));
+    this.input.keyboard?.on('keydown-LEFT', () => this.cycleDifficulty(-1));
+    this.input.keyboard?.on('keydown-RIGHT', () => this.cycleDifficulty(1));
     this.input.keyboard?.on('keydown-S', () => this.toggleSound());
     this.input.keyboard?.on('keydown-H', () => this.openHelp());
 
@@ -221,6 +248,18 @@ export default class AttractScene extends Phaser.Scene {
 
   private getSoundLabel() {
     return `SOUND: ${soundManager.isMuted() ? 'OFF' : 'ON'} (S)`;
+  }
+
+  private getDifficultyLabel() {
+    return `DIFFICULTY: ${getDifficultyPreset(this.difficultyKey).label} (A/D)`;
+  }
+
+  private cycleDifficulty(direction: 1 | -1) {
+    this.difficultyKey = cycleDifficulty(direction);
+    this.difficultyText.setText(this.getDifficultyLabel());
+    const preset = getDifficultyPreset(this.difficultyKey);
+    this.enemyManager.setDifficultyPreset(preset);
+    this.ufo.setDifficultyPreset(preset);
   }
 
   private updateSoundLabel(muted: boolean) {
@@ -298,7 +337,9 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   private applyEnemyDepth(depth: number) {
-    this.enemyManager.enemies.children.each((enemy: any) => {
+    const children = (this.enemyManager?.enemies as any)?.children;
+    if (!children || typeof children.each !== 'function') return;
+    children.each((enemy: any) => {
       if (enemy.depth !== depth) enemy.setDepth(depth);
       return null;
     });
@@ -306,7 +347,9 @@ export default class AttractScene extends Phaser.Scene {
 
   private triggerDemoSplit() {
     const candidates: any[] = [];
-    this.enemyManager.enemies.children.each((enemy: any) => {
+    const children = (this.enemyManager?.enemies as any)?.children;
+    if (!children || typeof children.each !== 'function') return;
+    children.each((enemy: any) => {
       if (enemy.active && enemy.scaleX > 0.6) candidates.push(enemy);
       return null;
     });
@@ -454,7 +497,8 @@ export default class AttractScene extends Phaser.Scene {
     if (!creditManager.spendCredits(requiredCredits)) return;
     void this.audio.resume();
     recalculateDimensions();
-    this.scene.start('MainScene', { players: requiredCredits });
+    setCurrentDifficultyKey(this.difficultyKey);
+    this.scene.start('MainScene', { players: requiredCredits, difficulty: this.difficultyKey });
   }
 
   private createTitleLogo(centerX: number, y: number, depth: number) {

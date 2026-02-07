@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import { getDifficultyPreset } from './Difficulty';
+import type { DifficultyPreset } from './Difficulty';
 import { performanceMonitor } from './PerformanceMonitor';
 
 const INITIAL_SPAWN_INTERVAL = 1000;
@@ -21,7 +23,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
    * @param velocityX Optional: Specific velocity X (for fragments)
    * @param velocityY Optional: Specific velocity Y (for fragments)
    */
-  spawn(x: number, y: number, scale?: number, velocityX?: number, velocityY?: number) {
+  spawn(
+    x: number,
+    y: number,
+    scale?: number,
+    velocityX?: number,
+    velocityY?: number,
+    difficultyScale: number = 1,
+  ) {
     // 1. Texture & Scale
     if (scale !== undefined) {
       // Fragment Mode: Use passed scale and keep current texture if desired,
@@ -50,7 +59,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     // 3. Movement
     if (velocityX !== undefined && velocityY !== undefined) {
       // Fragment Mode: Use explosive velocity
-      this.setVelocity(velocityX, velocityY);
+      const fragmentSpeedScale = Phaser.Math.Clamp(0.9 + (difficultyScale - 1) * 0.3, 0.8, 1.8);
+      this.setVelocity(velocityX * fragmentSpeedScale, velocityY * fragmentSpeedScale);
     } else {
       // Standard Mode: Fall down with parallax speed
       // Scale 0.5 (small) -> Fast (400)
@@ -59,12 +69,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       const t = (currentScale - 0.5) / 1.5; // 0..1
       const speedY = Phaser.Math.Linear(400, 100, t);
 
-      this.setVelocityY(speedY);
-      this.setVelocityX(Phaser.Math.Between(-50, 50)); // Drift
+      const horizontalDriftScale = Phaser.Math.Clamp(0.85 + difficultyScale * 0.2, 0.8, 1.8);
+      this.setVelocityY(speedY * difficultyScale);
+      this.setVelocityX(Phaser.Math.Between(-50, 50) * horizontalDriftScale); // Drift
     }
 
     // 4. Rotation
-    const rotSpeed = Phaser.Math.Between(50, 200);
+    const rotSpeed = Phaser.Math.Between(50, 200) * Phaser.Math.Clamp(difficultyScale, 0.9, 1.9);
     this.setAngularVelocity(Phaser.Math.RND.sign() * rotSpeed);
   }
 
@@ -87,6 +98,9 @@ export class EnemyManager {
   public enemies: Phaser.Physics.Arcade.Group;
   private spawnTimer: number = 0;
   private spawnInterval: number = INITIAL_SPAWN_INTERVAL;
+  private difficultyLevel: number = 1;
+  private enemySpeedMultiplier: number = 1;
+  private preset: DifficultyPreset = getDifficultyPreset('normal');
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -98,6 +112,22 @@ export class EnemyManager {
       runChildUpdate: true,
       maxSize: 100, // Increased pool for fragments
     });
+  }
+
+  public setDifficultyLevel(level: number) {
+    this.difficultyLevel = Math.max(1, Math.floor(level));
+    const ramp = this.difficultyLevel - 1;
+    this.enemySpeedMultiplier =
+      this.preset.enemySpeedScale * (1 + Phaser.Math.Clamp(ramp * 0.085, 0, 1.2));
+  }
+
+  public setDifficultyPreset(preset: DifficultyPreset) {
+    this.preset = preset;
+    this.setDifficultyLevel(this.difficultyLevel);
+  }
+
+  public getDifficultyLevel() {
+    return this.difficultyLevel;
   }
 
   /**
@@ -135,7 +165,7 @@ export class EnemyManager {
         const vx = Math.cos(angle) * speed;
         const vy = Math.sin(angle) * speed;
 
-        fragment.spawn(x, y, newScale, vx, vy);
+        fragment.spawn(x, y, newScale, vx, vy, this.enemySpeedMultiplier);
       }
     }
   }
@@ -231,9 +261,12 @@ export class EnemyManager {
     }
 
     const spawned = this.spawnEnemy();
+    const minInterval = this.getMinSpawnInterval();
+    const intervalStep =
+      (5 + Math.floor((this.difficultyLevel - 1) * 0.8)) * this.preset.enemySpawnScale;
 
-    if (spawned && this.spawnInterval > MIN_SPAWN_INTERVAL) {
-      this.spawnInterval -= 5;
+    if (spawned && this.spawnInterval > minInterval) {
+      this.spawnInterval -= intervalStep;
     }
 
     if (!spawned) {
@@ -242,8 +275,10 @@ export class EnemyManager {
     }
 
     const pressure = activeCount / Math.max(1, activeCap);
-    const pressurePenalty = Math.round(pressure * 350);
-    this.spawnTimer = this.spawnInterval + pressurePenalty;
+    const pressurePenaltyScale = Phaser.Math.Clamp(1 - (this.difficultyLevel - 1) * 0.035, 0.6, 1);
+    const presetPressureScale = Phaser.Math.Clamp(1 / this.preset.enemySpawnScale, 0.72, 1.22);
+    const pressurePenalty = Math.round(pressure * 350 * pressurePenaltyScale);
+    this.spawnTimer = this.spawnInterval + pressurePenalty * presetPressureScale;
   }
 
   private spawnEnemy(): boolean {
@@ -254,7 +289,7 @@ export class EnemyManager {
     const enemy = this.enemies.get(x, y) as Enemy;
 
     if (enemy) {
-      enemy.spawn(x, y);
+      enemy.spawn(x, y, undefined, undefined, undefined, this.enemySpeedMultiplier);
       return true;
     }
 
@@ -262,6 +297,16 @@ export class EnemyManager {
   }
 
   private getActiveEnemyCap() {
-    return performanceMonitor.reducedParticles ? ACTIVE_ENEMY_CAP_REDUCED : ACTIVE_ENEMY_CAP;
+    const base = performanceMonitor.reducedParticles ? ACTIVE_ENEMY_CAP_REDUCED : ACTIVE_ENEMY_CAP;
+    const levelBonusBase = performanceMonitor.reducedParticles
+      ? Math.min(14, (this.difficultyLevel - 1) * 2)
+      : Math.min(22, (this.difficultyLevel - 1) * 3);
+    const levelBonus = Math.round(levelBonusBase * this.preset.enemyCapScale);
+    return base + levelBonus;
+  }
+
+  private getMinSpawnInterval() {
+    const levelReduction = (this.difficultyLevel - 1) * 12 * this.preset.enemySpawnScale;
+    return Math.max(120, MIN_SPAWN_INTERVAL - levelReduction);
   }
 }

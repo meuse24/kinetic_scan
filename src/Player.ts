@@ -70,12 +70,14 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
   private handleHoming(time: number, delta: number) {
     const enemies = (this.scene as any).enemyManager?.enemies;
     if (!enemies || !this.body) return;
+    const enemyChildren = (enemies as any).children;
+    if (!enemyChildren || typeof enemyChildren.each !== 'function') return;
 
     if (!this.homingTarget || !this.homingTarget.active || time >= this.nextRetargetAt) {
       let closestEnemy: Phaser.Physics.Arcade.Sprite | null = null;
       let minDistSq = Number.POSITIVE_INFINITY;
 
-      enemies.children.each((enemy: any) => {
+      enemyChildren.each((enemy: any) => {
         if (!enemy.active) return null;
         const dx = enemy.x - this.x;
         const dy = enemy.y - this.y;
@@ -131,6 +133,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private isTripleShot: boolean = false;
   private hasShield: boolean = false;
   private hasCannonCooling: boolean = false;
+  private hasSlowMotion: boolean = false;
+  private hasBlackHole: boolean = false;
   private wingmanDrones: Phaser.GameObjects.Group | null = null;
   private heat: number = 0;
   private heatPerShot: number = 9;
@@ -148,19 +152,35 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   // Visuals
   private thrusterGraphics: Phaser.GameObjects.Graphics;
   private shieldGraphics: Phaser.GameObjects.Graphics;
+  private powerUpGraphics: Phaser.GameObjects.Graphics;
 
   constructor(scene: Phaser.Scene, x: number, y: number, bullets: Phaser.Physics.Arcade.Group) {
     if (!scene.textures.exists('player_wireframe')) {
       const graphics = scene.make.graphics({ x: 0, y: 0 });
       graphics.lineStyle(2, 0xffffff, 1);
-      graphics.fillStyle(0x000000, 0.7);
+      graphics.fillStyle(0x050505, 0.85);
       graphics.beginPath();
-      graphics.moveTo(20, 0);
-      graphics.lineTo(40, 40);
-      graphics.lineTo(20, 32);
-      graphics.lineTo(0, 40);
+      graphics.moveTo(20, 2);
+      graphics.lineTo(33, 14);
+      graphics.lineTo(39, 36);
+      graphics.lineTo(27, 34);
+      graphics.lineTo(20, 28);
+      graphics.lineTo(13, 34);
+      graphics.lineTo(1, 36);
+      graphics.lineTo(7, 14);
       graphics.closePath();
       graphics.fillPath();
+      graphics.strokePath();
+      graphics.lineStyle(1, 0x88ddff, 0.85);
+      graphics.strokeCircle(20, 17, 5);
+      graphics.lineStyle(1, 0xffffff, 0.8);
+      graphics.beginPath();
+      graphics.moveTo(20, 3);
+      graphics.lineTo(20, 31);
+      graphics.moveTo(11, 24);
+      graphics.lineTo(29, 24);
+      graphics.moveTo(8, 14);
+      graphics.lineTo(32, 14);
       graphics.strokePath();
       graphics.generateTexture('player_wireframe', 40, 40);
       graphics.destroy();
@@ -204,8 +224,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
     this.thrusterGraphics = scene.add.graphics();
     this.thrusterGraphics.setDepth(this.depth - 1);
+    this.powerUpGraphics = scene.add.graphics();
+    this.powerUpGraphics.setDepth(this.depth + 1);
     this.shieldGraphics = scene.add.graphics();
-    this.shieldGraphics.setDepth(this.depth + 1);
+    this.shieldGraphics.setDepth(this.depth + 2);
     this.muzzleFlashes = scene.add.group({
       classType: Phaser.GameObjects.Image,
       maxSize: 20,
@@ -218,6 +240,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       }
       this.spaceKey?.removeAllListeners();
       this.thrusterGraphics.destroy();
+      this.powerUpGraphics.destroy();
       this.shieldGraphics.destroy();
       this.muzzleFlashes.clear(true, true);
     });
@@ -246,6 +269,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
   public getShieldActive(): boolean {
     return this.hasShield;
+  }
+  public setSlowMotionVisual(active: boolean) {
+    this.hasSlowMotion = active;
+  }
+  public setBlackHoleVisual(active: boolean) {
+    this.hasBlackHole = active;
   }
   public setDrones(drones: Phaser.GameObjects.Group | null) {
     this.wingmanDrones = drones;
@@ -298,23 +327,97 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   private drawThruster() {
     this.thrusterGraphics.clear();
-    this.thrusterGraphics.lineStyle(1, 0xffffff, 0.8);
-    this.thrusterGraphics.fillStyle(0xffffff, 0.3);
-    const flicker = Phaser.Math.Between(8, 18);
+    const flameOuter = this.hasCannonCooling ? 0xf2f8ff : 0xff4422;
+    const flameInner = this.hasCannonCooling ? 0xffffff : 0xffaa55;
+    const pulse = 0.75 + Math.sin(this.scene.time.now * 0.02) * 0.25;
+    const flickerBase = this.hasCannonCooling ? 12 : 10;
+    const flicker = flickerBase + Phaser.Math.Between(4, 12);
     const tx = this.x;
     const ty = this.y + 12;
+    const leftNozzleX = tx - 6;
+    const rightNozzleX = tx + 6;
+
+    this.thrusterGraphics.lineStyle(1, flameOuter, 0.9);
+    this.thrusterGraphics.fillStyle(flameOuter, 0.38 + pulse * 0.2);
     this.thrusterGraphics.beginPath();
-    this.thrusterGraphics.moveTo(tx - 6, ty);
-    this.thrusterGraphics.lineTo(tx + 6, ty);
+    this.thrusterGraphics.moveTo(leftNozzleX, ty);
+    this.thrusterGraphics.lineTo(rightNozzleX, ty);
     this.thrusterGraphics.lineTo(tx, ty + flicker);
     this.thrusterGraphics.closePath();
     this.thrusterGraphics.fillPath();
     this.thrusterGraphics.strokePath();
+
+    this.thrusterGraphics.fillStyle(flameInner, 0.55 + pulse * 0.25);
+    this.thrusterGraphics.beginPath();
+    this.thrusterGraphics.moveTo(tx - 3, ty + 1);
+    this.thrusterGraphics.lineTo(tx + 3, ty + 1);
+    this.thrusterGraphics.lineTo(tx, ty + flicker * 0.7);
+    this.thrusterGraphics.closePath();
+    this.thrusterGraphics.fillPath();
+
+    this.thrusterGraphics.lineStyle(1, flameOuter, 0.6);
+    this.thrusterGraphics.beginPath();
+    this.thrusterGraphics.moveTo(tx - 9, ty + 2);
+    this.thrusterGraphics.lineTo(tx - 9, ty + 8 + Phaser.Math.Between(0, 4));
+    this.thrusterGraphics.moveTo(tx + 9, ty + 2);
+    this.thrusterGraphics.lineTo(tx + 9, ty + 8 + Phaser.Math.Between(0, 4));
+    this.thrusterGraphics.strokePath();
+  }
+
+  private drawPowerUpIndicators() {
+    this.powerUpGraphics.clear();
+    const t = this.scene.time.now;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 0.01);
+
+    if (this.isMagnetic) {
+      this.powerUpGraphics.lineStyle(2, 0x00e5ff, 0.65 + pulse * 0.25);
+      this.powerUpGraphics.strokeCircle(this.x, this.y, 22 + pulse * 2);
+      this.powerUpGraphics.lineStyle(1, 0x99f4ff, 0.7);
+      this.powerUpGraphics.beginPath();
+      this.powerUpGraphics.moveTo(this.x - 15, this.y - 2);
+      this.powerUpGraphics.lineTo(this.x + 15, this.y - 2);
+      this.powerUpGraphics.moveTo(this.x, this.y - 16);
+      this.powerUpGraphics.lineTo(this.x, this.y + 8);
+      this.powerUpGraphics.strokePath();
+    }
+
+    if (this.isTripleShot) {
+      this.powerUpGraphics.lineStyle(1, 0xffd166, 0.95);
+      this.powerUpGraphics.beginPath();
+      this.powerUpGraphics.moveTo(this.x - 10, this.y - 16);
+      this.powerUpGraphics.lineTo(this.x - 15, this.y - 24);
+      this.powerUpGraphics.moveTo(this.x, this.y - 18);
+      this.powerUpGraphics.lineTo(this.x, this.y - 28);
+      this.powerUpGraphics.moveTo(this.x + 10, this.y - 16);
+      this.powerUpGraphics.lineTo(this.x + 15, this.y - 24);
+      this.powerUpGraphics.strokePath();
+    }
+
+    if (this.hasSlowMotion) {
+      this.powerUpGraphics.lineStyle(1, 0x66aaff, 0.5 + pulse * 0.35);
+      this.powerUpGraphics.strokeCircle(this.x, this.y, 28);
+      this.powerUpGraphics.lineStyle(1, 0x66aaff, 0.35 + pulse * 0.25);
+      this.powerUpGraphics.strokeCircle(this.x, this.y, 33);
+    }
+
+    if (this.hasBlackHole) {
+      const radius = 26;
+      this.powerUpGraphics.lineStyle(1, 0xaa66ff, 0.75);
+      this.powerUpGraphics.strokeCircle(this.x, this.y, radius);
+      for (let i = 0; i < 3; i++) {
+        const angle = t * 0.005 + i * ((Math.PI * 2) / 3);
+        const ox = Math.cos(angle) * radius;
+        const oy = Math.sin(angle) * radius;
+        this.powerUpGraphics.fillStyle(0xcf9bff, 0.85);
+        this.powerUpGraphics.fillCircle(this.x + ox, this.y + oy, 2.2);
+      }
+    }
   }
 
   update(time: number, delta: number) {
     if (!this.active) {
       this.thrusterGraphics.clear();
+      this.powerUpGraphics.clear();
       this.shieldGraphics.clear();
       this.setTint(0xffffff);
       return;
@@ -359,6 +462,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       if (this.body && this.body.velocity.y > 0) this.body.velocity.y = 0;
     }
     this.drawThruster();
+    this.drawPowerUpIndicators();
     this.drawShield();
     this.firedThisFrame = false;
     const canFire = this.hasCannonCooling || time >= this.overheatUntil;
@@ -384,31 +488,29 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private fireBullet(time: number, manual: boolean) {
     if (!this.hasCannonCooling && time < this.overheatUntil) return;
     let didFire = false;
+    const trySpawnBullet = (x: number, y: number, angle: number) => {
+      if (!this.canSpawnBullet()) return false;
+      const bullet = this.bullets.get(x, y) as Bullet;
+      if (!bullet) return false;
+      bullet.fire(x, y, this.isMagnetic, angle);
+      return true;
+    };
+
     if (this.isTripleShot) {
       const angles = [-Math.PI / 2 - 0.2, -Math.PI / 2, -Math.PI / 2 + 0.2];
-      angles.forEach((angle) => {
-        const bullet = this.bullets.get(this.x, this.y - 25) as Bullet;
-        if (bullet) {
-          bullet.fire(this.x, this.y - 25, this.isMagnetic, angle);
-          didFire = true;
-        }
-      });
-    } else {
-      const bullet = this.bullets.get(this.x, this.y - 25) as Bullet;
-      if (bullet) {
-        bullet.fire(this.x, this.y - 25, this.isMagnetic);
-        didFire = true;
+      for (const angle of angles) {
+        didFire = trySpawnBullet(this.x, this.y - 25, angle) || didFire;
       }
+    } else {
+      didFire = trySpawnBullet(this.x, this.y - 25, -Math.PI / 2) || didFire;
     }
 
     if (this.wingmanDrones) {
-      this.wingmanDrones.children.each((drone: any) => {
+      const droneChildren = (this.wingmanDrones as any).children;
+      if (!droneChildren || typeof droneChildren.each !== 'function') return;
+      droneChildren.each((drone: any) => {
         if (drone.active && drone.visible) {
-          const bullet = this.bullets.get(drone.x, drone.y - 10) as Bullet;
-          if (bullet) {
-            bullet.fire(drone.x, drone.y - 10, this.isMagnetic);
-            didFire = true;
-          }
+          didFire = trySpawnBullet(drone.x, drone.y - 10, -Math.PI / 2) || didFire;
         }
         return null;
       });
@@ -419,6 +521,14 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.spawnMuzzleFlash(manual);
     this.firedThisFrame = true;
     if ((this.scene as any).audio) (this.scene as any).audio.playShoot(manual);
+  }
+
+  private canSpawnBullet() {
+    const sceneAny = this.scene as any;
+    if (typeof sceneAny.canSpawnBullet === 'function') {
+      return sceneAny.canSpawnBullet();
+    }
+    return true;
   }
 
   private applyHeat(time: number) {
@@ -451,7 +561,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   private updateHeatVisuals() {
     if (this.hasCannonCooling) {
-      this.setTint(0x66ddff);
+      this.setTint(0xeaf6ff);
       return;
     }
     const ratio = this.getHeatNormalized();
@@ -496,6 +606,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     super.preUpdate(time, delta);
     if (!this.active) {
       this.thrusterGraphics.clear();
+      this.powerUpGraphics.clear();
       this.shieldGraphics.clear();
     }
   }

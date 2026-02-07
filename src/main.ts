@@ -80,6 +80,9 @@ if (typeof window.render_game_to_text !== 'function') {
         : null;
       payload.score = typeof main.score === 'number' ? main.score : 0;
       payload.lives = typeof main.lives === 'number' ? main.lives : 0;
+      if (typeof main.getDifficultyState === 'function') {
+        payload.difficulty = main.getDifficultyState();
+      }
       const enemies = main.enemyManager?.enemies?.getChildren?.() ?? [];
       payload.enemies = enemies
         .filter((enemy: any) => enemy.active)
@@ -89,6 +92,31 @@ if (typeof window.render_game_to_text !== 'function') {
           y: Math.round(enemy.y),
           scale: enemy.scaleX,
         }));
+      const bullets = main.bullets?.getChildren?.() ?? [];
+      const activeBullets = bullets.filter((bullet: any) => bullet.active);
+      payload.bulletStats = {
+        active: activeBullets.length,
+        cap:
+          typeof main.getDynamicBulletCap === 'function'
+            ? main.getDynamicBulletCap()
+            : activeBullets.length,
+      };
+      payload.ufo = {
+        active: Boolean(main.ufo?.active),
+        x: typeof main.ufo?.x === 'number' ? Math.round(main.ufo.x) : null,
+        y: typeof main.ufo?.y === 'number' ? Math.round(main.ufo.y) : null,
+        variant: typeof main.ufo?.getVariant === 'function' ? main.ufo.getVariant() : null,
+        health: typeof main.ufo?.getHealth === 'function' ? main.ufo.getHealth() : 0,
+        maxHealth: typeof main.ufo?.getMaxHealth === 'function' ? main.ufo.getMaxHealth() : 0,
+        bossPhase: typeof main.ufo?.getBossPhase === 'function' ? main.ufo.getBossPhase() : 0,
+        shots:
+          typeof main.ufo?.getActiveProjectileCount === 'function'
+            ? main.ufo.getActiveProjectileCount()
+            : 0,
+      };
+      if (typeof main.getCollisionPressureStats === 'function') {
+        payload.collisionPressure = main.getCollisionPressureStats();
+      }
       const powerUps = main.powerUpDirector?.getGroup?.()?.getChildren?.() ?? [];
       payload.powerUps = powerUps
         .filter((powerUp: any) => powerUp.active)
