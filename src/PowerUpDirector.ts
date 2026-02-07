@@ -4,6 +4,20 @@ import { PowerUp, PowerUpType } from './PowerUp';
 export class PowerUpDirector {
   private scene: Phaser.Scene;
   private powerUps: Phaser.Physics.Arcade.Group;
+  private readonly randomSpawnPool: PowerUpType[] = [
+    PowerUpType.TRIPLE_SHOT,
+    PowerUpType.TRIPLE_SHOT,
+    PowerUpType.SLOW_MOTION,
+    PowerUpType.SLOW_MOTION,
+    PowerUpType.SHIELD,
+    PowerUpType.SHIELD,
+    PowerUpType.EMP_WAVE,
+    PowerUpType.GHOST_PHASE,
+    PowerUpType.BLACK_HOLE,
+    PowerUpType.WINGMAN_DRONES,
+    PowerUpType.CANNON_COOLING,
+    PowerUpType.CANNON_COOLING,
+  ];
 
   // Combo Logic
   private comboCount: number = 0;
@@ -93,10 +107,12 @@ export class PowerUpDirector {
     const w = this.scene.scale.width;
     const margin = Math.round(w * 0.1);
 
-    // Smart Trigger: Drones for high accuracy
+    // Smart Trigger: high accuracy yields support power-ups (more cooling than drones)
     const accuracy = this.hits / Math.max(1, this.totalShots);
     if (accuracy > 0.8 && this.hits % 20 === 0 && this.hits > 0) {
-      this.spawnPowerUp(Phaser.Math.Between(margin, w - margin), -50, PowerUpType.WINGMAN_DRONES);
+      const supportType =
+        Phaser.Math.Between(0, 99) < 40 ? PowerUpType.WINGMAN_DRONES : PowerUpType.CANNON_COOLING;
+      this.spawnPowerUp(Phaser.Math.Between(margin, w - margin), -50, supportType);
     }
 
     // Ghost Phase if taking too much heat (conceptual damage-free time check)
@@ -116,7 +132,7 @@ export class PowerUpDirector {
   }
 
   private spawnPowerUp(x: number, y: number, forcedType?: PowerUpType) {
-    const type = forcedType || Phaser.Utils.Array.GetRandom(Object.values(PowerUpType));
+    const type = forcedType || Phaser.Utils.Array.GetRandom(this.randomSpawnPool);
     const powerUp = this.powerUps.get(x, y) as PowerUp;
     if (powerUp) {
       powerUp.spawn(x, y, type);

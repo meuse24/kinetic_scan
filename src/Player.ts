@@ -130,6 +130,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private isMagnetic: boolean = false;
   private isTripleShot: boolean = false;
   private hasShield: boolean = false;
+  private hasCannonCooling: boolean = false;
   private wingmanDrones: Phaser.GameObjects.Group | null = null;
   private heat: number = 0;
   private heatPerShot: number = 9;
@@ -235,6 +236,13 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
   public setShield(active: boolean) {
     this.hasShield = active;
+  }
+  public setCannonCooling(active: boolean) {
+    this.hasCannonCooling = active;
+    if (active) {
+      this.heat = 0;
+      this.overheatUntil = 0;
+    }
   }
   public getShieldActive(): boolean {
     return this.hasShield;
@@ -353,7 +361,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.drawThruster();
     this.drawShield();
     this.firedThisFrame = false;
-    const canFire = time >= this.overheatUntil;
+    const canFire = this.hasCannonCooling || time >= this.overheatUntil;
     if (this.isDesktop) {
       const fireHeld = this.pointerHeld || this.keyHeld;
       const useBuffer = this.fireBuffer > 0;
@@ -374,7 +382,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   private fireBullet(time: number, manual: boolean) {
-    if (time < this.overheatUntil) return;
+    if (!this.hasCannonCooling && time < this.overheatUntil) return;
     let didFire = false;
     if (this.isTripleShot) {
       const angles = [-Math.PI / 2 - 0.2, -Math.PI / 2, -Math.PI / 2 + 0.2];
@@ -414,6 +422,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   private applyHeat(time: number) {
+    if (this.hasCannonCooling) {
+      this.heat = 0;
+      this.overheatUntil = 0;
+      return;
+    }
     const wasOverheated = time < this.overheatUntil;
     this.heat = Math.min(100, this.heat + this.heatPerShot);
     if (this.heat >= 100 && !wasOverheated) {
@@ -427,11 +440,20 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   private coolHeat(delta: number) {
+    if (this.hasCannonCooling) {
+      this.heat = 0;
+      this.overheatUntil = 0;
+      return;
+    }
     const coolAmount = (this.heatDecayPerSec * delta) / 1000;
     this.heat = Math.max(0, this.heat - coolAmount);
   }
 
   private updateHeatVisuals() {
+    if (this.hasCannonCooling) {
+      this.setTint(0x66ddff);
+      return;
+    }
     const ratio = this.getHeatNormalized();
     if (ratio <= 0) {
       this.setTint(0xffffff);

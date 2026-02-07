@@ -9,22 +9,25 @@
 ## 🚀 Features
 
 ### Core Gameplay
+
 - **Retro Arcade Experience:** Inspired by classic vector shooters with a modern twist.
 - **Procedural Asteroids:** Irregularly shaped hazards that shatter into smaller fragments upon destruction.
 - **Combat & Heat System:** Manage your weapon's heat to avoid overheating while blasting through asteroid fields.
 - **Juicy VFX:** Particle-based explosions, dynamic camera shake, and a CRT post-processing shader for that authentic arcade feel.
 
 ### Advanced Systems
-- **Universal Input:** Play with Keyboard, Mouse, or Touch. 
+
+- **Universal Input:** Play with Keyboard, Mouse, or Touch.
 - **Adaptive Layout:**
   - **Desktop:** Optimized 1000-unit base on the short axis, aspect-ratio-aware.
   - **Mobile:** 600-unit base so game objects appear larger on small screens.
   - **Dynamic Viewport:** Dimensions recalculate automatically on browser resize, device rotation, and fullscreen transitions. During gameplay, resize is deferred to the next scene transition to avoid disrupting play.
 - **Synthetic Audio:** Pure Web Audio API generated sounds — no external assets required.
-- **Power-up System:** 8 unique power-ups including EMP Waves, Black Holes, Triple Shot, and Homing Missiles.
+- **Power-up System:** 9 unique temporary effects including EMP Waves, Black Holes, Triple Shot, Homing Missiles, and Cannon Cooling (prevents overheat buildup).
 - **Multiplayer:** Authentic turn-based 2-player mode.
 
 ## 🛠 Tech Stack
+
 - **Engine:** [Phaser 3](https://phaser.io/)
 - **Language:** TypeScript
 - **Build Tool:** Vite
@@ -33,9 +36,11 @@
 ## 🕹 Getting Started
 
 ### Prerequisites
+
 - [Node.js](https://nodejs.org/) (Latest LTS recommended)
 
 ### Installation
+
 1. Clone the repository:
    ```bash
    git clone https://github.com/meuse24/kinetic_scan.git
@@ -47,19 +52,24 @@
    ```
 
 ### Development
+
 Start the development server:
+
 ```bash
 npm run dev
 ```
 
 ### Build
+
 Generate a single-file production build in the `dist` folder:
+
 ```bash
 npm run build
 ```
 
 ## 🎮 Controls
-- **Desktop:** 
+
+- **Desktop:**
   - **Move:** Arrow keys or WASD
   - **Fire:** Space or Left-click
   - **Pause:** P or Esc
@@ -69,7 +79,9 @@ npm run build
   - **Touchpad:** Dedicated area below the screen for precise steering
 
 ## 📄 License
+
 MIT License - Copyright (c) 2026 MEUSE24
 
 ---
-*Built with ❤️ and Gemini CLI.*
+
+_Built with ❤️ and Gemini CLI._

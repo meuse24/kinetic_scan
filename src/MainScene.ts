@@ -452,6 +452,7 @@ export default class MainScene extends Phaser.Scene {
   private applyActivePowerUpEffects(silent: boolean) {
     this.player.setTripleShot(this.activePowerUps.has(PowerUpType.TRIPLE_SHOT));
     this.player.setShield(this.activePowerUps.has(PowerUpType.SHIELD));
+    this.player.setCannonCooling(this.activePowerUps.has(PowerUpType.CANNON_COOLING));
     if (this.activePowerUps.has(PowerUpType.GHOST_PHASE)) {
       this.applyGhost(true, silent);
     } else {
@@ -482,6 +483,7 @@ export default class MainScene extends Phaser.Scene {
     this.player.setMagnetic(false);
     this.player.setTripleShot(false);
     this.player.setShield(false);
+    this.player.setCannonCooling(false);
     this.applyGhost(false, true);
     this.applySlowMo(false);
     this.removeDrones();
@@ -603,7 +605,7 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private activatePowerUp(type: PowerUpType) {
-    this.activePowerUps.set(type, 7000);
+    this.activePowerUps.set(type, this.getPowerUpDuration(type));
     if (this.playerStates[this.activePlayerIndex]) {
       this.playerStates[this.activePlayerIndex].activePowerUps = new Map(this.activePowerUps);
     }
@@ -625,6 +627,9 @@ export default class MainScene extends Phaser.Scene {
         break;
       case PowerUpType.WINGMAN_DRONES:
         this.spawnDrones();
+        break;
+      case PowerUpType.CANNON_COOLING:
+        this.player.setCannonCooling(true);
         break;
       case PowerUpType.BLACK_HOLE:
         this.spawnBlackHole();
@@ -648,6 +653,9 @@ export default class MainScene extends Phaser.Scene {
         break;
       case PowerUpType.WINGMAN_DRONES:
         this.removeDrones();
+        break;
+      case PowerUpType.CANNON_COOLING:
+        this.player.setCannonCooling(false);
         break;
       case PowerUpType.BLACK_HOLE:
         this.removeBlackHole();
@@ -1063,5 +1071,10 @@ export default class MainScene extends Phaser.Scene {
       alpha: { min: 0.1, max: 0.8 },
       emitting: true,
     });
+  }
+
+  private getPowerUpDuration(type: PowerUpType) {
+    if (type === PowerUpType.CANNON_COOLING) return 9000;
+    return 7000;
   }
 }

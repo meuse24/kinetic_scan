@@ -75,3 +75,18 @@ TODOs for next agent
     - FPS samples: ~60, 60, 53, 60
     - No captured console/page errors.
     - Screenshots rendered and state matched (including transition to GameOverScene in long run).
+- Feature: New power-up `CANNON_COOLING` implemented to reduce WINGMAN over-frequency.
+  - Added new type in `PowerUpType` and rendered icon/label (`CLG`).
+  - Added effect in `Player`: while active, no heat accumulation and no overheat lockout.
+  - Added timed activation in `MainScene` with custom duration (9s), plus deactivation handling.
+  - Updated random spawn distribution in `PowerUpDirector` with weighted pool favoring cooling over drones.
+  - Updated support trigger to bias toward cooling.
+- UX/docs updates:
+  - Updated `HelpScene` power-up descriptions with COOLING entry.
+  - Updated attract preview icon row to include cooling.
+  - Updated `README.md` feature text (9 power-up effects).
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright run: `output/web-game/powerup-cooling-pass` with visible `CANNON_COOLING` spawns and no captured errors.

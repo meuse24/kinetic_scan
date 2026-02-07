@@ -166,6 +166,7 @@ export default class HelpScene extends Phaser.Scene {
     addPowerUp('EMP', 'Expanding shockwave that vaporizes nearby asteroids.');
     addPowerUp('GHOST', 'Phase through asteroids with temporary intangibility.');
     addPowerUp('WINGMAN', 'Two drones flank you and add extra fire.');
+    addPowerUp('COOLING', 'Cannon cooling field: blocks overheat buildup while active.');
     addPowerUp('BLACK HOLE', 'Creates a local gravity well that pulls asteroids in.');
     addPowerUp('MAGNETIC', 'Bullets home toward the nearest asteroid for a short time.');
 

@@ -395,8 +395,9 @@ export default class AttractScene extends Phaser.Scene {
       PowerUpType.EMP_WAVE,
       PowerUpType.GHOST_PHASE,
       PowerUpType.WINGMAN_DRONES,
+      PowerUpType.CANNON_COOLING,
     ];
-    const spacing = 56;
+    const spacing = 50;
     const totalWidth = (types.length - 1) * spacing;
     const startX = centerX - totalWidth / 2;
     types.forEach((type, index) => {

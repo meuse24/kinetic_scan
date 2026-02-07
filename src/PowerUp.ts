@@ -7,6 +7,7 @@ export const PowerUpType = {
   EMP_WAVE: 'EMP_WAVE',
   GHOST_PHASE: 'GHOST_PHASE',
   WINGMAN_DRONES: 'WINGMAN_DRONES',
+  CANNON_COOLING: 'CANNON_COOLING',
   BLACK_HOLE: 'BLACK_HOLE',
 } as const;
 
@@ -43,6 +44,7 @@ export class PowerUp extends Phaser.Physics.Arcade.Sprite {
       { type: PowerUpType.EMP_WAVE, color: 0x0000ff, points: 8 },
       { type: PowerUpType.GHOST_PHASE, color: 0xffffff, points: 0 }, // Special handling
       { type: PowerUpType.WINGMAN_DRONES, color: 0x00ff00, points: 2 }, // Line/Bar
+      { type: PowerUpType.CANNON_COOLING, color: 0x66ddff, points: 6 },
       { type: PowerUpType.BLACK_HOLE, color: 0xaa00ff, points: 12 },
     ];
 
@@ -60,6 +62,14 @@ export class PowerUp extends Phaser.Physics.Arcade.Sprite {
           // Draw a ghostly skull-ish or hollow shape
           graphics.strokeRect(4, 4, 24, 24);
           graphics.strokeCircle(16, 16, 8);
+        } else if (p.type === PowerUpType.CANNON_COOLING) {
+          // Snowflake-like cooling glyph
+          graphics.strokeCircle(16, 16, 13);
+          graphics.lineStyle(2, 0xffffff, 1);
+          graphics.strokeLineShape(new Phaser.Geom.Line(16, 6, 16, 26));
+          graphics.strokeLineShape(new Phaser.Geom.Line(6, 16, 26, 16));
+          graphics.strokeLineShape(new Phaser.Geom.Line(9, 9, 23, 23));
+          graphics.strokeLineShape(new Phaser.Geom.Line(23, 9, 9, 23));
         } else {
           graphics.beginPath();
           const sides = p.points;
@@ -112,6 +122,8 @@ export class PowerUp extends Phaser.Physics.Arcade.Sprite {
         return 'GST';
       case PowerUpType.WINGMAN_DRONES:
         return 'DRN';
+      case PowerUpType.CANNON_COOLING:
+        return 'CLG';
       case PowerUpType.BLACK_HOLE:
         return 'BLK';
       default:
