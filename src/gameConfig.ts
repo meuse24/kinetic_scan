@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import BootScene from './BootScene';
 import AttractScene from './AttractScene';
 import MainScene from './MainScene';
 import GameOverScene from './GameOverScene';
@@ -8,6 +9,15 @@ import BezelScene from './BezelScene';
 import HelpScene from './HelpScene';
 
 export const IS_TOUCH = !window.matchMedia('(pointer: fine)').matches;
+const SEARCH_PARAMS = new URLSearchParams(window.location.search);
+
+// Capture mode can force Canvas to avoid headless WebGL screenshot issues.
+export const FORCE_CANVAS_CAPTURE =
+  SEARCH_PARAMS.get('renderer') === 'canvas' ||
+  SEARCH_PARAMS.get('capture') === '1' ||
+  SEARCH_PARAMS.has('capture');
+
+const RENDERER_TYPE = FORCE_CANVAS_CAPTURE ? Phaser.CANVAS : Phaser.WEBGL;
 
 // Dynamic game dimensions based on screen aspect ratio.
 // Mobile uses a smaller base (600) so game objects appear larger on small screens.
@@ -49,7 +59,7 @@ export function applyPendingResize(game: Phaser.Game): boolean {
 }
 
 export const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
+  type: RENDERER_TYPE,
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
   parent: 'app',
@@ -60,11 +70,12 @@ export const config: Phaser.Types.Core.GameConfig = {
     pixelArt: true,
     roundPixels: true,
   },
-  pipeline: { CRTPipeline: CRTPipeline } as any,
+  ...(FORCE_CANVAS_CAPTURE ? {} : { pipeline: { CRTPipeline: CRTPipeline } as any }),
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     expandParent: false,
+    fullscreenTarget: document.documentElement,
   },
   physics: {
     default: 'arcade',
@@ -73,5 +84,5 @@ export const config: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
-  scene: [AttractScene, MainScene, GameOverScene, PauseScene, BezelScene, HelpScene],
+  scene: [BootScene, AttractScene, MainScene, GameOverScene, PauseScene, BezelScene, HelpScene],
 };

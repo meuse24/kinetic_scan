@@ -8,6 +8,7 @@ import { PowerUpDirector } from './PowerUpDirector';
 import { PowerUp, PowerUpType } from './PowerUp';
 import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize } from './gameConfig';
 import { performanceMonitor } from './PerformanceMonitor';
+import { musicManager } from './MusicManager';
 
 interface PlayerState {
   score: number;
@@ -72,6 +73,11 @@ export default class MainScene extends Phaser.Scene {
   private activeMarkerRight?: Phaser.GameObjects.Text;
   private activeMarkerTween?: Phaser.Tweens.Tween;
   private lastActiveMarkerIndex: number = -1;
+  private debugRefreshMs: number = 0;
+  private lastDebugLine: string = '';
+  private powerUpTextRefreshMs: number = 0;
+  private lastPowerUpList: string = '';
+  private blackHoleForceAccumulatorMs: number = 0;
   private debugText!: Phaser.GameObjects.Text;
   private powerUpBar!: Phaser.GameObjects.Graphics;
   private powerUpListText!: Phaser.GameObjects.Text;
@@ -112,6 +118,7 @@ export default class MainScene extends Phaser.Scene {
     }
 
     this.audio = new AudioManager(this);
+    musicManager.stop();
     this.isGameOver = false;
     this.isSwitching = false;
     const startingState = this.playerStates[this.activePlayerIndex] ?? {
@@ -246,13 +253,19 @@ export default class MainScene extends Phaser.Scene {
       this.useHighEndVFX = performanceMonitor.smokeEnabled && this.useHighEndVFX;
     }
 
-    let renderer = 'UNKNOWN';
-    if (this.game.renderer.type === Phaser.WEBGL) renderer = 'WEBGL';
-    else if (this.game.renderer.type === Phaser.CANVAS) renderer = 'CANVAS';
-    else if (this.game.renderer.type === (Phaser as any).WEBGPU) renderer = 'WEBGPU';
-    this.debugText.setText(
-      `${renderer}${this.gpuName ? ` | ${this.gpuName}` : ''} | ${Math.round(this.game.loop.actualFps)} FPS | ${performanceMonitor.getQualityLabel()}`,
-    );
+    this.debugRefreshMs -= delta;
+    if (this.debugRefreshMs <= 0) {
+      let renderer = 'UNKNOWN';
+      if (this.game.renderer.type === Phaser.WEBGL) renderer = 'WEBGL';
+      else if (this.game.renderer.type === Phaser.CANVAS) renderer = 'CANVAS';
+      else if (this.game.renderer.type === (Phaser as any).WEBGPU) renderer = 'WEBGPU';
+      const nextDebugLine = `${renderer}${this.gpuName ? ` | ${this.gpuName}` : ''} | ${Math.round(this.game.loop.actualFps)} FPS | ${performanceMonitor.getQualityLabel()}`;
+      if (nextDebugLine !== this.lastDebugLine) {
+        this.debugText.setText(nextDebugLine);
+        this.lastDebugLine = nextDebugLine;
+      }
+      this.debugRefreshMs = 200;
+    }
 
     if (!this.ufo.active) {
       this.ufoSpawnTimer -= delta;
@@ -276,7 +289,7 @@ export default class MainScene extends Phaser.Scene {
 
     this.updateActivePowerUps(delta);
     this.updateDrones();
-    this.updateBlackHole();
+    this.updateBlackHole(delta);
     this.updateHeatBar();
   }
 
@@ -309,10 +322,11 @@ export default class MainScene extends Phaser.Scene {
       if (!blinkOn) return;
       this.heatBar.fillStyle(0xff3333, 0.95);
     } else {
-      const cool = Phaser.Display.Color.ValueToColor(0x00ff66);
-      const hot = Phaser.Display.Color.ValueToColor(0xff3333);
-      const color = Phaser.Display.Color.Interpolate.ColorWithColor(cool, hot, 100, heat * 100);
-      this.heatBar.fillStyle(Phaser.Display.Color.GetColor(color.r, color.g, color.b), 0.9);
+      const t = Phaser.Math.Clamp(heat, 0, 1);
+      const r = Math.round(255 * t);
+      const g = Math.round(255 - 204 * t);
+      const b = Math.round(102 - 51 * t);
+      this.heatBar.fillStyle((r << 16) | (g << 8) | b, 0.9);
     }
     this.heatBar.fillRect(x, y, width * heat, height);
   }
@@ -400,7 +414,14 @@ export default class MainScene extends Phaser.Scene {
         list += `${type}: ${(newTime / 1000).toFixed(1)}s\n`;
       }
     });
-    this.powerUpListText.setText(list);
+    this.powerUpTextRefreshMs -= delta;
+    if (this.powerUpTextRefreshMs <= 0) {
+      if (list !== this.lastPowerUpList) {
+        this.powerUpListText.setText(list);
+        this.lastPowerUpList = list;
+      }
+      this.powerUpTextRefreshMs = 100;
+    }
     if (this.playerStates[this.activePlayerIndex]) {
       this.playerStates[this.activePlayerIndex].activePowerUps = new Map(this.activePowerUps);
     }
@@ -466,6 +487,7 @@ export default class MainScene extends Phaser.Scene {
     this.removeDrones();
     this.removeBlackHole();
     this.powerUpBar.clear();
+    this.lastPowerUpList = '';
     this.powerUpListText.setText('');
   }
 
@@ -752,21 +774,27 @@ export default class MainScene extends Phaser.Scene {
     this.blackHole = { x, y, active: true, graphics: g };
   }
 
-  private updateBlackHole() {
+  private updateBlackHole(delta: number) {
     if (!this.blackHole?.active) return;
     const { x, y, graphics } = this.blackHole;
     graphics
       .clear()
       .lineStyle(2, 0xaa00ff, 0.8)
       .strokeCircle(x, y, 50 + Math.sin(this.time.now * 0.01) * 10);
-    this.enemyManager.enemies.children.each((enemy: any) => {
-      if (enemy.active) {
-        const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, x, y);
-        enemy.body.velocity.x += Math.cos(angle) * 10;
-        enemy.body.velocity.y += Math.sin(angle) * 10;
-      }
-      return null;
-    });
+
+    this.blackHoleForceAccumulatorMs += delta;
+    if (this.blackHoleForceAccumulatorMs < 33) return;
+
+    const forceScale = this.blackHoleForceAccumulatorMs / (1000 / 60);
+    this.blackHoleForceAccumulatorMs = 0;
+    const force = 10 * forceScale;
+    const children = this.enemyManager.enemies.getChildren() as Enemy[];
+    for (const enemy of children) {
+      if (!enemy.active || !enemy.body) continue;
+      const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, x, y);
+      enemy.body.velocity.x += Math.cos(angle) * force;
+      enemy.body.velocity.y += Math.sin(angle) * force;
+    }
   }
 
   private removeBlackHole() {
@@ -1023,11 +1051,12 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private createStarfield() {
+    const reduced = performanceMonitor.reducedParticles;
     this.add.particles(0, 0, 'star', {
       x: { min: 0, max: GAME_WIDTH },
       y: -50,
-      quantity: 2,
-      frequency: 100,
+      quantity: reduced ? 1 : 2,
+      frequency: reduced ? 200 : 100,
       lifespan: 4000,
       speedY: { min: 200, max: 400 },
       scale: { min: 0.5, max: 1.5 },

@@ -1,0 +1,77 @@
+Original prompt: Performance-Optimierung (FPS/GC/Draw Calls)
+
+- 2026-02-07: Started optimization pass using develop-web-game workflow.
+- Repository had no progress.md; created this file.
+- Baseline observations from code review:
+  - Homing bullets scan all enemies every frame (`Bullet.handleHoming`) with distance sqrt.
+  - Main scene debug HUD text is rebuilt and set every frame.
+- Plan:
+  1) Cache homing targets and retarget on interval; use squared distance checks.
+  2) Throttle debug text updates in MainScene.
+  3) Run Playwright action loop and inspect screenshots/errors.
+
+TODOs
+- Add `render_game_to_text` and deterministic `advanceTime` hook if Playwright/state verification needs stronger determinism.
+- Implemented optimization #1 in `src/Player.ts`:
+  - Magnetic bullets now cache a homing target and retarget every 120ms instead of scanning enemies every frame.
+  - Switched nearest-target search to squared-distance math.
+- Implemented optimization #2 in `src/MainScene.ts`:
+  - Debug HUD line now refreshes every 200ms and only updates text when changed.
+- Added testing hooks in `src/main.ts`:
+  - `window.render_game_to_text()` now reports active scene(s), FPS, viewport, and gameplay entities when MainScene is active.
+  - `window.advanceTime(ms)` fallback added for automation compatibility.
+- Validation setup:
+  - Installed `playwright` in project and skill directory.
+  - Installed Playwright Chromium binaries.
+- Verification runs:
+  - `npm run lint` -> pass.
+  - `npx tsc --noEmit` -> pass.
+  - Playwright pass 1 (headless): `output/web-game/perf-pass-1` with state JSON and no errors.
+  - Playwright pass 2 (headed): `output/web-game/perf-pass-2-headed` with state JSON and no errors.
+- Observation:
+  - Screenshots are fully black in both headless and headed runs, while state JSON confirms active gameplay and changing entities.
+  - Likely an environment/capture incompatibility (WebGL/canvas capture path), not a runtime exception.
+
+TODOs for next agent
+- Investigate black screenshot capture in Playwright client path:
+  - Compare canvas screenshot vs full-page screenshot vs forcing Phaser CANVAS renderer in test mode.
+  - Optionally add `preserveDrawingBuffer: true` in a test flag and re-check captures.
+- Add one more performance pass in gameplay-heavy scenarios (dense enemy counts, magnetic bullets, power-up effects) to quantify FPS impact.
+- Final verification:
+  - `npm run build` passed (Vite + TypeScript).
+  - Build emits a large-chunk warning (>500kB), unchanged from optimization focus.
+- Capture pipeline fix completed:
+  - Added renderer override in `src/gameConfig.ts` using URL flags: `?renderer=canvas` or `?capture=1`.
+  - In capture mode, Phaser starts with CANVAS renderer and skips WebGL-only pipeline registration.
+  - Added `captureMode` field in `render_game_to_text` payload (`src/main.ts`) for run traceability.
+- Verification run:
+  - Playwright run with `http://127.0.0.1:4173/?renderer=canvas&capture=1` produced non-black screenshots in `output/web-game/perf-pass-3-canvas`.
+  - State JSON + screenshots now agree on scene transitions and gameplay.
+- Performance pass #2 (post-capture-fix) completed:
+  - `MainScene.updateHeatBar`: replaced per-frame color object interpolation with direct RGB math.
+  - `Player.updateHeatVisuals`: replaced per-frame color object interpolation with direct RGB math.
+  - `MainScene.updateActivePowerUps`: throttled UI text updates to 100ms and only on content change.
+  - `MainScene.updateBlackHole`: force application now batched to ~30Hz with delta-compensated force scaling.
+  - `AttractScene.update`: enemy depth refresh throttled to every 500ms.
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright stress run in capture mode: `output/web-game/perf-pass-4-opt2`
+    - FPS seen in state: ~60, 60, 48, 54 across iterations with dense enemy states.
+    - No captured console/page errors.
+    - Screenshots render correctly (non-black) and match state payloads.
+- Performance pass #3 (spawn backpressure) completed:
+  - `EnemyManager` now applies active-enemy caps with pressure backoff before spawning.
+  - Spawn interval now gets pressure penalty (adaptive pacing under load).
+  - Split logic now respects headroom (fragment throttling under high active counts).
+  - Removed per-fragment `new Phaser.Math.Vector2(...)` allocation in split path (pass vx/vy directly).
+  - Active caps are stricter when `performanceMonitor.reducedParticles` is enabled.
+- Validation:
+  - `npm run lint` pass
+  - `npx tsc --noEmit` pass
+  - `npm run build` pass
+  - Playwright stress run: `output/web-game/perf-pass-5-spawn-cap`
+    - FPS samples: ~60, 60, 53, 60
+    - No captured console/page errors.
+    - Screenshots rendered and state matched (including transition to GameOverScene in long run).

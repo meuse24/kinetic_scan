@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { performanceMonitor } from './PerformanceMonitor';
 
 export class ExplosionManager {
   private scene: Phaser.Scene;
@@ -37,13 +38,10 @@ export class ExplosionManager {
   }
 
   public triggerExplosion(x: number, y: number) {
-    this.asteroidEmitter.emitParticleAt(x, y, 30);
+    this.asteroidEmitter.emitParticleAt(x, y, performanceMonitor.reducedParticles ? 10 : 30);
   }
 
-  /**
-   * Triggers a massive explosion for the player's death.
-   */
   public triggerPlayerDeathExplosion(x: number, y: number) {
-    this.playerEmitter.emitParticleAt(x, y, 200);
+    this.playerEmitter.emitParticleAt(x, y, performanceMonitor.reducedParticles ? 60 : 200);
   }
 }

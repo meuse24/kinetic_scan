@@ -2,6 +2,9 @@ import Phaser from 'phaser';
 
 export class Bullet extends Phaser.Physics.Arcade.Sprite {
   private isMagnetic: boolean = false;
+  private homingTarget: Phaser.Physics.Arcade.Sprite | null = null;
+  private nextRetargetAt: number = 0;
+  private readonly retargetIntervalMs: number = 120;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     if (!scene.textures.exists('bullet_wireframe')) {
@@ -39,6 +42,8 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
 
   fire(x: number, y: number, magnetic: boolean = false, angle: number = -Math.PI / 2) {
     this.isMagnetic = magnetic;
+    this.homingTarget = null;
+    this.nextRetargetAt = 0;
     this.setTexture(magnetic ? 'bullet_magnetic' : 'bullet_wireframe');
     this.enableBody(true, x, y, true, true);
     this.rotation = angle + Math.PI / 2;
@@ -51,7 +56,7 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
     if (!this.active) return;
 
     if (this.isMagnetic) {
-      this.handleHoming(delta);
+      this.handleHoming(time, delta);
     }
 
     const w = this.scene.scale.width;
@@ -62,26 +67,37 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
-  private handleHoming(delta: number) {
+  private handleHoming(time: number, delta: number) {
     const enemies = (this.scene as any).enemyManager?.enemies;
     if (!enemies || !this.body) return;
 
-    let closestEnemy: any = null;
-    let minDist = 1500;
+    if (!this.homingTarget || !this.homingTarget.active || time >= this.nextRetargetAt) {
+      let closestEnemy: Phaser.Physics.Arcade.Sprite | null = null;
+      let minDistSq = Number.POSITIVE_INFINITY;
 
-    enemies.children.each((enemy: any) => {
-      if (enemy.active) {
-        const dist = Phaser.Math.Distance.Between(this.x, this.y, enemy.x, enemy.y);
-        if (dist < minDist) {
-          minDist = dist;
-          closestEnemy = enemy;
+      enemies.children.each((enemy: any) => {
+        if (!enemy.active) return null;
+        const dx = enemy.x - this.x;
+        const dy = enemy.y - this.y;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < minDistSq) {
+          minDistSq = distSq;
+          closestEnemy = enemy as Phaser.Physics.Arcade.Sprite;
         }
-      }
-      return null;
-    });
+        return null;
+      });
 
-    if (closestEnemy) {
-      const angle = Phaser.Math.Angle.Between(this.x, this.y, closestEnemy.x, closestEnemy.y);
+      this.homingTarget = closestEnemy;
+      this.nextRetargetAt = time + this.retargetIntervalMs;
+    }
+
+    if (this.homingTarget) {
+      const angle = Phaser.Math.Angle.Between(
+        this.x,
+        this.y,
+        this.homingTarget.x,
+        this.homingTarget.y,
+      );
       const currentVelocity = this.body.velocity;
       const speed = currentVelocity.length() || 600;
 
@@ -301,11 +317,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
     if (pointer.isDown && this.isDragging) {
       if (this.isDesktop) {
-        // Desktop: Direct towards pointer
+        // Desktop: Smooth lerp follow — velocity proportional to distance
         const dx = pointer.x - this.x;
         const dy = pointer.y - this.y;
-        if (Math.abs(dx) > 10) this.setVelocityX(Math.sign(dx) * speed);
-        if (Math.abs(dy) > 10) this.setVelocityY(Math.sign(dy) * speed);
+        const responsiveness = 12;
+        this.setVelocityX(dx * responsiveness);
+        this.setVelocityY(dy * responsiveness);
       } else {
         // Mobile: Relative Control (Touchpad Mode)
         const targetX = this.shipStartPos.x + (pointer.x - this.touchStartPos.x);
@@ -420,10 +437,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.setTint(0xffffff);
       return;
     }
-    const base = Phaser.Display.Color.ValueToColor(0xffffff);
-    const hot = Phaser.Display.Color.ValueToColor(0xff4040);
-    const color = Phaser.Display.Color.Interpolate.ColorWithColor(base, hot, 100, ratio * 100);
-    this.setTint(Phaser.Display.Color.GetColor(color.r, color.g, color.b));
+    const t = Phaser.Math.Clamp(ratio, 0, 1);
+    const r = 255;
+    const g = Math.round(255 - 191 * t);
+    const b = Math.round(255 - 191 * t);
+    this.setTint((r << 16) | (g << 8) | b);
   }
 
   private spawnMuzzleFlash(manual: boolean) {

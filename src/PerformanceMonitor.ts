@@ -1,16 +1,17 @@
 import Phaser from 'phaser';
 
 const WINDOW_SIZE = 60; // ~1 second at 60 FPS
-const FPS_THRESHOLD = 50;
-const CRITICAL_FPS = 30;
+const FPS_THRESHOLD = 55;
+const CRITICAL_FPS = 35;
 const EARLY_SAMPLE_COUNT = 20;
 
 export const QualityLevel = {
-  FULL: 4,
-  NO_REFLECTION: 3,
-  NO_CRT_HIGH_END: 2,
-  NO_SMOKE: 1,
-  NO_CRT: 0,
+  FULL: 5,
+  NO_REFLECTION: 4,
+  NO_CRT_HIGH_END: 3,
+  NO_SMOKE: 2,
+  NO_CRT: 1,
+  MINIMAL: 0,
 } as const;
 export type QualityLevel = (typeof QualityLevel)[keyof typeof QualityLevel];
 
@@ -29,6 +30,7 @@ export class PerformanceMonitor {
   crtHighEndEnabled = true;
   smokeEnabled = true;
   crtEnabled = true;
+  reducedParticles = false;
 
   /** Call once to set initial flags based on device capabilities. Subsequent calls are no-ops. */
   init(game: Phaser.Game) {
@@ -44,7 +46,7 @@ export class PerformanceMonitor {
       this.done = false;
     } else {
       // Mobile / canvas: minimal VFX, no monitoring needed
-      this.qualityLevel = QualityLevel.NO_CRT;
+      this.qualityLevel = QualityLevel.MINIMAL;
       this.applyLevel();
       this.crtEnabled = isWebGL; // CRT shader still works on mobile WebGL
       this.done = true;
@@ -61,7 +63,7 @@ export class PerformanceMonitor {
 
     // Fast path: if FPS is critically low in the first few frames, skip multiple levels
     if (this.totalFrames <= EARLY_SAMPLE_COUNT && fps > 0 && fps < CRITICAL_FPS) {
-      return this.dropToLevel(QualityLevel.NO_SMOKE);
+      return this.dropToLevel(QualityLevel.NO_CRT);
     }
 
     // Write into circular buffer
@@ -107,7 +109,7 @@ export class PerformanceMonitor {
   }
 
   private downgrade(): boolean {
-    if (this.qualityLevel <= QualityLevel.NO_CRT) {
+    if (this.qualityLevel <= QualityLevel.MINIMAL) {
       this.done = true;
       return false;
     }
@@ -118,7 +120,7 @@ export class PerformanceMonitor {
     this.stabilizing = true;
     this.stabilizeCount = 0;
 
-    if (this.qualityLevel <= QualityLevel.NO_CRT) {
+    if (this.qualityLevel <= QualityLevel.MINIMAL) {
       this.done = true;
     }
 
@@ -138,7 +140,7 @@ export class PerformanceMonitor {
     this.samples = [];
     this.sampleIndex = 0;
 
-    if (this.qualityLevel <= QualityLevel.NO_CRT) {
+    if (this.qualityLevel <= QualityLevel.MINIMAL) {
       this.done = true;
     }
 
@@ -150,6 +152,7 @@ export class PerformanceMonitor {
     this.crtHighEndEnabled = this.qualityLevel >= QualityLevel.NO_REFLECTION;
     this.smokeEnabled = this.qualityLevel >= QualityLevel.NO_CRT_HIGH_END;
     this.crtEnabled = this.qualityLevel >= QualityLevel.NO_SMOKE;
+    this.reducedParticles = this.qualityLevel <= QualityLevel.MINIMAL;
   }
 
   getQualityLabel(): string {

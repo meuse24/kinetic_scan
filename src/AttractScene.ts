@@ -7,6 +7,7 @@ import { soundManager } from './SoundManager';
 import { UFO } from './UFO';
 import { PowerUp, PowerUpType } from './PowerUp';
 import { performanceMonitor } from './PerformanceMonitor';
+import { musicManager } from './MusicManager';
 
 type PlayerButton = {
   requiredCredits: number;
@@ -27,6 +28,7 @@ export default class AttractScene extends Phaser.Scene {
   private highScoreGroup!: Phaser.GameObjects.Container;
   private showScores: boolean = false;
   private demoSplitTimer: number = 0;
+  private enemyDepthRefreshMs: number = 0;
   private heartbeatActive: boolean = false;
   private heartbeatTimer: Phaser.Time.TimerEvent | null = null;
   private playerButtons: PlayerButton[] = [];
@@ -44,11 +46,8 @@ export default class AttractScene extends Phaser.Scene {
       }
     }
 
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-
     this.audio = new AudioManager(this);
+    musicManager.play();
     const centerX = GAME_WIDTH / 2;
     const centerY = GAME_HEIGHT / 2;
     const uiDepth = 50;
@@ -66,11 +65,12 @@ export default class AttractScene extends Phaser.Scene {
     }
 
     this.createAmbientTexture();
+    const reduced = performanceMonitor.reducedParticles;
     this.ambientEmitter = this.add.particles(0, 0, 'dust', {
       x: { min: 0, max: GAME_WIDTH },
       y: -50,
-      quantity: 2,
-      frequency: 80,
+      quantity: reduced ? 1 : 2,
+      frequency: reduced ? 160 : 80,
       lifespan: 6000,
       speedY: { min: 40, max: 120 },
       scale: { min: 0.2, max: 0.6 },
@@ -189,7 +189,11 @@ export default class AttractScene extends Phaser.Scene {
       this.cameras.main.removePostPipeline('CRTPipeline');
     }
     this.enemyManager.update(time, delta);
-    this.applyEnemyDepth(5);
+    this.enemyDepthRefreshMs -= delta;
+    if (this.enemyDepthRefreshMs <= 0) {
+      this.applyEnemyDepth(5);
+      this.enemyDepthRefreshMs = 500;
+    }
     this.demoSplitTimer += delta;
     if (this.demoSplitTimer >= 1400) {
       this.demoSplitTimer = 0;
@@ -445,14 +449,9 @@ export default class AttractScene extends Phaser.Scene {
     });
   }
 
-  private async startGame(requiredCredits: number) {
+  private startGame(requiredCredits: number) {
     if (!creditManager.spendCredits(requiredCredits)) return;
     void this.audio.resume();
-    try {
-      await document.documentElement.requestFullscreen?.();
-    } catch {
-      // Fullscreen not supported or denied
-    }
     recalculateDimensions();
     this.scene.start('MainScene', { players: requiredCredits });
   }

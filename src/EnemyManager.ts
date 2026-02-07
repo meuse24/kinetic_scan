@@ -1,4 +1,12 @@
 import Phaser from 'phaser';
+import { performanceMonitor } from './PerformanceMonitor';
+
+const INITIAL_SPAWN_INTERVAL = 1000;
+const MIN_SPAWN_INTERVAL = 220;
+const PRESSURE_BACKOFF_MAX = 900;
+const ACTIVE_ENEMY_CAP = 52;
+const ACTIVE_ENEMY_CAP_REDUCED = 36;
+const FRAGMENT_CAP_BUFFER = 8;
 
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
   constructor(scene: Phaser.Scene, x: number, y: number) {
@@ -10,9 +18,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
    * @param x X Position
    * @param y Y Position
    * @param scale Optional: Specific scale (for fragments)
-   * @param velocity Optional: Specific velocity (for fragments)
+   * @param velocityX Optional: Specific velocity X (for fragments)
+   * @param velocityY Optional: Specific velocity Y (for fragments)
    */
-  spawn(x: number, y: number, scale?: number, velocity?: Phaser.Math.Vector2) {
+  spawn(x: number, y: number, scale?: number, velocityX?: number, velocityY?: number) {
     // 1. Texture & Scale
     if (scale !== undefined) {
       // Fragment Mode: Use passed scale and keep current texture if desired,
@@ -39,9 +48,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.setOffset(4, 4);
 
     // 3. Movement
-    if (velocity) {
+    if (velocityX !== undefined && velocityY !== undefined) {
       // Fragment Mode: Use explosive velocity
-      this.setVelocity(velocity.x, velocity.y);
+      this.setVelocity(velocityX, velocityY);
     } else {
       // Standard Mode: Fall down with parallax speed
       // Scale 0.5 (small) -> Fast (400)
@@ -77,7 +86,7 @@ export class EnemyManager {
   private scene: Phaser.Scene;
   public enemies: Phaser.Physics.Arcade.Group;
   private spawnTimer: number = 0;
-  private spawnInterval: number = 1000;
+  private spawnInterval: number = INITIAL_SPAWN_INTERVAL;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -101,7 +110,18 @@ export class EnemyManager {
     // Recursion limit: Don't split if too small
     if (parentScale < 0.6) return;
 
-    const fragmentCount = Phaser.Math.Between(2, 3);
+    const activeCount = this.enemies.countActive(true);
+    const hardCap = this.getActiveEnemyCap() + FRAGMENT_CAP_BUFFER;
+    const headroom = hardCap - activeCount;
+    if (headroom <= 0) return;
+
+    const pressure = activeCount / Math.max(1, this.getActiveEnemyCap());
+    let fragmentCount = Phaser.Math.Between(2, 3);
+    if (pressure > 0.8) fragmentCount = 1;
+
+    fragmentCount = Math.min(fragmentCount, headroom);
+    if (fragmentCount <= 0) return;
+
     const newScale = parentScale * 0.5;
 
     for (let i = 0; i < fragmentCount; i++) {
@@ -115,7 +135,7 @@ export class EnemyManager {
         const vx = Math.cos(angle) * speed;
         const vy = Math.sin(angle) * speed;
 
-        fragment.spawn(x, y, newScale, new Phaser.Math.Vector2(vx, vy));
+        fragment.spawn(x, y, newScale, vx, vy);
       }
     }
   }
@@ -199,17 +219,34 @@ export class EnemyManager {
 
   update(_time: number, delta: number) {
     this.spawnTimer -= delta;
+    if (this.spawnTimer > 0) return;
 
-    if (this.spawnTimer <= 0) {
-      this.spawnEnemy();
-      this.spawnTimer = this.spawnInterval;
-      if (this.spawnInterval > 200) {
-        this.spawnInterval -= 5;
-      }
+    const activeCount = this.enemies.countActive(true);
+    const activeCap = this.getActiveEnemyCap();
+
+    if (activeCount >= activeCap) {
+      const overload = activeCount - activeCap;
+      this.spawnTimer = Math.min(PRESSURE_BACKOFF_MAX, 220 + overload * 45);
+      return;
     }
+
+    const spawned = this.spawnEnemy();
+
+    if (spawned && this.spawnInterval > MIN_SPAWN_INTERVAL) {
+      this.spawnInterval -= 5;
+    }
+
+    if (!spawned) {
+      this.spawnTimer = 150;
+      return;
+    }
+
+    const pressure = activeCount / Math.max(1, activeCap);
+    const pressurePenalty = Math.round(pressure * 350);
+    this.spawnTimer = this.spawnInterval + pressurePenalty;
   }
 
-  private spawnEnemy() {
+  private spawnEnemy(): boolean {
     const width = this.scene.scale.width;
     const x = Phaser.Math.Between(50, width - 50);
     const y = -100;
@@ -218,6 +255,13 @@ export class EnemyManager {
 
     if (enemy) {
       enemy.spawn(x, y);
+      return true;
     }
+
+    return false;
+  }
+
+  private getActiveEnemyCap() {
+    return performanceMonitor.reducedParticles ? ACTIVE_ENEMY_CAP_REDUCED : ACTIVE_ENEMY_CAP;
   }
 }
