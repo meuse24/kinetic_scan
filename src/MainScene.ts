@@ -42,6 +42,8 @@ export default class MainScene extends Phaser.Scene {
   private awaitingTurnInput: boolean = false;
   private turnKeyHandler?: (event: KeyboardEvent) => void;
   private turnPointerHandler?: () => void;
+  private onBlur?: () => void;
+  private onVisibilityChange?: () => void;
 
   private useHighEndVFX: boolean = false;
   private slowMoOverlay!: Phaser.GameObjects.Rectangle;
@@ -213,6 +215,9 @@ export default class MainScene extends Phaser.Scene {
       this.activeMarkerTween?.stop();
       if (this.turnKeyHandler) this.input.keyboard?.off('keydown', this.turnKeyHandler);
       if (this.turnPointerHandler) this.input.off('pointerdown', this.turnPointerHandler);
+      if (this.onBlur) this.game.events.off('blur', this.onBlur);
+      if (this.onVisibilityChange)
+        document.removeEventListener('visibilitychange', this.onVisibilityChange);
     });
   }
 
@@ -964,7 +969,13 @@ export default class MainScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-P', () => this.requestPause());
     this.input.keyboard?.on('keydown-ESC', () => this.requestPause());
     this.input.keyboard?.on('keydown-H', () => this.openHelp());
-    this.game.events.on('blur', () => this.requestPause());
+
+    this.onBlur = () => this.requestPause();
+    this.onVisibilityChange = () => {
+      if (document.hidden) this.requestPause();
+    };
+    this.game.events.on('blur', this.onBlur);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
   }
 
   private requestPause() {
