@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_SIZE } from './gameConfig';
+import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 import MainScene from './MainScene';
 import { soundManager } from './SoundManager';
 import { DEFAULT_VOLUME } from './AudioManager';
@@ -13,8 +13,8 @@ export default class PauseScene extends Phaser.Scene {
   }
 
   create() {
-    const centerX = GAME_SIZE / 2;
-    const centerY = GAME_SIZE / 2;
+    const centerX = GAME_WIDTH / 2;
+    const centerY = GAME_HEIGHT / 2;
 
     if (!this.scene.isActive('BezelScene')) {
       this.scene.launch('BezelScene');
@@ -26,7 +26,7 @@ export default class PauseScene extends Phaser.Scene {
     }
 
     // Semi-transparent overlay
-    const overlay = this.add.rectangle(centerX, centerY, GAME_SIZE, GAME_SIZE, 0x000000, 0.7);
+    const overlay = this.add.rectangle(centerX, centerY, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.7);
     overlay.setInteractive(); // Prevent clicks passing through
 
     // PAUSED Text

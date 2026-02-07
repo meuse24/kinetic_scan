@@ -6,7 +6,7 @@ import { AudioManager } from './AudioManager';
 import { UFO } from './UFO';
 import { PowerUpDirector } from './PowerUpDirector';
 import { PowerUp, PowerUpType } from './PowerUp';
-import { GAME_SIZE } from './gameConfig';
+import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 
 interface PlayerState {
   score: number;
@@ -127,8 +127,8 @@ export default class MainScene extends Phaser.Scene {
       runChildUpdate: true,
       maxSize: 100,
     });
-    this.player = new Player(this, GAME_SIZE / 2, 900, this.bullets);
-    this.player.updateBounds(GAME_SIZE, GAME_SIZE);
+    this.player = new Player(this, GAME_WIDTH / 2, GAME_HEIGHT - 100, this.bullets);
+    this.player.updateBounds(GAME_WIDTH, GAME_HEIGHT);
     this.enemyManager = new EnemyManager(this);
     this.explosionManager = new ExplosionManager(this);
     this.ufo = new UFO(this, this.audio);
@@ -149,7 +149,7 @@ export default class MainScene extends Phaser.Scene {
     }
 
     this.slowMoOverlay = this.add
-      .rectangle(GAME_SIZE / 2, GAME_SIZE / 2, GAME_SIZE, GAME_SIZE, 0x0000ff, 0)
+      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x0000ff, 0)
       .setDepth(5);
     this.empGraphics = this.add.graphics().setDepth(10);
     this.createHUD();
@@ -253,10 +253,10 @@ export default class MainScene extends Phaser.Scene {
     const width = 200;
     const progress = Math.max(0, this.powerUpTimer / 5000);
     this.powerUpBar.fillStyle(0x00ffff, 0.8);
-    this.powerUpBar.fillRect(GAME_SIZE / 2 - width / 2, 80, width * progress, 10);
+    this.powerUpBar.fillRect(GAME_WIDTH / 2 - width / 2, 80, width * progress, 10);
     if (Math.sin(this.time.now * 0.01) > 0) {
       this.powerUpBar.lineStyle(2, 0xffffff, 1);
-      this.powerUpBar.strokeRect(GAME_SIZE / 2 - width / 2, 80, width, 10);
+      this.powerUpBar.strokeRect(GAME_WIDTH / 2 - width / 2, 80, width, 10);
     }
   }
 
@@ -446,22 +446,22 @@ export default class MainScene extends Phaser.Scene {
 
   private createTurnOverlay() {
     const bg = this.add.rectangle(
-      GAME_SIZE / 2,
-      GAME_SIZE / 2,
-      GAME_SIZE,
-      GAME_SIZE,
+      GAME_WIDTH / 2,
+      GAME_HEIGHT / 2,
+      GAME_WIDTH,
+      GAME_HEIGHT,
       0x000000,
       0.8,
     );
     this.switchText = this.add
-      .text(GAME_SIZE / 2, GAME_SIZE / 2, '', {
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, '', {
         fontFamily: '"Press Start 2P"',
         fontSize: '32px',
         color: '#ffffff',
       })
       .setOrigin(0.5);
     this.switchPrompt = this.add
-      .text(GAME_SIZE / 2, GAME_SIZE / 2 + 60, 'PRESS START', {
+      .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 60, 'PRESS START', {
         fontFamily: '"Press Start 2P"',
         fontSize: '18px',
         color: '#ffff00',
@@ -499,7 +499,7 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private resetPlayerForTurn() {
-    this.player.setPosition(GAME_SIZE / 2, 900);
+    this.player.setPosition(GAME_WIDTH / 2, GAME_HEIGHT - 100);
     this.player.setActive(true).setVisible(true);
     const ghostActive = this.activePowerUps.has(PowerUpType.GHOST_PHASE);
     if (this.player.body) this.player.body.enable = !ghostActive;
@@ -623,15 +623,16 @@ export default class MainScene extends Phaser.Scene {
 
   private triggerEMP() {
     this.audio.playEMP();
+    const maxRadius = Math.max(GAME_WIDTH, GAME_HEIGHT);
     this.tweens.add({
       targets: { r: 0 },
-      r: 1000,
+      r: maxRadius,
       duration: 1000,
       onUpdate: (tween) => {
         const radius = tween.getValue() ?? 0;
         this.empGraphics
           .clear()
-          .lineStyle(4, 0x0000ff, 1 - radius / 1000)
+          .lineStyle(4, 0x0000ff, 1 - radius / maxRadius)
           .strokeCircle(this.player.x, this.player.y, radius);
         this.enemyManager.enemies.children.each((enemy: any) => {
           if (
@@ -713,8 +714,8 @@ export default class MainScene extends Phaser.Scene {
 
   private spawnBlackHole() {
     this.audio.playBlackHole();
-    const x = Phaser.Math.Between(200, 800),
-      y = Phaser.Math.Between(200, 500);
+    const x = Phaser.Math.Between(Math.round(GAME_WIDTH * 0.2), Math.round(GAME_WIDTH * 0.8));
+    const y = Phaser.Math.Between(Math.round(GAME_HEIGHT * 0.2), Math.round(GAME_HEIGHT * 0.5));
     const g = this.add.graphics().setDepth(5);
     this.blackHole = { x, y, active: true, graphics: g };
   }
@@ -884,23 +885,23 @@ export default class MainScene extends Phaser.Scene {
     if (this.playerCount === 2) {
       this.p1ScoreText = this.add.text(30, 30, 'P1 SCORE: 0', style).setDepth(100);
       this.p2ScoreText = this.add
-        .text(GAME_SIZE - 30, 30, 'P2 SCORE: 0', style)
+        .text(GAME_WIDTH - 30, 30, 'P2 SCORE: 0', style)
         .setOrigin(1, 0)
         .setDepth(100);
       this.p1LivesText = this.add.text(30, 60, 'P1 LIVES: 3', smallStyle).setDepth(100);
       this.p2LivesText = this.add
-        .text(GAME_SIZE - 30, 60, 'P2 LIVES: 3', smallStyle)
+        .text(GAME_WIDTH - 30, 60, 'P2 LIVES: 3', smallStyle)
         .setOrigin(1, 0)
         .setDepth(100);
       this.activeMarkerLeft = this.add.text(8, 30, '>', style).setDepth(101);
       this.activeMarkerRight = this.add
-        .text(GAME_SIZE - 8, 30, '<', style)
+        .text(GAME_WIDTH - 8, 30, '<', style)
         .setOrigin(1, 0)
         .setDepth(101);
     } else {
       this.p1ScoreText = this.add.text(30, 30, 'SCORE: 0', style).setDepth(100);
       this.p1LivesText = this.add
-        .text(GAME_SIZE - 30, 30, 'LIVES: 3', style)
+        .text(GAME_WIDTH - 30, 30, 'LIVES: 3', style)
         .setOrigin(1, 0)
         .setDepth(100);
     }
@@ -913,7 +914,7 @@ export default class MainScene extends Phaser.Scene {
       .text(30, powerY, '', { fontFamily: '"Press Start 2P"', fontSize: '14px', color: '#00ffff' })
       .setDepth(100);
     const pauseBtn = this.add
-      .text(GAME_SIZE - 30, 80, '|| PAUSE', {
+      .text(GAME_WIDTH - 30, 80, '|| PAUSE', {
         fontFamily: '"Press Start 2P"',
         fontSize: '16px',
         color: '#ffffff',
@@ -926,7 +927,7 @@ export default class MainScene extends Phaser.Scene {
     pauseBtn.on('pointerdown', () => this.requestPause());
 
     const helpBtn = this.add
-      .text(GAME_SIZE - 30, 130, 'H', {
+      .text(GAME_WIDTH - 30, 130, 'H', {
         fontFamily: '"Press Start 2P"',
         fontSize: '16px',
         color: '#ffffff',
@@ -985,7 +986,7 @@ export default class MainScene extends Phaser.Scene {
 
   private createStarfield() {
     this.add.particles(0, 0, 'star', {
-      x: { min: 0, max: GAME_SIZE },
+      x: { min: 0, max: GAME_WIDTH },
       y: -50,
       quantity: 2,
       frequency: 100,

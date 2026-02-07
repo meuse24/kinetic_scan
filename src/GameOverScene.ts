@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { AudioManager } from './AudioManager';
 import { creditManager } from './CreditManager';
-import { GAME_SIZE } from './gameConfig';
+import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 
 interface GameOverData {
   score?: number;
@@ -67,8 +67,8 @@ export default class GameOverScene extends Phaser.Scene {
   }
 
   create() {
-    const centerX = GAME_SIZE / 2;
-    const centerY = GAME_SIZE / 2;
+    const centerX = GAME_WIDTH / 2;
+    const centerY = GAME_HEIGHT / 2;
 
     this.audio = new AudioManager(this);
 
@@ -105,7 +105,7 @@ export default class GameOverScene extends Phaser.Scene {
         .setOrigin(0.5);
 
       this.controlHint = this.add
-        .text(centerX, GAME_SIZE - 260, 'ARROWS = CHANGE  FIRE = CONFIRM', {
+        .text(centerX, GAME_HEIGHT - 260, 'ARROWS = CHANGE  FIRE = CONFIRM', {
           fontFamily: '"Press Start 2P"',
           fontSize: '12px',
           color: '#888888',
@@ -120,10 +120,10 @@ export default class GameOverScene extends Phaser.Scene {
 
     this.createLeaderboard(centerX, centerY - 40);
 
-    this.createPlayerButtons(centerX, GAME_SIZE - 220);
+    this.createPlayerButtons(centerX, GAME_HEIGHT - 220);
 
     this.coinText = this.add
-      .text(centerX, GAME_SIZE - 140, 'INSERT COIN (I)', {
+      .text(centerX, GAME_HEIGHT - 140, 'INSERT COIN (I)', {
         fontFamily: '"Press Start 2P"',
         fontSize: '18px',
         color: '#ffff00',
@@ -133,7 +133,7 @@ export default class GameOverScene extends Phaser.Scene {
     this.coinText.on('pointerdown', () => this.insertCoin());
 
     this.creditLabel = this.add
-      .text(centerX, GAME_SIZE - 80, `CREDITS: ${creditManager.getCredits()}`, {
+      .text(centerX, GAME_HEIGHT - 80, `CREDITS: ${creditManager.getCredits()}`, {
         fontFamily: '"Press Start 2P"',
         fontSize: '16px',
         color: '#ffffff',
@@ -177,8 +177,7 @@ export default class GameOverScene extends Phaser.Scene {
         }
       } else if (dragDist < 10 && dragDuration < 300) {
         // Tap detected
-        const centerY = GAME_SIZE / 2 - 40;
-        const entryY = centerY + (this.highlightIndex ?? 0) * 28;
+        const entryY = centerY - 40 + (this.highlightIndex ?? 0) * 28;
         const rowHeight = 40;
 
         if (Math.abs(pointer.y - entryY) < rowHeight) {
@@ -489,7 +488,7 @@ export default class GameOverScene extends Phaser.Scene {
 
   private createHelpButton() {
     const btn = this.add
-      .text(GAME_SIZE - 40, 40, 'H', {
+      .text(GAME_WIDTH - 40, 40, 'H', {
         fontFamily: '"Press Start 2P"',
         fontSize: '16px',
         color: '#ffffff',

@@ -1,13 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_SIZE, VIRTUAL_HEIGHT } from './gameConfig';
-
-type PlayArea = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  scale: number;
-};
+import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 
 export default class BezelScene extends Phaser.Scene {
   private frameGraphics!: Phaser.GameObjects.Graphics;
@@ -15,7 +7,6 @@ export default class BezelScene extends Phaser.Scene {
   private reflectionMaskGraphics!: Phaser.GameObjects.Graphics;
   private reflectionMask: Phaser.Display.Masks.GeometryMask | null = null;
   private useReflection: boolean = false;
-  private playArea: PlayArea = { x: 0, y: 0, width: GAME_SIZE, height: VIRTUAL_HEIGHT, scale: 1 };
   private bezelThickness: number = 32;
 
   constructor() {
@@ -31,7 +22,7 @@ export default class BezelScene extends Phaser.Scene {
     this.useReflection = this.game.device.os.desktop && this.game.renderer.type === Phaser.WEBGL;
 
     if (this.useReflection) {
-      this.reflectionRT = this.add.renderTexture(0, 0, GAME_SIZE, GAME_SIZE);
+      this.reflectionRT = this.add.renderTexture(0, 0, GAME_WIDTH, GAME_HEIGHT);
       this.reflectionRT.setOrigin(0, 0);
       this.reflectionRT.setAlpha(0.22);
       this.reflectionRT.setTint(0x888888);
@@ -40,10 +31,9 @@ export default class BezelScene extends Phaser.Scene {
       this.reflectionRT.setDepth(1001);
     }
 
-    this.refreshLayout();
-    this.scale.on('resize', this.refreshLayout, this);
+    this.drawFrame();
+
     this.events.once('shutdown', () => {
-      this.scale.off('resize', this.refreshLayout, this);
       this.reflectionRT?.clear();
     });
 
@@ -58,66 +48,31 @@ export default class BezelScene extends Phaser.Scene {
       return;
     }
     this.reflectionRT.clear();
-    // Only draw the playfield part (0-1000) into the reflection
     this.reflectionRT.draw(mainScene.children.list);
   }
 
-  private refreshLayout() {
-    const screenWidth = this.scale.width;
-    const screenHeight = this.scale.height;
-    const scale = Math.min(screenWidth / GAME_SIZE, screenHeight / VIRTUAL_HEIGHT);
-    const width = GAME_SIZE * scale;
-    const height = VIRTUAL_HEIGHT * scale;
-    const x = (screenWidth - width) / 2;
-    const y = (screenHeight - height) / 2;
-
-    this.playArea = { x, y, width, height, scale };
-    this.bezelThickness = Math.max(4, Math.round(width * 0.004));
-    this.drawFrame();
-
-    if (this.reflectionRT) {
-      this.reflectionRT.setPosition(x, y);
-      this.reflectionRT.setScale(scale);
-      this.updateReflectionMask();
-    }
-  }
-
   private drawFrame() {
-    const { x, y, width, scale } = this.playArea;
-    const playHeight = GAME_SIZE * scale;
     const g = this.frameGraphics;
     g.clear();
 
-    // Main Bezel (Playfield)
+    this.bezelThickness = Math.max(4, Math.round(GAME_WIDTH * 0.004));
+
+    // Main Bezel around entire game area
     g.lineStyle(this.bezelThickness, 0xffffff, 1);
-    g.strokeRect(x, y, width, playHeight);
+    g.strokeRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // Touchpad Bezel (Bottom area) - Only draw if we have extra height
-    if (VIRTUAL_HEIGHT > GAME_SIZE) {
-      const touchpadHeight = (VIRTUAL_HEIGHT - GAME_SIZE) * scale;
-      const touchpadY = y + playHeight + 5;
-      g.lineStyle(Math.max(2, this.bezelThickness / 2), 0x00ffff, 0.3);
-      g.strokeRect(x, touchpadY, width, touchpadHeight - 5);
-
-      // Subtle "Touchpad" label
-      if (width > 150) {
-        g.fillStyle(0x00ffff, 0.1);
-        g.fillRect(x + 2, touchpadY + 2, width - 4, touchpadHeight - 9);
-      }
-    }
+    this.updateReflectionMask();
   }
 
   private updateReflectionMask() {
     if (!this.reflectionRT) return;
-    const { x, y, width, scale } = this.playArea;
-    const playHeight = GAME_SIZE * scale;
     const border = this.bezelThickness;
     const g = this.reflectionMaskGraphics;
     g.clear();
     g.fillStyle(0xffffff, 1);
-    g.fillRect(x, y, width, playHeight);
+    g.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
     g.setBlendMode(Phaser.BlendModes.ERASE);
-    g.fillRect(x + border, y + border, width - border * 2, playHeight - border * 2);
+    g.fillRect(border, border, GAME_WIDTH - border * 2, GAME_HEIGHT - border * 2);
     g.setBlendMode(Phaser.BlendModes.NORMAL);
 
     if (!this.reflectionMask) {
@@ -126,4 +81,3 @@ export default class BezelScene extends Phaser.Scene {
     }
   }
 }
-

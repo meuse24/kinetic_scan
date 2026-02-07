@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_SIZE } from './gameConfig';
+import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 import { AudioManager, DEFAULT_VOLUME } from './AudioManager';
 import { creditManager } from './CreditManager';
 import { EnemyManager } from './EnemyManager';
@@ -38,8 +38,8 @@ export default class AttractScene extends Phaser.Scene {
 
   create() {
     this.audio = new AudioManager(this);
-    const centerX = GAME_SIZE / 2;
-    const centerY = GAME_SIZE / 2;
+    const centerX = GAME_WIDTH / 2;
+    const centerY = GAME_HEIGHT / 2;
     const uiDepth = 50;
 
     if (!this.scene.isActive('BezelScene')) {
@@ -53,7 +53,7 @@ export default class AttractScene extends Phaser.Scene {
 
     this.createAmbientTexture();
     this.ambientEmitter = this.add.particles(0, 0, 'dust', {
-      x: { min: 0, max: GAME_SIZE },
+      x: { min: 0, max: GAME_WIDTH },
       y: -50,
       quantity: 2,
       frequency: 80,
@@ -71,7 +71,7 @@ export default class AttractScene extends Phaser.Scene {
     this.ufoSpawnTimer = Phaser.Math.Between(20000, 45000);
 
     // Title Logo
-    this.createTitleLogo(centerX, 150, uiDepth);
+    this.createTitleLogo(centerX, GAME_HEIGHT * 0.15, uiDepth);
 
     // INSERT COIN blinking text
     this.coinText = this.add
@@ -85,7 +85,7 @@ export default class AttractScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
     this.coinText.on('pointerdown', () => this.insertCoin());
     this.helpText = this.add
-      .text(centerX, GAME_SIZE - 200, 'HELP (H)', {
+      .text(centerX, GAME_HEIGHT - 200, 'HELP (H)', {
         fontFamily: '"Press Start 2P"',
         fontSize: '16px',
         color: '#ffffff',
@@ -107,7 +107,7 @@ export default class AttractScene extends Phaser.Scene {
     });
 
     this.creditLabel = this.add
-      .text(centerX, GAME_SIZE - 50, `CREDITS: ${creditManager.getCredits()}`, {
+      .text(centerX, GAME_HEIGHT - 50, `CREDITS: ${creditManager.getCredits()}`, {
         fontFamily: '"Press Start 2P"',
         fontSize: '16px',
         color: '#ffffff',
@@ -116,7 +116,7 @@ export default class AttractScene extends Phaser.Scene {
       .setDepth(uiDepth);
 
     this.soundText = this.add
-      .text(centerX, GAME_SIZE - 165, this.getSoundLabel(), {
+      .text(centerX, GAME_HEIGHT - 165, this.getSoundLabel(), {
         fontFamily: '"Press Start 2P"',
         fontSize: '16px',
         color: '#ffffff',
@@ -128,7 +128,7 @@ export default class AttractScene extends Phaser.Scene {
 
     this.createPlayerButtons(centerX, centerY + 210, uiDepth);
 
-    this.createPowerUpPreview(centerX, GAME_SIZE - 130, uiDepth);
+    this.createPowerUpPreview(centerX, GAME_HEIGHT - 130, uiDepth);
 
     // Interaction
     this.input.keyboard?.on('keydown-I', () => this.insertCoin());

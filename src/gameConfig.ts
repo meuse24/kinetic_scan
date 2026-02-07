@@ -7,15 +7,21 @@ import CRTPipeline from './CRTPipeline';
 import BezelScene from './BezelScene';
 import HelpScene from './HelpScene';
 
-export const GAME_SIZE = 1000;
-// Touch-Geräte erhalten ein erweitertes Touchpad (1333), Desktops bleiben bei 1000.
 export const IS_TOUCH = !window.matchMedia('(pointer: fine)').matches;
-export const VIRTUAL_HEIGHT = IS_TOUCH ? 1333 : 1000;
+
+// Dynamic game dimensions based on screen aspect ratio.
+// Mobile uses a smaller base (600) so game objects appear larger on small screens.
+// Desktop uses 1000 as the base on the short axis.
+const aspect = window.innerWidth / window.innerHeight;
+const BASE_SIZE = IS_TOUCH ? 600 : 1000;
+
+export const GAME_WIDTH = aspect >= 1 ? Math.round(BASE_SIZE * aspect) : BASE_SIZE;
+export const GAME_HEIGHT = aspect >= 1 ? BASE_SIZE : Math.round(BASE_SIZE / aspect);
 
 export const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,
-  width: GAME_SIZE,
-  height: VIRTUAL_HEIGHT,
+  width: GAME_WIDTH,
+  height: GAME_HEIGHT,
   parent: 'app',
   backgroundColor: '#000000',
   render: {

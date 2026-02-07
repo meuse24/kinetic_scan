@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_SIZE } from './gameConfig';
+import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 
 type HelpSceneData = {
   returnScene?: string;
@@ -25,7 +25,7 @@ export default class HelpScene extends Phaser.Scene {
   }
 
   create() {
-    const centerX = GAME_SIZE / 2;
+    const centerX = GAME_WIDTH / 2;
     const titleY = 80;
 
     if (this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
@@ -46,7 +46,7 @@ export default class HelpScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const backBtn = this.add
-      .text(GAME_SIZE - 80, titleY, 'BACK', {
+      .text(GAME_WIDTH - 80, titleY, 'BACK', {
         fontFamily: '"Press Start 2P"',
         fontSize: '14px',
         color: '#ffffff',
@@ -55,14 +55,17 @@ export default class HelpScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
     backBtn.on('pointerdown', () => this.close());
 
-    this.viewRect = new Phaser.Geom.Rectangle(120, 140, 760, 760);
+    const margin = Math.max(40, GAME_WIDTH * 0.12);
+    const viewWidth = GAME_WIDTH - margin * 2;
+    const viewHeight = GAME_HEIGHT - 200;
+    this.viewRect = new Phaser.Geom.Rectangle(margin, 140, viewWidth, viewHeight);
 
     const frame = this.add.graphics();
     frame.lineStyle(2, 0xffffff, 1);
     frame.strokeRect(this.viewRect.x, this.viewRect.y, this.viewRect.width, this.viewRect.height);
 
     this.content = this.add.container(this.viewRect.x + 20, this.viewRect.y + 20);
-    this.buildContent();
+    this.buildContent(viewWidth - 40);
 
     this.maskGraphics = this.make.graphics({ x: 0, y: 0 });
     this.maskGraphics.fillStyle(0xffffff, 1);
@@ -103,14 +106,14 @@ export default class HelpScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-H', () => this.close());
   }
 
-  private buildContent() {
+  private buildContent(wrapWidth: number) {
     const sectionColor = '#00ffff';
     const powerColor = '#ffd166';
     const textStyle = {
       fontFamily: '"Press Start 2P"',
       fontSize: '14px',
       color: '#ffffff',
-      wordWrap: { width: 700 },
+      wordWrap: { width: wrapWidth },
       lineSpacing: 6,
     };
     let y = 0;
