@@ -408,6 +408,7 @@ export default class GameOverScene extends Phaser.Scene {
   private startGame(requiredCredits: number) {
     if (!creditManager.spendCredits(requiredCredits)) return;
     void this.audio.resume();
+    document.documentElement.requestFullscreen?.().catch(() => {});
     this.scene.start('MainScene', { players: requiredCredits });
   }
 
@@ -417,6 +418,9 @@ export default class GameOverScene extends Phaser.Scene {
   }
 
   private startAttract() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
     this.scene.start('AttractScene');
   }
 

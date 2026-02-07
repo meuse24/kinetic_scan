@@ -37,6 +37,10 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   create() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+
     this.audio = new AudioManager(this);
     const centerX = GAME_WIDTH / 2;
     const centerY = GAME_HEIGHT / 2;
@@ -427,6 +431,7 @@ export default class AttractScene extends Phaser.Scene {
   private startGame(requiredCredits: number) {
     if (!creditManager.spendCredits(requiredCredits)) return;
     void this.audio.resume();
+    document.documentElement.requestFullscreen?.().catch(() => {});
     this.scene.start('MainScene', { players: requiredCredits });
   }
 
