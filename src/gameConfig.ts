@@ -42,7 +42,9 @@ export function recalculateDimensions(): boolean {
 export function applyPendingResize(game: Phaser.Game): boolean {
   if (!_resizePending) return false;
   _resizePending = false;
-  game.scale.resize(GAME_WIDTH, GAME_HEIGHT);
+  game.scale.setGameSize(GAME_WIDTH, GAME_HEIGHT);
+  game.scale.displaySize.setAspectRatio(GAME_WIDTH / GAME_HEIGHT);
+  game.scale.refresh();
   return true;
 }
 
@@ -62,6 +64,7 @@ export const config: Phaser.Types.Core.GameConfig = {
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
+    expandParent: false,
   },
   physics: {
     default: 'arcade',

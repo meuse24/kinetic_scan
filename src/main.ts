@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { config, recalculateDimensions, GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
+import { config, recalculateDimensions, applyPendingResize } from './gameConfig';
 import './style.css';
 
 const game = new Phaser.Game(config);
@@ -15,7 +15,7 @@ function handleResize() {
     // Scale.FIT keeps visuals acceptable in the meantime.
     if (game.scene.isActive('MainScene')) return;
 
-    game.scale.resize(GAME_WIDTH, GAME_HEIGHT);
+    applyPendingResize(game);
 
     // Stop overlay scenes
     if (game.scene.isActive('PauseScene')) game.scene.stop('PauseScene');
