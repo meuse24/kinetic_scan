@@ -58,7 +58,10 @@ export default class AttractScene extends Phaser.Scene {
     }
     this.scene.bringToTop('BezelScene');
 
-    if (this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
+    if (
+      performanceMonitor.crtEnabled &&
+      this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
+    ) {
       this.cameras.main.setPostPipeline('CRTPipeline');
     }
 

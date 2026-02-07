@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
+import { performanceMonitor } from './PerformanceMonitor';
 
 type HelpSceneData = {
   returnScene?: string;
@@ -28,7 +29,10 @@ export default class HelpScene extends Phaser.Scene {
     const centerX = GAME_WIDTH / 2;
     const titleY = 80;
 
-    if (this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
+    if (
+      performanceMonitor.crtEnabled &&
+      this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
+    ) {
       this.cameras.main.setPostPipeline('CRTPipeline');
     }
 

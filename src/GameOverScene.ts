@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { AudioManager } from './AudioManager';
 import { creditManager } from './CreditManager';
 import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize } from './gameConfig';
+import { performanceMonitor } from './PerformanceMonitor';
 
 interface GameOverData {
   score?: number;
@@ -83,7 +84,10 @@ export default class GameOverScene extends Phaser.Scene {
     }
     this.scene.bringToTop('BezelScene');
 
-    if (this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
+    if (
+      performanceMonitor.crtEnabled &&
+      this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
+    ) {
       this.cameras.main.setPostPipeline('CRTPipeline');
     }
 
@@ -210,6 +214,15 @@ export default class GameOverScene extends Phaser.Scene {
       if (this.creditListener) creditManager.offChange(this.creditListener, this);
       this.idleTimer?.remove(false);
     });
+  }
+
+  update() {
+    if (
+      !performanceMonitor.crtEnabled &&
+      this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
+    ) {
+      this.cameras.main.removePostPipeline('CRTPipeline');
+    }
   }
 
   private createScoreSummary(centerX: number, startY: number) {

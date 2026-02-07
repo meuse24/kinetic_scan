@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 
-const WINDOW_SIZE = 120; // ~2 seconds at 60 FPS
-const FPS_THRESHOLD = 55;
+const WINDOW_SIZE = 60; // ~1 second at 60 FPS
+const FPS_THRESHOLD = 50;
+const CRITICAL_FPS = 30;
+const EARLY_SAMPLE_COUNT = 20;
 
 export const QualityLevel = {
   FULL: 4,
@@ -19,6 +21,8 @@ export class PerformanceMonitor {
   private stabilizing = false;
   private stabilizeCount = 0;
   private done = false;
+  private initialized = false;
+  private totalFrames = 0;
 
   qualityLevel: QualityLevel = QualityLevel.FULL;
   reflectionEnabled = true;
@@ -26,41 +30,39 @@ export class PerformanceMonitor {
   smokeEnabled = true;
   crtEnabled = true;
 
-  /** Call once during scene create to set initial flags based on device capabilities. */
+  /** Call once to set initial flags based on device capabilities. Subsequent calls are no-ops. */
   init(game: Phaser.Game) {
+    if (this.initialized) return;
+    this.initialized = true;
+
     const isDesktop = game.device.os.desktop;
     const isWebGL = game.renderer.type === Phaser.WEBGL;
 
     if (isDesktop && isWebGL) {
-      // Start with everything on; the monitor will degrade if needed
       this.qualityLevel = QualityLevel.FULL;
-      this.reflectionEnabled = true;
-      this.crtHighEndEnabled = true;
-      this.smokeEnabled = true;
-      this.crtEnabled = true;
+      this.applyLevel();
       this.done = false;
     } else {
       // Mobile / canvas: minimal VFX, no monitoring needed
       this.qualityLevel = QualityLevel.NO_CRT;
-      this.reflectionEnabled = false;
-      this.crtHighEndEnabled = false;
-      this.smokeEnabled = false;
+      this.applyLevel();
       this.crtEnabled = isWebGL; // CRT shader still works on mobile WebGL
       this.done = true;
     }
-
-    this.samples = [];
-    this.sampleIndex = 0;
-    this.bufferFull = false;
-    this.stabilizing = false;
-    this.stabilizeCount = 0;
   }
 
-  /** Call every frame from the main scene update. */
+  /** Call every frame from a scene update. Returns true if quality flags changed. */
   update(game: Phaser.Game): boolean {
+    if (!this.initialized) this.init(game);
     if (this.done) return false;
 
     const fps = game.loop.actualFps;
+    this.totalFrames++;
+
+    // Fast path: if FPS is critically low in the first few frames, skip multiple levels
+    if (this.totalFrames <= EARLY_SAMPLE_COUNT && fps > 0 && fps < CRITICAL_FPS) {
+      return this.dropToLevel(QualityLevel.NO_SMOKE);
+    }
 
     // Write into circular buffer
     if (this.samples.length < WINDOW_SIZE) {
@@ -83,7 +85,6 @@ export class PerformanceMonitor {
       if (this.stabilizeCount >= WINDOW_SIZE) {
         this.stabilizing = false;
         this.stabilizeCount = 0;
-        // Clear buffer so we get a fresh measurement
         this.bufferFull = false;
         this.samples = [];
         this.sampleIndex = 0;
@@ -114,7 +115,6 @@ export class PerformanceMonitor {
     this.qualityLevel--;
     this.applyLevel();
 
-    // Enter stabilization period
     this.stabilizing = true;
     this.stabilizeCount = 0;
 
@@ -122,7 +122,27 @@ export class PerformanceMonitor {
       this.done = true;
     }
 
-    return true; // flag changed
+    return true;
+  }
+
+  /** Jump directly to a specific level (for fast degradation). */
+  private dropToLevel(target: QualityLevel): boolean {
+    if (this.qualityLevel <= target) return false;
+    this.qualityLevel = target;
+    this.applyLevel();
+
+    // Reset sampling after a big jump
+    this.stabilizing = true;
+    this.stabilizeCount = 0;
+    this.bufferFull = false;
+    this.samples = [];
+    this.sampleIndex = 0;
+
+    if (this.qualityLevel <= QualityLevel.NO_CRT) {
+      this.done = true;
+    }
+
+    return true;
   }
 
   private applyLevel() {

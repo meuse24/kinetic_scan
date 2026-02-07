@@ -3,6 +3,7 @@ import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 import MainScene from './MainScene';
 import { soundManager } from './SoundManager';
 import { DEFAULT_VOLUME } from './AudioManager';
+import { performanceMonitor } from './PerformanceMonitor';
 
 export default class PauseScene extends Phaser.Scene {
   private soundText!: Phaser.GameObjects.Text;
@@ -21,7 +22,10 @@ export default class PauseScene extends Phaser.Scene {
     }
     this.scene.bringToTop('BezelScene');
 
-    if (this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
+    if (
+      performanceMonitor.crtEnabled &&
+      this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
+    ) {
       this.cameras.main.setPostPipeline('CRTPipeline');
     }
 

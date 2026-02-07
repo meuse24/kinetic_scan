@@ -20,7 +20,10 @@ export default class BezelScene extends Phaser.Scene {
     this.reflectionMaskGraphics = this.add.graphics();
     this.reflectionMaskGraphics.setVisible(false);
 
-    this.useReflection = this.game.device.os.desktop && this.game.renderer.type === Phaser.WEBGL;
+    this.useReflection =
+      performanceMonitor.reflectionEnabled &&
+      this.game.device.os.desktop &&
+      this.game.renderer.type === Phaser.WEBGL;
 
     if (this.useReflection) {
       this.reflectionRT = this.add.renderTexture(0, 0, GAME_WIDTH, GAME_HEIGHT);

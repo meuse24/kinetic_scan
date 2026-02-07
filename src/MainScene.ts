@@ -146,6 +146,7 @@ export default class MainScene extends Phaser.Scene {
     this.useHighEndVFX =
       this.sys.game.device.os.desktop && this.game.renderer.type === Phaser.WEBGL;
     performanceMonitor.init(this.game);
+    this.useHighEndVFX = this.useHighEndVFX && performanceMonitor.smokeEnabled;
     if (this.game.renderer.type === Phaser.WEBGL) {
       const gl = (this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl;
       const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
@@ -195,7 +196,10 @@ export default class MainScene extends Phaser.Scene {
     );
 
     // Apply CRT Shader Pipeline
-    if (this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
+    if (
+      performanceMonitor.crtEnabled &&
+      this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
+    ) {
       this.cameras.main.setPostPipeline('CRTPipeline');
     }
 
