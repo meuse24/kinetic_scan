@@ -1,5 +1,43 @@
 import Phaser from 'phaser';
-import { config } from './gameConfig';
+import { config, recalculateDimensions, GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 import './style.css';
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+let resizeTimeout: number | undefined;
+
+function handleResize() {
+  clearTimeout(resizeTimeout);
+  resizeTimeout = window.setTimeout(() => {
+    if (!recalculateDimensions()) return;
+
+    // During gameplay, defer resize to the next scene transition.
+    // Scale.FIT keeps visuals acceptable in the meantime.
+    if (game.scene.isActive('MainScene')) return;
+
+    game.scale.resize(GAME_WIDTH, GAME_HEIGHT);
+
+    // Stop overlay scenes
+    if (game.scene.isActive('PauseScene')) game.scene.stop('PauseScene');
+    if (game.scene.isActive('HelpScene')) game.scene.stop('HelpScene');
+
+    // Restart the bezel
+    if (game.scene.isActive('BezelScene')) {
+      game.scene.stop('BezelScene');
+      game.scene.start('BezelScene');
+    }
+
+    // Restart the active content scene
+    const contentScenes = ['AttractScene', 'GameOverScene'] as const;
+    for (const key of contentScenes) {
+      if (game.scene.isActive(key)) {
+        game.scene.stop(key);
+        game.scene.start(key);
+        break;
+      }
+    }
+  }, 250);
+}
+
+window.addEventListener('resize', handleResize);
+document.addEventListener('fullscreenchange', handleResize);

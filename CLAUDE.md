@@ -19,8 +19,8 @@ All game graphics are procedurally generated at runtime via Phaser's `Graphics.g
 ## Architecture
 
 ### Entry Point & Config
-- `src/main.ts` — Creates the `Phaser.Game` instance using config from `gameConfig.ts`
-- `src/gameConfig.ts` — Phaser config with dynamic viewport: `GAME_WIDTH`/`GAME_HEIGHT` are calculated at startup based on screen aspect ratio. Desktop uses 1000 units on the short axis, mobile uses 600 (so objects appear larger on small screens). Uses `Phaser.Scale.FIT` to fill the screen without black bars.
+- `src/main.ts` — Creates the `Phaser.Game` instance using config from `gameConfig.ts`. Registers a debounced (250 ms) handler on `resize` and `fullscreenchange` that recalculates dimensions and restarts non-gameplay scenes. During `MainScene`, resize is deferred to the next scene transition.
+- `src/gameConfig.ts` — Phaser config with dynamic viewport: `GAME_WIDTH`/`GAME_HEIGHT` (mutable `let` exports) are computed from `window.innerWidth/innerHeight`. Desktop uses 1000 units on the short axis, mobile uses 600 (so objects appear larger on small screens). Uses `Phaser.Scale.FIT` to fill the screen without black bars. Exports `recalculateDimensions()` to recompute from current window size and `applyPendingResize(game)` to apply deferred resizes at scene transitions.
 
 ### Scene Flow
 Scenes are Phaser's unit of game state. The game flows: **AttractScene** (title/menu) -> **MainScene** (gameplay) -> **GameOverScene** -> back to AttractScene. **PauseScene** and **HelpScene** overlay during gameplay. **BezelScene** runs as a persistent overlay providing a CRT monitor bezel frame.

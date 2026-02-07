@@ -12,11 +12,39 @@ export const IS_TOUCH = !window.matchMedia('(pointer: fine)').matches;
 // Dynamic game dimensions based on screen aspect ratio.
 // Mobile uses a smaller base (600) so game objects appear larger on small screens.
 // Desktop uses 1000 as the base on the short axis.
-const aspect = window.innerWidth / window.innerHeight;
 const BASE_SIZE = IS_TOUCH ? 600 : 1000;
 
-export const GAME_WIDTH = aspect >= 1 ? Math.round(BASE_SIZE * aspect) : BASE_SIZE;
-export const GAME_HEIGHT = aspect >= 1 ? BASE_SIZE : Math.round(BASE_SIZE / aspect);
+function computeDimensions() {
+  const aspect = window.innerWidth / window.innerHeight;
+  return {
+    width: aspect >= 1 ? Math.round(BASE_SIZE * aspect) : BASE_SIZE,
+    height: aspect >= 1 ? BASE_SIZE : Math.round(BASE_SIZE / aspect),
+  };
+}
+
+const initial = computeDimensions();
+export let GAME_WIDTH = initial.width;
+export let GAME_HEIGHT = initial.height;
+
+let _resizePending = false;
+
+/** Recompute GAME_WIDTH/GAME_HEIGHT from current window size. Returns true if values changed. */
+export function recalculateDimensions(): boolean {
+  const { width, height } = computeDimensions();
+  if (width === GAME_WIDTH && height === GAME_HEIGHT) return false;
+  GAME_WIDTH = width;
+  GAME_HEIGHT = height;
+  _resizePending = true;
+  return true;
+}
+
+/** If a resize is pending, apply it to the game's scale manager and clear the flag. Returns true if applied. */
+export function applyPendingResize(game: Phaser.Game): boolean {
+  if (!_resizePending) return false;
+  _resizePending = false;
+  game.scale.resize(GAME_WIDTH, GAME_HEIGHT);
+  return true;
+}
 
 export const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,

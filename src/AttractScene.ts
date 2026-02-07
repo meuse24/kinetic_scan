@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
+import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize } from './gameConfig';
 import { AudioManager, DEFAULT_VOLUME } from './AudioManager';
 import { creditManager } from './CreditManager';
 import { EnemyManager } from './EnemyManager';
 import { soundManager } from './SoundManager';
 import { UFO } from './UFO';
 import { PowerUp, PowerUpType } from './PowerUp';
+import { performanceMonitor } from './PerformanceMonitor';
 
 type PlayerButton = {
   requiredCredits: number;
@@ -37,6 +38,12 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   create() {
+    if (applyPendingResize(this.game)) {
+      if (this.scene.isActive('BezelScene')) {
+        this.scene.stop('BezelScene');
+      }
+    }
+
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
@@ -171,6 +178,13 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
+    performanceMonitor.update(this.game);
+    if (
+      !performanceMonitor.crtEnabled &&
+      this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
+    ) {
+      this.cameras.main.removePostPipeline('CRTPipeline');
+    }
     this.enemyManager.update(time, delta);
     this.applyEnemyDepth(5);
     this.demoSplitTimer += delta;
@@ -471,8 +485,10 @@ export default class AttractScene extends Phaser.Scene {
       letterSpacing,
     });
     textObj.setOrigin(0.5);
-    textObj.initPostPipeline(true);
-    textObj.preFX?.addGlow(0xffffff, glowStrength, 0, false);
+    if (performanceMonitor.crtEnabled) {
+      textObj.initPostPipeline(true);
+      textObj.preFX?.addGlow(0xffffff, glowStrength, 0, false);
+    }
     return textObj;
   }
 }

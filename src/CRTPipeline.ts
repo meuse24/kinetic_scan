@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { performanceMonitor } from './PerformanceMonitor';
 
 const fragShader = `
 precision mediump float;
@@ -64,6 +65,6 @@ export default class CRTPipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXP
   onPreRender() {
     this.set1f('uTime', this.game.loop.time / 1000);
     this.set2f('uResolution', this.renderer.width, this.renderer.height);
-    this.set1i('uHighEnd', this.game.device.os.desktop ? 1 : 0);
+    this.set1i('uHighEnd', performanceMonitor.crtHighEndEnabled ? 1 : 0);
   }
 }

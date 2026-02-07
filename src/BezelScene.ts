@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
+import { performanceMonitor } from './PerformanceMonitor';
 
 export default class BezelScene extends Phaser.Scene {
   private frameGraphics!: Phaser.GameObjects.Graphics;
@@ -42,6 +43,16 @@ export default class BezelScene extends Phaser.Scene {
 
   update() {
     if (!this.useReflection || !this.reflectionRT) return;
+
+    // Performance monitor disabled reflection — tear down the RenderTexture
+    if (!performanceMonitor.reflectionEnabled) {
+      this.reflectionRT.clear();
+      this.reflectionRT.destroy();
+      this.reflectionRT = null;
+      this.useReflection = false;
+      return;
+    }
+
     const mainScene = this.scene.get('MainScene');
     if (!mainScene || !mainScene.scene.isActive()) {
       this.reflectionRT.clear();

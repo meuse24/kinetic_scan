@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { AudioManager } from './AudioManager';
 import { creditManager } from './CreditManager';
-import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
+import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize } from './gameConfig';
 
 interface GameOverData {
   score?: number;
@@ -67,6 +67,12 @@ export default class GameOverScene extends Phaser.Scene {
   }
 
   create() {
+    if (applyPendingResize(this.game)) {
+      if (this.scene.isActive('BezelScene')) {
+        this.scene.stop('BezelScene');
+      }
+    }
+
     const centerX = GAME_WIDTH / 2;
     const centerY = GAME_HEIGHT / 2;
 

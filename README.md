@@ -17,8 +17,9 @@
 ### Advanced Systems
 - **Universal Input:** Play with Keyboard, Mouse, or Touch. 
 - **Adaptive Layout:**
-  - **Desktop:** Optimized 1000x1000 field.
-  - **Mobile:** Extended 1000x1333 layout with a dedicated "Touchpad" area at the bottom for unobstructed gameplay.
+  - **Desktop:** Optimized 1000-unit base on the short axis, aspect-ratio-aware.
+  - **Mobile:** 600-unit base so game objects appear larger on small screens.
+  - **Dynamic Viewport:** Dimensions recalculate automatically on browser resize, device rotation, and fullscreen transitions. During gameplay, resize is deferred to the next scene transition to avoid disrupting play.
 - **Synthetic Audio:** Pure Web Audio API generated sounds — no external assets required.
 - **Power-up System:** 8 unique power-ups including EMP Waves, Black Holes, Triple Shot, and Homing Missiles.
 - **Multiplayer:** Authentic turn-based 2-player mode.

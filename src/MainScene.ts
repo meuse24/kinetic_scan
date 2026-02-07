@@ -6,7 +6,8 @@ import { AudioManager } from './AudioManager';
 import { UFO } from './UFO';
 import { PowerUpDirector } from './PowerUpDirector';
 import { PowerUp, PowerUpType } from './PowerUp';
-import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
+import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize } from './gameConfig';
+import { performanceMonitor } from './PerformanceMonitor';
 
 interface PlayerState {
   score: number;
@@ -102,6 +103,12 @@ export default class MainScene extends Phaser.Scene {
   }
 
   create() {
+    if (applyPendingResize(this.game)) {
+      if (this.scene.isActive('BezelScene')) {
+        this.scene.stop('BezelScene');
+      }
+    }
+
     this.audio = new AudioManager(this);
     this.isGameOver = false;
     this.isSwitching = false;
@@ -136,6 +143,7 @@ export default class MainScene extends Phaser.Scene {
 
     this.useHighEndVFX =
       this.sys.game.device.os.desktop && this.game.renderer.type === Phaser.WEBGL;
+    performanceMonitor.init(this.game);
     if (this.game.renderer.type === Phaser.WEBGL) {
       const gl = (this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl;
       const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
@@ -214,12 +222,27 @@ export default class MainScene extends Phaser.Scene {
     this.enemyManager.update(time, delta);
     this.powerUpDirector.update(this.score, delta);
 
+    const flagChanged = performanceMonitor.update(this.game);
+    if (flagChanged) {
+      if (!performanceMonitor.smokeEnabled && this.smokeEmitter) {
+        this.smokeEmitter.destroy();
+        this.smokeEmitter = null;
+      }
+      if (
+        !performanceMonitor.crtEnabled &&
+        this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
+      ) {
+        this.cameras.main.removePostPipeline('CRTPipeline');
+      }
+      this.useHighEndVFX = performanceMonitor.smokeEnabled && this.useHighEndVFX;
+    }
+
     let renderer = 'UNKNOWN';
     if (this.game.renderer.type === Phaser.WEBGL) renderer = 'WEBGL';
     else if (this.game.renderer.type === Phaser.CANVAS) renderer = 'CANVAS';
     else if (this.game.renderer.type === (Phaser as any).WEBGPU) renderer = 'WEBGPU';
     this.debugText.setText(
-      `${renderer}${this.gpuName ? ` | ${this.gpuName}` : ''} | ${Math.round(this.game.loop.actualFps)} FPS`,
+      `${renderer}${this.gpuName ? ` | ${this.gpuName}` : ''} | ${Math.round(this.game.loop.actualFps)} FPS | ${performanceMonitor.getQualityLabel()}`,
     );
 
     if (!this.ufo.active) {
