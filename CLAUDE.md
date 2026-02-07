@@ -35,7 +35,7 @@ Scenes are Phaser's unit of game state. The game flows: **AttractScene** (title/
 ### Game Entities
 - `src/Player.ts` — `Player` class (ship movement, input handling for keyboard/mouse/touch, heat system) and `Bullet` class. All textures generated procedurally.
 - `src/EnemyManager.ts` — `Enemy` (asteroid) class and `EnemyManager` that handles spawning, fragmentation on destroy, and difficulty scaling
-- `src/UFO.ts` — UFO enemy with sine-wave movement and procedural hexagon texture
+- `src/UFO.ts` — UFO enemy with two variants: `scout` (single-hit, sine-wave movement) and `boss` (multi-hit with segmented energy bar, phase-based attack patterns, dodge AI). Both drawn procedurally with animated tentacles, hull, and antenna
 
 ### Systems
 - `src/PowerUp.ts` — `PowerUp` sprite class and `PowerUpType` enum (TRIPLE_SHOT, SLOW_MOTION, SHIELD, EMP_WAVE, GHOST_PHASE, WINGMAN_DRONES, BLACK_HOLE)
@@ -53,3 +53,7 @@ Scenes are Phaser's unit of game state. The game flows: **AttractScene** (title/
 - Unused function parameters use `_` prefix (enforced by `argsIgnorePattern: '^_'`)
 - Prettier: single quotes, trailing commas, semicolons, 100 char print width, 2-space indent
 - Singletons use module-level exported instances (e.g., `export const soundManager`, `export const creditManager`)
+
+## Known Pitfalls
+
+- **Phaser 3 overlap callback argument order**: In Phaser 3.90, `physics.add.overlap(group, sprite, callback)` does NOT guarantee `obj1` = group member and `obj2` = sprite. Always use identity checks: `const bullet = (obj1 === this.ufo ? obj2 : obj1) as Bullet;`

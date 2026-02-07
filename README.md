@@ -8,8 +8,8 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 - Phaser 3 game loop with Arcade Physics and responsive viewport scaling.
 - Difficulty presets: `EASY`, `NORMAL`, `HARD` (affects enemies, drops, UFO pressure, and level curve).
 - Two UFO variants:
-  - `Scout`: light pressure, occasional aimed shots.
-  - `Boss`: own silhouette, multi-phase behavior, dodge AI, multi-hit energy system.
+  - `Scout`: light pressure, occasional aimed shots, single-hit destroy.
+  - `Boss`: procedural animated silhouette with tentacles, 3-phase escalation (attack patterns intensify as health drops), dodge AI that reads incoming bullet trajectories, multi-hit energy bar with segmented display and hit-count label.
 - Level progression with transition overlay between levels (`LEVEL N`, `3, 2, 1, GO!`).
 - Mandatory boss phase at level end before level can advance.
 - Dynamic bullet-pressure controls:
@@ -80,7 +80,7 @@ Automation helpers are exposed on `window`:
 - `src/main.ts`: entry + automation hooks.
 - `src/gameConfig.ts`: renderer/scaling configuration.
 - `src/MainScene.ts`: core gameplay loop (player, enemies, level/boss flow, overlays).
-- `src/UFO.ts`: scout/boss UFO logic, visuals, projectiles.
+- `src/UFO.ts`: scout/boss UFO logic, procedural visuals (animated tentacles, hull, energy bar), projectile volleys.
 - `src/Player.ts`: player movement/fire/heat + visual indicators.
 - `src/EnemyManager.ts`: asteroid spawning/splitting/difficulty scaling.
 - `src/PowerUpDirector.ts`: drop logic and support triggers.
@@ -92,5 +92,6 @@ Automation helpers are exposed on `window`:
 - Difficulty switch persists and affects pacing.
 - Level transition overlay appears (`3, 2, 1, GO!`).
 - Boss appears at level end and requires multiple hits.
-- Boss energy bar is shown directly on the boss UFO and decreases on hits.
+- Boss energy bar is shown directly on the boss UFO and decreases on hits (segmented bar + "TREFFER N" label).
+- Boss hit-flash and damage-drain animation visible on each hit.
 - Scout/Boss destruction uses full explosion and cleanup without freeze states.

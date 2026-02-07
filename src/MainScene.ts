@@ -1160,8 +1160,8 @@ export default class MainScene extends Phaser.Scene {
     powerUp.deactivate();
   }
 
-  private handleBulletHitUFO(obj1: any, _obj2: any) {
-    const bullet = obj1 as Bullet;
+  private handleBulletHitUFO(obj1: any, obj2: any) {
+    const bullet = (obj1 === this.ufo ? obj2 : obj1) as Bullet;
     if (!this.ufo.active || !bullet.active) return;
 
     const ufoX = this.ufo.x;
@@ -1310,8 +1310,8 @@ export default class MainScene extends Phaser.Scene {
     });
   }
 
-  private handlePlayerHitUFOProjectile(_obj1: any, obj2: any) {
-    const shot = obj2 as UFOProjectile;
+  private handlePlayerHitUFOProjectile(obj1: any, obj2: any) {
+    const shot = (obj1 === this.player ? obj2 : obj1) as UFOProjectile;
     if (!shot.active) return;
     const hitX = shot.x;
     const hitY = shot.y;
