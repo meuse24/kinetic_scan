@@ -954,3 +954,18 @@ TODOs for next agent
 - `npx tsc --noEmit` pass (zero errors).
 - `npm run lint` pass (zero errors for src/).
 - All 8 features compile and lint clean.
+
+## 2026-02-08 - UX polish: readability improvements
+
+- Score popup readability:
+  - Duration increased from 650ms to 1400ms with 35% hold phase at full opacity before fade-out.
+  - Font size increased from 11px to 13px.
+  - Rise distance increased from 36px to 48px.
+- Level score requirements doubled:
+  - Formula changed from `3400 + ramp*1700 + ramp^1.28*520` to `6800 + ramp*3200 + ramp^1.28*900`.
+  - Level 1 Normal: 3400 → 6800, Level 5 Normal: ~12400 → ~23500.
+- Perk selection card readability:
+  - Card size increased from 200×240 to 240×280.
+  - All text elements enlarged (icon 36→44px, name 11→14px, description 9→11px, key hints 14→18px).
+  - Title and subtitle enlarged and repositioned.
+- Validation: `npx tsc --noEmit` pass, `npm run build` pass.

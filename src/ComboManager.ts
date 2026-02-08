@@ -102,15 +102,33 @@ export class ComboManager {
       .setVisible(true)
       .setColor(color);
 
+    const totalMs = COMBO_TUNING.popupDurationMs;
+    const holdMs = Math.round(totalMs * COMBO_TUNING.popupHoldRatio);
+    const fadeMs = totalMs - holdMs;
+
     entry.tween = this.scene.tweens.add({
       targets: entry.text,
       y: y - COMBO_TUNING.popupRiseY,
-      alpha: 0,
-      duration: COMBO_TUNING.popupDurationMs,
+      duration: totalMs,
       ease: 'Sine.easeOut',
+    });
+
+    // Hold at full alpha, then fade out
+    this.scene.tweens.add({
+      targets: entry.text,
+      alpha: 1,
+      duration: holdMs,
       onComplete: () => {
-        entry.text.setVisible(false);
-        entry.tween = null;
+        this.scene.tweens.add({
+          targets: entry.text,
+          alpha: 0,
+          duration: fadeMs,
+          ease: 'Sine.easeIn',
+          onComplete: () => {
+            entry.text.setVisible(false);
+            entry.tween = null;
+          },
+        });
       },
     });
   }

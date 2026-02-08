@@ -37,9 +37,9 @@ export default class PerkSelectScene extends Phaser.Scene {
 
     // Title
     this.add
-      .text(centerX, centerY - 200, `LEVEL ${level} PERK`, {
+      .text(centerX, centerY - 220, `LEVEL ${level} PERK`, {
         fontFamily: '"Press Start 2P"',
-        fontSize: '28px',
+        fontSize: '32px',
         color: '#ffdd00',
         stroke: '#000000',
         strokeThickness: 4,
@@ -47,9 +47,9 @@ export default class PerkSelectScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .text(centerX, centerY - 160, 'CHOOSE AN UPGRADE', {
+      .text(centerX, centerY - 175, 'CHOOSE AN UPGRADE', {
         fontFamily: '"Press Start 2P"',
-        fontSize: '14px',
+        fontSize: '16px',
         color: '#aaaaaa',
       })
       .setOrigin(0.5);
@@ -64,8 +64,8 @@ export default class PerkSelectScene extends Phaser.Scene {
     }
 
     // Render cards
-    const cardWidth = 200;
-    const cardHeight = 240;
+    const cardWidth = 240;
+    const cardHeight = 280;
     const cardGap = 24;
     const totalWidth = this.choices.length * cardWidth + (this.choices.length - 1) * cardGap;
     const startX = centerX - totalWidth / 2 + cardWidth / 2;
@@ -82,31 +82,31 @@ export default class PerkSelectScene extends Phaser.Scene {
 
       // Icon
       this.add
-        .text(cx, cy - 80, perk.icon, {
+        .text(cx, cy - 95, perk.icon, {
           fontFamily: '"Press Start 2P"',
-          fontSize: '36px',
+          fontSize: '44px',
           color: perk.color,
         })
         .setOrigin(0.5);
 
       // Name
       this.add
-        .text(cx, cy - 30, perk.name, {
+        .text(cx, cy - 35, perk.name, {
           fontFamily: '"Press Start 2P"',
-          fontSize: '11px',
+          fontSize: '14px',
           color: '#ffffff',
-          wordWrap: { width: cardWidth - 20 },
+          wordWrap: { width: cardWidth - 24 },
           align: 'center',
         })
         .setOrigin(0.5);
 
       // Description
       this.add
-        .text(cx, cy + 10, perk.description, {
+        .text(cx, cy + 15, perk.description, {
           fontFamily: '"Press Start 2P"',
-          fontSize: '9px',
+          fontSize: '11px',
           color: '#cccccc',
-          wordWrap: { width: cardWidth - 20 },
+          wordWrap: { width: cardWidth - 24 },
           align: 'center',
         })
         .setOrigin(0.5);
@@ -115,9 +115,9 @@ export default class PerkSelectScene extends Phaser.Scene {
       if (perk.maxStacks > 1) {
         const stackLabel = `${currentStacks}/${perk.maxStacks}`;
         this.add
-          .text(cx, cy + 45, stackLabel, {
+          .text(cx, cy + 60, stackLabel, {
             fontFamily: '"Press Start 2P"',
-            fontSize: '10px',
+            fontSize: '12px',
             color: '#888888',
           })
           .setOrigin(0.5);
@@ -125,9 +125,9 @@ export default class PerkSelectScene extends Phaser.Scene {
 
       // Key hint
       this.add
-        .text(cx, cy + 90, `[${i + 1}]`, {
+        .text(cx, cy + 105, `[${i + 1}]`, {
           fontFamily: '"Press Start 2P"',
-          fontSize: '14px',
+          fontSize: '18px',
           color: '#ffff88',
         })
         .setOrigin(0.5);

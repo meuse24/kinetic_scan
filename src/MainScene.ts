@@ -3940,7 +3940,7 @@ export default class MainScene extends Phaser.Scene {
 
   private getNextLevelScore(level: number) {
     const ramp = Math.max(0, level - 1);
-    const requirement = 3400 + ramp * 1700 + Math.pow(ramp, 1.28) * 520;
+    const requirement = 6800 + ramp * 3200 + Math.pow(ramp, 1.28) * 900;
     return Math.round(requirement * this.difficultyPreset.levelCurveScale);
   }
 

@@ -217,9 +217,10 @@ export const COMBO_TUNING = {
     { minKills: 15, multiplier: 8, color: '#ff00ff', hudColor: '#ff00ff' },
   ],
   popupPoolSize: 20,
-  popupRiseY: 36,
-  popupDurationMs: 650,
-  popupFontSize: 11,
+  popupRiseY: 48,
+  popupDurationMs: 1400,
+  popupHoldRatio: 0.35,
+  popupFontSize: 13,
   popupDepth: 141,
 } as const;
 
