@@ -24,11 +24,12 @@ Audio is hybrid:
 ### Entry Point & Config
 
 - `src/main.ts` — Creates the `Phaser.Game` instance using config from `gameConfig.ts`. Registers a debounced (250 ms) handler on `resize` and `fullscreenchange` that recalculates dimensions and restarts non-gameplay scenes. During `MainScene`, resize is deferred to the next scene transition.
-- `src/gameConfig.ts` — Phaser config with dynamic viewport: `GAME_WIDTH`/`GAME_HEIGHT` (mutable `let` exports) are computed from `window.innerWidth/innerHeight`. Desktop uses 1000 units on the short axis, mobile uses 600 (so objects appear larger on small screens). Uses `Phaser.Scale.FIT` to fill the screen without black bars. Exports `recalculateDimensions()` to recompute from current window size and `applyPendingResize(game)` to apply deferred resizes at scene transitions.
+- `src/gameConfig.ts` — Phaser config with dynamic viewport: `GAME_WIDTH`/`GAME_HEIGHT` (mutable `let` exports) are computed from `window.innerWidth/innerHeight`. Desktop uses 1000 units on the short axis, mobile uses 600 (so objects appear larger on small screens). Uses `Phaser.Scale.FIT` to fill the screen without black bars. Exports `recalculateDimensions()` to recompute from current window size and `applyPendingResize(game)` to apply deferred resizes at scene transitions. Build-time alias maps `phaser` to `phaser/dist/phaser-arcade-physics.min.js` to keep the engine chunk smaller while preserving Arcade Physics.
+- `src/BootScene.ts` — Boot/title scene that now lazy-loads runtime gameplay scenes (`MainScene`, `PauseScene`, `HelpScene`, `GameOverScene`) on first start to reduce initial JS payload.
 
 ### Scene Flow
 
-Scenes are Phaser's unit of game state. The game flows: **AttractScene** (title/menu) -> **MainScene** (gameplay) -> **GameOverScene** -> back to AttractScene. **PauseScene** and **HelpScene** overlay during gameplay. **BezelScene** runs as a persistent overlay providing a CRT monitor bezel frame.
+Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/lazy-loader) -> **AttractScene** (title/menu) -> **MainScene** (gameplay) -> **GameOverScene** -> back to AttractScene. **PauseScene** and **HelpScene** overlay during gameplay. **BezelScene** runs as a persistent overlay providing a CRT monitor bezel frame.
 
 - `src/AttractScene.ts` — Title screen with attract-mode demo, credit system, 1P/2P start buttons, high scores, and occasional demo UFO shots
 - `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, 2-player turn switching, debug/test bunker trigger (`B` or double-click/double-tap when inactive)

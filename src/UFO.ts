@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { AudioManager } from './AudioManager';
 import { getDifficultyPreset } from './Difficulty';
 import type { DifficultyPreset } from './Difficulty';
+import { JUICE_TUNING } from './MainSceneTuning';
 
 export type UFOVariant = 'scout' | 'boss';
 
@@ -87,6 +88,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
   private combatTarget: Phaser.Physics.Arcade.Sprite | null = null;
   private projectiles: Phaser.Physics.Arcade.Group | null = null;
   private nextShotAt: number = 0;
+  private pendingBossVolleyAt: number = 0;
+  private bossTelegraphUntil: number = 0;
   private shootFlashUntil: number = 0;
   private hitFlashUntil: number = 0;
   private travelDir: number = 1;
@@ -232,6 +235,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.bossPhase = 1;
     this.hitFlashUntil = 0;
     this.shootFlashUntil = 0;
+    this.pendingBossVolleyAt = 0;
+    this.bossTelegraphUntil = 0;
     this.displayHitPoints = 1;
     this.visualRefreshAccumulatorMs = 0;
     this.forceVisualRefresh = true;
@@ -377,6 +382,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.bossHitsText.setVisible(false);
     this.bossHitsLabelCache = '';
     this.bossHitsColorCache = '#ffffff';
+    this.pendingBossVolleyAt = 0;
+    this.bossTelegraphUntil = 0;
     this.visualRefreshAccumulatorMs = 0;
     this.forceVisualRefresh = true;
     this.dodgeRefreshMs = 0;
@@ -686,6 +693,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.bossHitsText.setVisible(true);
 
     this.drawCannonGlow(g, time, [x - 22, x + 22], y + 22, phase === 3 ? 0xff7f7f : 0xffb2ff);
+    this.drawBossTelegraph(g, time, phase);
 
     if (time < this.hitFlashUntil) {
       g.lineStyle(3, 0xffffff, 0.92);
@@ -745,16 +753,77 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
+  private getBossTelegraphLeadMs(phase: 1 | 2 | 3) {
+    const difficultyScale = JUICE_TUNING.bossTelegraphLeadScale[this.preset.key];
+    if (this.reducedVisualDetail) {
+      const base = phase === 3 ? 84 : phase === 2 ? 98 : 112;
+      return Math.round(base * difficultyScale);
+    }
+    const base = phase === 3 ? 104 : phase === 2 ? 122 : 138;
+    return Math.round(base * difficultyScale);
+  }
+
+  private scheduleBossTelegraph(time: number, phase: 1 | 2 | 3) {
+    const leadMs = this.getBossTelegraphLeadMs(phase);
+    this.pendingBossVolleyAt = time + leadMs;
+    this.bossTelegraphUntil = this.pendingBossVolleyAt;
+    this.forceVisualRefresh = true;
+  }
+
+  private drawBossTelegraph(g: Phaser.GameObjects.Graphics, time: number, phase: 1 | 2 | 3) {
+    if (time >= this.bossTelegraphUntil) return;
+    const leadMs = this.getBossTelegraphLeadMs(phase);
+    const remaining = Phaser.Math.Clamp(
+      (this.bossTelegraphUntil - time) / Math.max(1, leadMs),
+      0,
+      1,
+    );
+    const pulse = 0.5 + Math.sin(time * 0.055) * 0.5;
+    const color = phase === 3 ? 0xff6de0 : phase === 2 ? 0xffab66 : 0x8cf8ff;
+    const baseRadius = phase === 3 ? 54 : phase === 2 ? 50 : 46;
+    const radius = baseRadius + (1 - remaining) * (phase === 3 ? 24 : 20);
+    const diffAlpha = JUICE_TUNING.bossTelegraphAlphaScale[this.preset.key];
+    const alpha = Phaser.Math.Clamp(
+      (0.16 + pulse * 0.24 + (1 - remaining) * 0.34) * diffAlpha,
+      0,
+      0.92,
+    );
+    const y = this.y + 20;
+
+    g.lineStyle(3, color, alpha);
+    g.strokeCircle(this.x, y, radius);
+    g.lineStyle(2, color, alpha * 0.75);
+    g.strokeCircle(this.x, y, radius * 0.72);
+  }
+
   private tryShoot(time: number) {
     if (!this.combatEnabled || !this.projectiles || !this.combatTarget) return;
     if (!this.combatTarget.active || !this.combatTarget.body) return;
-    if (time < this.nextShotAt) return;
-
     if (this.variant === 'boss') {
-      this.fireBossVolley(time);
-    } else {
-      this.fireScoutShot(time);
+      if (this.pendingBossVolleyAt > 0) {
+        if (time < this.pendingBossVolleyAt) return;
+        this.pendingBossVolleyAt = 0;
+        this.bossTelegraphUntil = 0;
+        this.fireBossVolley(time);
+        return;
+      }
+      if (time < this.nextShotAt) return;
+      const phase = this.resolveBossPhase();
+      const activeCap = phase === 3 ? 16 : phase === 2 ? 13 : 10;
+      if (this.projectiles.countActive(true) >= activeCap) {
+        this.nextShotAt = time + Phaser.Math.Between(1100, 1700);
+        return;
+      }
+      const skipChance = phase === 3 ? 26 : phase === 2 ? 34 : 42;
+      if (Phaser.Math.Between(0, 99) < skipChance) {
+        this.nextShotAt = time + Phaser.Math.Between(900, 1450);
+        return;
+      }
+      this.scheduleBossTelegraph(time, phase);
+      return;
     }
+    if (time < this.nextShotAt) return;
+    this.fireScoutShot(time);
   }
 
   private fireScoutShot(time: number) {
@@ -793,16 +862,6 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
   private fireBossVolley(time: number) {
     if (!this.combatTarget?.body || !this.projectiles) return;
     const phase = this.resolveBossPhase();
-    const activeCap = phase === 3 ? 16 : phase === 2 ? 13 : 10;
-    if (this.projectiles.countActive(true) >= activeCap) {
-      this.nextShotAt = time + Phaser.Math.Between(1100, 1700);
-      return;
-    }
-    const skipChance = phase === 3 ? 26 : phase === 2 ? 34 : 42;
-    if (Phaser.Math.Between(0, 99) < skipChance) {
-      this.nextShotAt = time + Phaser.Math.Between(900, 1450);
-      return;
-    }
 
     const target = this.combatTarget;
     const targetBody = target.body as Phaser.Physics.Arcade.Body;

@@ -21,6 +21,7 @@ import {
   BACKGROUND_DECOR_TUNING,
   EARLY_LEVEL_TUNING,
   ELITE_DRONE_TUNING,
+  JUICE_TUNING,
   LEVEL_TRANSITION_TUNING,
   SHIELD_BUNKER_TUNING,
   SPAWN_PROTECTION_TUNING,
@@ -57,6 +58,15 @@ interface BackgroundDecorState {
   vx: number;
   vy: number;
   spin: number;
+}
+
+interface NebulaLayerState {
+  sprite: Phaser.GameObjects.TileSprite;
+  vx: number;
+  vy: number;
+  baseAlpha: number;
+  alphaWave: number;
+  phase: number;
 }
 
 type MainSceneData = {
@@ -128,6 +138,8 @@ export default class MainScene extends Phaser.Scene {
   private levelTransitionTitle!: Phaser.GameObjects.Text;
   private levelTransitionCountdown!: Phaser.GameObjects.Text;
   private levelTransitionPrompt!: Phaser.GameObjects.Text;
+  private levelTransitionWarpGraphics!: Phaser.GameObjects.Graphics;
+  private levelTransitionWarpTween?: Phaser.Tweens.Tween;
   private levelTransitionEvents: Phaser.Time.TimerEvent[] = [];
   private levelTransitionCountdownLabel: string = '';
   private awaitingTurnInput: boolean = false;
@@ -140,7 +152,7 @@ export default class MainScene extends Phaser.Scene {
   private onScenePaused?: () => void;
   private onSceneResumed?: () => void;
   private onBlur?: () => void;
-  private onVisibilityChange?: () => void;
+  private onHidden?: () => void;
 
   private useHighEndVFX: boolean = false;
   private slowMoOverlay!: Phaser.GameObjects.Rectangle;
@@ -172,6 +184,8 @@ export default class MainScene extends Phaser.Scene {
   private backgroundDecorTier: BackgroundDecorTier = 'off';
   private backgroundDecorSpawnTimerMs: number = 0;
   private backgroundDecor: BackgroundDecorState[] = [];
+  private nebulaLayers: NebulaLayerState[] = [];
+  private nebulaProfileKey: string = 'off';
 
   private p1ScoreText!: Phaser.GameObjects.Text;
   private p2ScoreText?: Phaser.GameObjects.Text;
@@ -225,12 +239,17 @@ export default class MainScene extends Phaser.Scene {
   private powerUpBar!: Phaser.GameObjects.Graphics;
   private powerUpListText!: Phaser.GameObjects.Text;
   private perkText!: Phaser.GameObjects.Text;
+  private damageOverlay!: Phaser.GameObjects.Rectangle;
+  private damageOverlayTween?: Phaser.Tweens.Tween;
   private heatBar!: Phaser.GameObjects.Graphics;
   private levelText!: Phaser.GameObjects.Text;
   private lastPerkLabel: string = '';
   private passiveCoolingMultiplier: number = 1;
   private magneticDurationMultiplier: number = 1;
   private smokeEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
+  private playerTrailEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
+  private enemyTrailEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
+  private trailEmitAccumulatorMs: number = 0;
   private spawnProtectionTimerMs: number = 0;
   private spawnProtectionTween?: Phaser.Tweens.Tween;
   private shieldBunkerWarningStarted: boolean = false;
@@ -238,6 +257,9 @@ export default class MainScene extends Phaser.Scene {
   private lastShieldBunkerTapAt: number = -10000;
   private lastShieldBunkerPointerId: number = -1;
   private readonly shieldBunkerDoubleTapWindowMs: number = 320;
+  private lastPlayerRecoilAt: number = -1000;
+  private hitStopTimer?: Phaser.Time.TimerEvent;
+  private hitStopCooldownUntil: number = 0;
 
   constructor() {
     super('MainScene');
@@ -275,9 +297,13 @@ export default class MainScene extends Phaser.Scene {
     this.shieldBunkerWarningTween = undefined;
     this.lastShieldBunkerTapAt = -10000;
     this.lastShieldBunkerPointerId = -1;
+    this.lastPlayerRecoilAt = -1000;
+    this.trailEmitAccumulatorMs = 0;
     this.backgroundDecorTier = 'off';
     this.backgroundDecorSpawnTimerMs = 0;
     this.backgroundDecor = [];
+    this.nebulaLayers = [];
+    this.nebulaProfileKey = 'off';
     this.wormholeVisualAccumulatorMs = 0;
     this.blackHoleVisualAccumulatorMs = 0;
     this.activeStateSyncMs = 0;
@@ -311,7 +337,7 @@ export default class MainScene extends Phaser.Scene {
     }
 
     this.audio = new AudioManager(this);
-    musicManager.playGameplay();
+    musicManager.playGameplay(this);
     this.onScenePaused = () => musicManager.pauseGameplay();
     this.onSceneResumed = () => musicManager.resumeGameplay();
     this.events.on(Phaser.Scenes.Events.PAUSE, this.onScenePaused);
@@ -339,6 +365,7 @@ export default class MainScene extends Phaser.Scene {
     this.scene.bringToTop('BezelScene');
     this.createGraphics();
     this.createStarfield();
+    this.createProjectileTrailEmitters();
     this.input.addPointer(2);
     this.bullets = this.physics.add.group({
       classType: Bullet,
@@ -386,6 +413,7 @@ export default class MainScene extends Phaser.Scene {
     this.createEliteDroneEntity();
     this.resetWorldEventTimers();
     this.createHUD();
+    this.createDamageOverlay();
     this.createTurnOverlay();
     this.createLevelTransitionOverlay();
     this.powerUpBar = this.add.graphics();
@@ -493,9 +521,14 @@ export default class MainScene extends Phaser.Scene {
       }
       this.powerUpBar.destroy();
       this.heatBar.destroy();
+      this.damageOverlayTween?.stop();
+      this.damageOverlay?.destroy();
       this.smokeEmitter?.destroy();
+      this.playerTrailEmitter?.destroy();
+      this.enemyTrailEmitter?.destroy();
       this.stopSpawnProtectionVisuals();
       this.clearBackgroundDecor();
+      this.clearNebulaLayers();
       this.wormholeGraphics.destroy();
       this.eliteDroneLabel.destroy();
       this.eliteDrone.destroy();
@@ -506,6 +539,8 @@ export default class MainScene extends Phaser.Scene {
         bunkerGroup.destroy(true);
       }
       this.switchTimer?.remove(false);
+      this.hitStopTimer?.remove(false);
+      this.levelTransitionWarpTween?.stop();
       this.switchOverlay?.destroy();
       this.levelTransitionOverlay?.destroy();
       this.activeMarkerTween?.stop();
@@ -516,8 +551,7 @@ export default class MainScene extends Phaser.Scene {
       if (this.shieldBunkerPointerHandler)
         this.input.off('pointerdown', this.shieldBunkerPointerHandler);
       if (this.onBlur) this.game.events.off('blur', this.onBlur);
-      if (this.onVisibilityChange)
-        document.removeEventListener('visibilitychange', this.onVisibilityChange);
+      if (this.onHidden) this.game.events.off(Phaser.Core.Events.HIDDEN, this.onHidden);
     });
   }
 
@@ -537,6 +571,7 @@ export default class MainScene extends Phaser.Scene {
     this.updateEliteDrone(delta);
     this.flushPendingEnemyHits();
     this.powerUpDirector.update(this.progressionScore, delta);
+    this.updateProjectileTrails(delta);
 
     const flagChanged = performanceMonitor.update(this.game);
     if (flagChanged) {
@@ -555,6 +590,7 @@ export default class MainScene extends Phaser.Scene {
       this.configureBackgroundDecor();
     }
     this.updateBackgroundDecor(delta);
+    this.updateNebulaLayers(delta);
 
     if (this.debugOverlayEnabled) {
       this.debugRefreshMs -= delta;
@@ -898,6 +934,241 @@ export default class MainScene extends Phaser.Scene {
       emitting: false,
     });
     this.smokeEmitter.setDepth(120);
+  }
+
+  private createDamageOverlay() {
+    this.damageOverlay = this.add
+      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0xff466a, 0)
+      .setDepth(98);
+  }
+
+  private showDamageOverlay() {
+    const baseAlpha = JUICE_TUNING.damageOverlayMaxAlpha[this.difficultyKey];
+    const alpha = performanceMonitor.reducedParticles ? baseAlpha * 0.84 : baseAlpha;
+    const duration = JUICE_TUNING.damageOverlayDurationByDifficultyMs[this.difficultyKey];
+    this.damageOverlayTween?.stop();
+    this.damageOverlay.setAlpha(alpha);
+    this.damageOverlayTween = this.tweens.add({
+      targets: this.damageOverlay,
+      alpha: 0,
+      duration,
+      ease: 'Cubic.easeOut',
+    });
+  }
+
+  private createNebulaLayerTexture(
+    key: string,
+    size: number,
+    primaryColor: number,
+    secondaryColor: number,
+    glowCount: number,
+  ) {
+    if (this.textures.exists(key)) return;
+    const g = this.make.graphics({ x: 0, y: 0 });
+    g.clear();
+    g.fillStyle(0x000000, 0);
+    g.fillRect(0, 0, size, size);
+
+    for (let i = 0; i < glowCount; i++) {
+      const cx = Phaser.Math.FloatBetween(0, size);
+      const cy = Phaser.Math.FloatBetween(0, size);
+      const rx = Phaser.Math.FloatBetween(size * 0.09, size * 0.28);
+      const ry = rx * Phaser.Math.FloatBetween(0.52, 0.9);
+      g.fillStyle(
+        i % 2 === 0 ? primaryColor : secondaryColor,
+        Phaser.Math.FloatBetween(0.03, 0.11),
+      );
+      g.fillEllipse(cx, cy, rx * 2, ry * 2);
+    }
+
+    for (let i = 0; i < 32; i++) {
+      const x = Phaser.Math.FloatBetween(0, size);
+      const y = Phaser.Math.FloatBetween(0, size);
+      const r = Phaser.Math.FloatBetween(0.7, 1.6);
+      const alpha = Phaser.Math.FloatBetween(0.08, 0.22);
+      g.fillStyle(i % 3 === 0 ? secondaryColor : primaryColor, alpha);
+      g.fillCircle(x, y, r);
+    }
+
+    g.generateTexture(key, size, size);
+    g.destroy();
+  }
+
+  private resolveNebulaProfileKey() {
+    if (this.game.renderer.type !== Phaser.WEBGL) return 'off';
+    if (!this.isBackgroundDecorTierActive(this.backgroundDecorTier)) return 'off';
+    const quality = performanceMonitor.reducedParticles ? 'reduced' : 'full';
+    return `${this.backgroundDecorTier}-${quality}`;
+  }
+
+  private configureNebulaLayers(force: boolean = false) {
+    const profileKey = this.resolveNebulaProfileKey();
+    if (!force && profileKey === this.nebulaProfileKey) return;
+
+    this.clearNebulaLayers();
+    this.nebulaProfileKey = profileKey;
+    if (profileKey === 'off') return;
+
+    const isReduced = performanceMonitor.reducedParticles;
+    const layerCount = this.backgroundDecorTier === 'low' ? 1 : isReduced ? 1 : 2;
+    this.createNebulaLayerTexture('bg_nebula_a', 512, 0x3e7bff, 0xa26eff, 18);
+    this.createNebulaLayerTexture('bg_nebula_b', 512, 0x5fd9ff, 0xff79da, 24);
+
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const baseAlphaA = this.backgroundDecorTier === 'high' ? 0.12 : 0.1;
+    const baseAlphaB = this.backgroundDecorTier === 'high' ? 0.11 : 0.085;
+    const layers: Array<{
+      key: string;
+      vx: number;
+      vy: number;
+      baseAlpha: number;
+      alphaWave: number;
+      blendMode: Phaser.BlendModes;
+    }> = [
+      {
+        key: 'bg_nebula_a',
+        vx: 0.65,
+        vy: 4.6,
+        baseAlpha: isReduced ? baseAlphaA * 0.82 : baseAlphaA,
+        alphaWave: 0.018,
+        blendMode: Phaser.BlendModes.NORMAL,
+      },
+      {
+        key: 'bg_nebula_b',
+        vx: -0.48,
+        vy: 6.4,
+        baseAlpha: isReduced ? baseAlphaB * 0.8 : baseAlphaB,
+        alphaWave: 0.022,
+        blendMode: Phaser.BlendModes.ADD,
+      },
+    ];
+
+    for (let i = 0; i < layerCount; i++) {
+      const config = layers[i];
+      const sprite = this.add
+        .tileSprite(width / 2, height / 2, width, height, config.key)
+        .setDepth(-8 + i)
+        .setAlpha(config.baseAlpha)
+        .setBlendMode(config.blendMode);
+      this.nebulaLayers.push({
+        sprite,
+        vx: config.vx,
+        vy: config.vy,
+        baseAlpha: config.baseAlpha,
+        alphaWave: isReduced ? config.alphaWave * 0.6 : config.alphaWave,
+        phase: Phaser.Math.FloatBetween(0, Math.PI * 2),
+      });
+    }
+  }
+
+  private updateNebulaLayers(delta: number) {
+    if (this.nebulaLayers.length === 0) return;
+    const t = this.time.now * 0.001;
+    for (const layer of this.nebulaLayers) {
+      layer.sprite.tilePositionX += (layer.vx * delta) / 1000;
+      layer.sprite.tilePositionY += (layer.vy * delta) / 1000;
+      layer.sprite.alpha = Phaser.Math.Clamp(
+        layer.baseAlpha + Math.sin(t * 0.35 + layer.phase) * layer.alphaWave,
+        0.03,
+        0.22,
+      );
+    }
+  }
+
+  private clearNebulaLayers() {
+    for (const layer of this.nebulaLayers) {
+      layer.sprite.destroy();
+    }
+    this.nebulaLayers.length = 0;
+  }
+
+  private createProjectileTrailEmitters() {
+    this.playerTrailEmitter = this.add.particles(0, 0, 'particle_flare', {
+      lifespan: { min: 130, max: 240 },
+      speed: { min: 8, max: 34 },
+      angle: { min: 75, max: 105 },
+      scale: { start: 0.32, end: 0 },
+      alpha: { start: 0.5, end: 0 },
+      tint: [0x66d6ff, 0x9dfbff],
+      blendMode: 'ADD',
+      emitting: false,
+      quantity: 1,
+    });
+    this.playerTrailEmitter.setDepth(108);
+
+    this.enemyTrailEmitter = this.add.particles(0, 0, 'particle_flare', {
+      lifespan: { min: 120, max: 220 },
+      speed: { min: 10, max: 38 },
+      angle: { min: 240, max: 300 },
+      scale: { start: 0.3, end: 0 },
+      alpha: { start: 0.44, end: 0 },
+      tint: [0xff8cf4, 0xb090ff],
+      blendMode: 'ADD',
+      emitting: false,
+      quantity: 1,
+    });
+    this.enemyTrailEmitter.setDepth(108);
+  }
+
+  private updateProjectileTrails(delta: number) {
+    if (!this.playerTrailEmitter && !this.enemyTrailEmitter) return;
+
+    this.trailEmitAccumulatorMs += delta;
+    const reduced = performanceMonitor.reducedParticles;
+    const baseEmitEveryMs = reduced
+      ? JUICE_TUNING.trailEmitIntervalMs.reduced
+      : JUICE_TUNING.trailEmitIntervalMs.full;
+    const emitEveryMs = Math.round(
+      baseEmitEveryMs * performanceMonitor.getFxIntervalScale(this.game),
+    );
+    if (this.trailEmitAccumulatorMs < emitEveryMs) return;
+    this.trailEmitAccumulatorMs = 0;
+
+    const basePlayerCap = reduced
+      ? JUICE_TUNING.playerTrailCapPerTick.reduced
+      : JUICE_TUNING.playerTrailCapPerTick.full;
+    const playerCap = performanceMonitor.scaleFxCount(this.game, basePlayerCap, reduced ? 2 : 4);
+    let emittedPlayer = 0;
+    const playerStride = reduced ? 2 : 1;
+    const bullets = this.bullets.getChildren() as Bullet[];
+    for (let i = 0; i < bullets.length && emittedPlayer < playerCap; i += playerStride) {
+      const bullet = bullets[i];
+      if (!bullet.active || !bullet.visible) continue;
+      this.playerTrailEmitter?.emitParticleAt(bullet.x, bullet.y + 6, 1);
+      emittedPlayer++;
+    }
+
+    const projectiles = this.ufo.getProjectiles()?.getChildren() as UFOProjectile[] | undefined;
+    if (!projectiles) return;
+    const baseEnemyCap = reduced
+      ? JUICE_TUNING.enemyTrailCapPerTick.reduced
+      : JUICE_TUNING.enemyTrailCapPerTick.full;
+    const enemyCap = performanceMonitor.scaleFxCount(this.game, baseEnemyCap, reduced ? 2 : 3);
+    let emittedEnemy = 0;
+    const enemyStride = reduced ? 2 : 1;
+    for (let i = 0; i < projectiles.length && emittedEnemy < enemyCap; i += enemyStride) {
+      const shot = projectiles[i];
+      if (!shot.active || !shot.visible) continue;
+      this.enemyTrailEmitter?.emitParticleAt(shot.x, shot.y, 1);
+      emittedEnemy++;
+    }
+  }
+
+  public onPlayerShot(manual: boolean = false) {
+    if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
+    if (!this.player?.active) return;
+    const now = this.time.now;
+    if (now - this.lastPlayerRecoilAt < JUICE_TUNING.playerRecoilCooldownMs) return;
+    this.lastPlayerRecoilAt = now;
+
+    const baseIntensity = JUICE_TUNING.playerRecoilIntensity[this.difficultyKey];
+    const reducedScale = performanceMonitor.reducedParticles ? 0.86 : 1;
+    const manualScale = manual ? 1 : 0.92;
+    this.cameras.main.shake(
+      JUICE_TUNING.playerRecoilDurationMs,
+      baseIntensity * reducedScale * manualScale,
+    );
   }
 
   private createEliteDroneEntity() {
@@ -1264,6 +1535,13 @@ export default class MainScene extends Phaser.Scene {
     bullet.disableBody(true, true);
     this.explosionManager.triggerExplosion(x, y);
     this.audio.playExplosion();
+    this.triggerHitStop(
+      JUICE_TUNING.eliteHitStopMs,
+      JUICE_TUNING.eliteHitStopScale,
+      JUICE_TUNING.hitStopCooldownMs,
+    );
+    this.applyImpactShake(120, 0.004);
+    this.spawnImpactRing(x, y, 0x8cf8ff, 14, 46, 150);
     this.grantElitePerk('shot', x, y);
     this.deactivateEliteDrone('shot');
   }
@@ -1417,6 +1695,43 @@ export default class MainScene extends Phaser.Scene {
       : this.computeNextUFOSpawnDelay();
   }
 
+  private clearTransitionHazardPowerUps() {
+    let changed = false;
+    if (this.activePowerUps.delete(PowerUpType.BLACK_HOLE)) {
+      this.player.setBlackHoleVisual(false);
+      changed = true;
+    }
+    if (this.activePowerUps.delete(PowerUpType.SHIELD_BUNKER)) {
+      changed = true;
+    }
+    if (!changed) return;
+    this.removeBlackHole();
+    this.stopShieldBunkerWarning(true);
+    this.removeShieldBunkers();
+    this.syncActivePowerUpsToState();
+    this.activeStateSyncMs = 0;
+  }
+
+  private preparePlayfieldForLevelTransition() {
+    this.pendingEnemyHits.length = 0;
+    this.stopShieldBunkerWarning(true);
+    this.spawnProtectionTimerMs = 0;
+    this.stopSpawnProtectionVisuals();
+    this.hitStopTimer?.remove(false);
+    this.hitStopTimer = undefined;
+    this.physics.world.timeScale = this.getBaselinePhysicsTimeScale();
+    this.bullets.clear(true, true);
+    this.enemyManager.enemies.clear(true, true);
+    this.ufo.deactivate();
+    this.powerUpDirector.resetForLevelStart(this.progressionScore);
+    this.clearTransitionHazardPowerUps();
+    this.clearWorldEvents('reset');
+    this.resetWorldEventTimers();
+    this.enemyManager.resetSpawnController(Phaser.Math.Between(520, 900));
+    this.ufoSpawnTimer = this.computeNextUFOSpawnDelay();
+    this.updateHUD();
+  }
+
   private createTurnOverlay() {
     const bg = this.add.rectangle(
       GAME_WIDTH / 2,
@@ -1480,6 +1795,7 @@ export default class MainScene extends Phaser.Scene {
       0x000000,
       0.78,
     );
+    this.levelTransitionWarpGraphics = this.add.graphics();
     this.levelTransitionTitle = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 96, '', {
         fontFamily: '"Press Start 2P"',
@@ -1510,6 +1826,7 @@ export default class MainScene extends Phaser.Scene {
     this.levelTransitionOverlay = this.add
       .container(0, 0, [
         bg,
+        this.levelTransitionWarpGraphics,
         this.levelTransitionTitle,
         this.levelTransitionCountdown,
         this.levelTransitionPrompt,
@@ -1528,14 +1845,85 @@ export default class MainScene extends Phaser.Scene {
   private stopLevelTransitionTweens() {
     this.tweens.killTweensOf(this.levelTransitionCountdown);
     this.tweens.killTweensOf(this.levelTransitionPrompt);
+    this.levelTransitionWarpTween?.stop();
+    this.levelTransitionWarpGraphics.clear();
+  }
+
+  private playLevelWarpPulse(mode: 'soft' | 'hard') {
+    if (!this.levelTransitionOverlay.visible) return;
+    const reduced = performanceMonitor.reducedParticles;
+    const fxBudget = performanceMonitor.getFxBudgetScale(this.game);
+    const diffScale = JUICE_TUNING.warpPulseDifficultyScale[this.difficultyKey];
+    const lineCount = reduced
+      ? JUICE_TUNING.warpLineCount.reduced
+      : JUICE_TUNING.warpLineCount.full;
+    const scaledLineCount = Phaser.Math.Clamp(
+      Math.round(lineCount * diffScale.lines * fxBudget),
+      reduced ? 6 : 10,
+      reduced ? 16 : 26,
+    );
+    const baseDuration =
+      mode === 'hard'
+        ? JUICE_TUNING.warpPulseDurationMs.hard
+        : JUICE_TUNING.warpPulseDurationMs.soft;
+    const duration = Math.round(baseDuration * diffScale.duration * (0.72 + fxBudget * 0.28));
+    const baseAlpha =
+      mode === 'hard' ? JUICE_TUNING.warpPulseAlpha.hard : JUICE_TUNING.warpPulseAlpha.soft;
+    const peakAlpha = Phaser.Math.Clamp(
+      baseAlpha * diffScale.alpha * (0.75 + fxBudget * 0.25),
+      0.1,
+      0.95,
+    );
+    const centerX = GAME_WIDTH * 0.5;
+    const centerY = GAME_HEIGHT * 0.52;
+    const state = { progress: 0, alpha: peakAlpha };
+
+    this.levelTransitionWarpTween?.stop();
+    this.levelTransitionWarpGraphics.clear();
+    this.levelTransitionWarpTween = this.tweens.add({
+      targets: state,
+      progress: 1,
+      alpha: 0,
+      duration,
+      ease: 'Cubic.easeOut',
+      onUpdate: () => {
+        const g = this.levelTransitionWarpGraphics;
+        g.clear();
+        const p = state.progress;
+        const lineAlpha = Phaser.Math.Clamp(state.alpha * (1 - p * 0.25), 0, 1);
+        for (let i = 0; i < scaledLineCount; i++) {
+          const angle = (i / scaledLineCount) * Math.PI * 2 + p * 0.35;
+          const jitter = Math.sin(p * 7 + i * 0.9) * 8;
+          const inner = 42 + p * 24 + jitter * 0.25;
+          const outer = inner + 76 + (i % 3) * 24 + p * 138;
+          const x1 = centerX + Math.cos(angle) * inner;
+          const y1 = centerY + Math.sin(angle) * inner;
+          const x2 = centerX + Math.cos(angle) * outer;
+          const y2 = centerY + Math.sin(angle) * outer;
+          const color = i % 2 === 0 ? 0x8cf8ff : 0xffb3ef;
+          g.lineStyle(i % 3 === 0 ? 3 : 2, color, lineAlpha * (i % 3 === 0 ? 0.78 : 0.56));
+          g.beginPath();
+          g.moveTo(x1, y1);
+          g.lineTo(x2, y2);
+          g.strokePath();
+        }
+
+        g.fillStyle(0x9af8ff, lineAlpha * 0.15);
+        g.fillCircle(centerX, centerY, 66 + p * 32);
+      },
+      onComplete: () => {
+        this.levelTransitionWarpGraphics.clear();
+      },
+    });
   }
 
   private startLevelTransitionCountdown(delayBeforeOverlayMs: number = 0) {
     if (this.isLevelTransition || this.isGameOver) return;
     this.isLevelTransition = true;
-    this.physics.world.pause();
     this.ufo.setCombatTarget(null);
     if (this.player.body) this.player.body.enable = false;
+    this.preparePlayfieldForLevelTransition();
+    this.physics.world.pause();
 
     this.stopLevelTransitionTweens();
     this.clearLevelTransitionEvents();
@@ -1554,6 +1942,7 @@ export default class MainScene extends Phaser.Scene {
       this.levelTransitionPrompt.setAlpha(1);
       this.levelTransitionOverlay.setVisible(true);
       this.levelTransitionCountdownLabel = '3';
+      this.playLevelWarpPulse('soft');
 
       this.tweens.add({
         targets: this.levelTransitionPrompt,
@@ -1576,6 +1965,7 @@ export default class MainScene extends Phaser.Scene {
           this.levelTransitionCountdown.setColor(isGo ? '#66ff99' : '#ffffff');
           this.levelTransitionCountdown.setScale(isGo ? 0.7 : 0.88);
           this.levelTransitionCountdown.setAlpha(1);
+          this.playLevelWarpPulse(isGo ? 'hard' : 'soft');
           this.tweens.add({
             targets: this.levelTransitionCountdown,
             scaleX: isGo ? 1.24 : 1.14,
@@ -1609,19 +1999,14 @@ export default class MainScene extends Phaser.Scene {
   private finishLevelTransitionCountdown(resumePhysics: boolean) {
     this.clearLevelTransitionEvents();
     this.stopLevelTransitionTweens();
+    this.levelTransitionWarpGraphics.clear();
     this.levelTransitionOverlay.setVisible(false);
     this.levelTransitionCountdownLabel = '';
     const wasActive = this.isLevelTransition;
     this.isLevelTransition = false;
     if (wasActive && resumePhysics && !this.isSwitching && !this.isGameOver) {
-      const ghostActive = this.activePowerUps.has(PowerUpType.GHOST_PHASE);
-      if (this.player.body) {
-        this.player.body.enable = !ghostActive && this.spawnProtectionTimerMs <= 0;
-      }
-      if (this.spawnProtectionTimerMs <= 0) {
-        this.player.setAlpha(ghostActive ? 0.5 : 1);
-      }
       this.physics.world.resume();
+      this.applySpawnProtection(SPAWN_PROTECTION_TUNING.levelTransitionGraceMs, true);
       this.ufo.setCombatTarget(this.player.active ? this.player : null);
     }
   }
@@ -1872,6 +2257,58 @@ export default class MainScene extends Phaser.Scene {
     } else {
       this.tweens.add({ targets: this.slowMoOverlay, alpha: active ? 0.3 : 0, duration: 500 });
     }
+  }
+
+  private getBaselinePhysicsTimeScale() {
+    return this.slowMoActive ? 2.0 : 1.0;
+  }
+
+  private applyImpactShake(durationMs: number, intensity: number) {
+    const scale = performanceMonitor.reducedParticles ? 0.8 : 1;
+    this.cameras.main.shake(Math.max(40, Math.round(durationMs * scale)), intensity * scale);
+  }
+
+  private triggerHitStop(durationMs: number, worldScale: number, cooldownMs: number) {
+    if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
+    if (this.physics.world.isPaused) return;
+    if (this.time.now < this.hitStopCooldownUntil) return;
+
+    this.hitStopCooldownUntil = this.time.now + cooldownMs;
+    const baseline = this.getBaselinePhysicsTimeScale();
+    this.physics.world.timeScale = Math.max(0.05, Math.min(baseline, worldScale));
+
+    this.hitStopTimer?.remove(false);
+    this.hitStopTimer = this.time.delayedCall(durationMs, () => {
+      if (!this.scene.isActive(this.scene.key)) return;
+      if (this.physics.world.isPaused) return;
+      this.physics.world.timeScale = this.getBaselinePhysicsTimeScale();
+    });
+  }
+
+  private spawnImpactRing(
+    x: number,
+    y: number,
+    color: number,
+    startRadius: number,
+    endRadius: number,
+    durationMs: number,
+  ) {
+    const ring = this.add.graphics().setDepth(146);
+    const state = { radius: startRadius, alpha: 0.92 };
+    this.tweens.add({
+      targets: state,
+      radius: endRadius,
+      alpha: 0,
+      duration: durationMs,
+      ease: 'Quart.easeOut',
+      onUpdate: () => {
+        if (!ring.active) return;
+        ring.clear();
+        ring.lineStyle(2, color, state.alpha);
+        ring.strokeCircle(x, y, state.radius);
+      },
+      onComplete: () => ring.destroy(),
+    });
   }
 
   private triggerEMP() {
@@ -2226,7 +2663,13 @@ export default class MainScene extends Phaser.Scene {
       this.ufo.ensureCombatReady();
       this.explosionManager.triggerExplosion(ufoX, ufoY);
       this.audio.playExplosion();
-      this.cameras.main.shake(70, 0.0032);
+      this.triggerHitStop(
+        JUICE_TUNING.bossHitStopMs,
+        JUICE_TUNING.bossHitStopScale,
+        JUICE_TUNING.hitStopCooldownMs,
+      );
+      this.applyImpactShake(95, 0.0038);
+      this.spawnImpactRing(ufoX, ufoY, 0x9ef8ff, 18, 58, 160);
       this.updateHUD();
       return;
     }
@@ -2261,13 +2704,19 @@ export default class MainScene extends Phaser.Scene {
 
     const burstCount = 4;
     const radius = 28;
-    const shakeIntensity = 0.007;
-    const shakeDuration = 180;
+    const shakeIntensity = 0.0064;
+    const shakeDuration = 190;
 
     this.explosionManager.triggerExplosion(x, y);
     this.explosionManager.triggerUFODebrisRing(x, y, variant);
     this.audio.playExplosion();
-    this.cameras.main.shake(shakeDuration, shakeIntensity);
+    this.triggerHitStop(
+      JUICE_TUNING.eliteHitStopMs,
+      JUICE_TUNING.eliteHitStopScale,
+      JUICE_TUNING.hitStopCooldownMs,
+    );
+    this.applyImpactShake(shakeDuration, shakeIntensity);
+    this.spawnImpactRing(x, y, 0x9ef8ff, 24, 92, 240);
 
     for (let i = 0; i < burstCount; i++) {
       this.time.delayedCall(i * 55, () => {
@@ -2293,7 +2742,13 @@ export default class MainScene extends Phaser.Scene {
     this.audio.playExplosion();
     this.audio.playEMP();
     this.audio.playBlackHole();
-    this.cameras.main.shake(720, 0.019);
+    this.triggerHitStop(
+      JUICE_TUNING.bossKillHitStopMs,
+      JUICE_TUNING.bossKillHitStopScale,
+      JUICE_TUNING.hitStopCooldownMs + 120,
+    );
+    this.applyImpactShake(720, 0.019);
+    this.spawnImpactRing(x, y, 0xff6de0, 34, 188, 320);
     this.cameras.main.flash(220, 210, 150, 255, false);
 
     const wave = this.add.graphics().setDepth(145);
@@ -2303,7 +2758,7 @@ export default class MainScene extends Phaser.Scene {
       r: 320,
       a: 0,
       duration: 920,
-      ease: 'Cubic.easeOut',
+      ease: 'Expo.easeOut',
       onUpdate: () => {
         if (!wave.active) return;
         wave.clear();
@@ -2365,6 +2820,14 @@ export default class MainScene extends Phaser.Scene {
       this.powerUpDirector.onAsteroidDestroyed(enemy.x, enemy.y);
       this.enemyManager.splitAsteroid(enemy.x, enemy.y, enemy.scaleX);
       enemy.disableBody(true, true);
+      if (enemy.scaleX >= JUICE_TUNING.largeAsteroidMinScale) {
+        this.triggerHitStop(
+          JUICE_TUNING.largeAsteroidHitStopMs,
+          JUICE_TUNING.largeAsteroidHitStopScale,
+          JUICE_TUNING.hitStopCooldownMs,
+        );
+        this.applyImpactShake(80, 0.003);
+      }
       this.enqueuePendingEnemyHit(x, y, points, 'bullet');
     }
   }
@@ -2574,7 +3037,14 @@ export default class MainScene extends Phaser.Scene {
     this.updateHUD();
     this.explosionManager.triggerPlayerDeathExplosion(this.player.x, this.player.y);
     this.audio.playPlayerDeath();
-    this.cameras.main.shake(500, 0.04);
+    this.triggerHitStop(
+      JUICE_TUNING.playerHitStopMs,
+      JUICE_TUNING.playerHitStopScale,
+      JUICE_TUNING.hitStopCooldownMs + 100,
+    );
+    this.showDamageOverlay();
+    this.applyImpactShake(460, 0.031);
+    this.spawnImpactRing(this.player.x, this.player.y, 0xff8c8c, 22, 98, 220);
     this.powerUpDirector.resetDamageFreeTime();
 
     if (this.playerCount === 1) {
@@ -2770,11 +3240,9 @@ export default class MainScene extends Phaser.Scene {
     this.input.on('pointerdown', this.shieldBunkerPointerHandler);
 
     this.onBlur = () => this.requestPause();
-    this.onVisibilityChange = () => {
-      if (document.hidden) this.requestPause();
-    };
+    this.onHidden = () => this.requestPause();
     this.game.events.on('blur', this.onBlur);
-    document.addEventListener('visibilitychange', this.onVisibilityChange);
+    this.game.events.on(Phaser.Core.Events.HIDDEN, this.onHidden);
   }
 
   private setDebugOverlayVisible(visible: boolean) {
@@ -2930,6 +3398,7 @@ export default class MainScene extends Phaser.Scene {
     if (!this.isBackgroundDecorTierActive(nextTier)) {
       this.backgroundDecorSpawnTimerMs = 0;
       this.clearBackgroundDecor();
+      this.configureNebulaLayers(force);
       return;
     }
 
@@ -2940,6 +3409,7 @@ export default class MainScene extends Phaser.Scene {
       removed?.sprite.destroy();
     }
     this.scheduleNextBackgroundDecorSpawn(true);
+    this.configureNebulaLayers(force);
   }
 
   private scheduleNextBackgroundDecorSpawn(initial: boolean) {
@@ -3154,6 +3624,7 @@ export default class MainScene extends Phaser.Scene {
         shieldBunkerCount: this.shieldBunkers?.countActive(true) ?? 0,
         backgroundDecorTier: this.backgroundDecorTier,
         backgroundDecorCount: this.backgroundDecor.length,
+        nebulaLayerCount: this.nebulaLayers.length,
       },
       spawnProtectionMs: Math.max(0, Math.round(this.spawnProtectionTimerMs)),
       levelOpening: {

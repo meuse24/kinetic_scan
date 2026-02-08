@@ -555,7 +555,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.applyHeat(time);
     this.spawnMuzzleFlash(manual);
     this.firedThisFrame = true;
-    if ((this.scene as any).audio) (this.scene as any).audio.playShoot(manual);
+    const sceneAny = this.scene as any;
+    if (sceneAny.audio) sceneAny.audio.playShoot(manual);
+    if (typeof sceneAny.onPlayerShot === 'function') {
+      sceneAny.onPlayerShot(manual);
+    }
   }
 
   private canSpawnBullet() {

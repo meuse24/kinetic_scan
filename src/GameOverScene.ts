@@ -92,7 +92,7 @@ export default class GameOverScene extends Phaser.Scene {
     const centerY = GAME_HEIGHT / 2;
 
     this.audio = new AudioManager(this);
-    musicManager.play();
+    musicManager.play(this);
 
     if (!this.scene.isActive('BezelScene')) {
       this.scene.launch('BezelScene');

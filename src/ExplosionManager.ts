@@ -52,19 +52,38 @@ export class ExplosionManager {
   }
 
   public triggerExplosion(x: number, y: number) {
-    this.asteroidEmitter.emitParticleAt(x, y, performanceMonitor.reducedParticles ? 10 : 30);
+    const baseCount = performanceMonitor.reducedParticles ? 10 : 30;
+    const minCount = performanceMonitor.reducedParticles ? 5 : 8;
+    const emitCount = performanceMonitor.scaleFxCount(this.scene.game, baseCount, minCount);
+    this.asteroidEmitter.emitParticleAt(x, y, emitCount);
   }
 
   public triggerPlayerDeathExplosion(x: number, y: number) {
-    this.playerEmitter.emitParticleAt(x, y, performanceMonitor.reducedParticles ? 60 : 200);
+    const baseCount = performanceMonitor.reducedParticles ? 60 : 200;
+    const minCount = performanceMonitor.reducedParticles ? 30 : 80;
+    const emitCount = performanceMonitor.scaleFxCount(this.scene.game, baseCount, minCount);
+    this.playerEmitter.emitParticleAt(x, y, emitCount);
   }
 
   public triggerUFODebrisRing(x: number, y: number, variant: 'scout' | 'boss') {
     const reduced = performanceMonitor.reducedParticles;
+    const fxBudget = performanceMonitor.getFxBudgetScale(this.scene.game);
     const ringRadius = variant === 'boss' ? 42 : 26;
-    const segments = variant === 'boss' ? (reduced ? 14 : 22) : reduced ? 10 : 16;
-    const perSegment = variant === 'boss' ? (reduced ? 2 : 3) : 1;
-    const coreBurst = variant === 'boss' ? (reduced ? 16 : 28) : reduced ? 8 : 14;
+    const baseSegments = variant === 'boss' ? (reduced ? 14 : 22) : reduced ? 10 : 16;
+    const minSegments = variant === 'boss' ? 8 : 5;
+    const segments = Phaser.Math.Clamp(
+      Math.round(baseSegments * fxBudget),
+      minSegments,
+      baseSegments,
+    );
+    const basePerSegment = variant === 'boss' ? (reduced ? 2 : 3) : 1;
+    const perSegment = Math.max(1, Math.round(basePerSegment * (0.65 + fxBudget * 0.35)));
+    const baseCoreBurst = variant === 'boss' ? (reduced ? 16 : 28) : reduced ? 8 : 14;
+    const coreBurst = performanceMonitor.scaleFxCount(
+      this.scene.game,
+      baseCoreBurst,
+      reduced ? 4 : 6,
+    );
 
     for (let i = 0; i < segments; i++) {
       const angle = (i / segments) * 360;

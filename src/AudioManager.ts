@@ -42,9 +42,8 @@ const AUDIO_MIX_PROFILES: Record<AudioDifficultyKey, AudioMixProfile> = {
 };
 
 export class AudioManager {
-  private audioContext: AudioContext;
-  private masterGain: GainNode;
-  private limiter: DynamicsCompressorNode;
+  private audioContext: AudioContext | null = null;
+  private masterGain: GainNode | null = null;
   private ufoOsc: OscillatorNode | null = null;
   private ufoGain: GainNode | null = null;
   private blackHoleLoopOsc: OscillatorNode | null = null;
@@ -57,40 +56,56 @@ export class AudioManager {
   private mixProfile: AudioMixProfile = AUDIO_MIX_PROFILES.normal;
 
   constructor(scene: Phaser.Scene) {
-    this.audioContext =
-      (scene.game.sound as any).context ||
-      new (window.AudioContext || (window as any).webkitAudioContext)();
-    this.masterGain = this.audioContext.createGain();
-    this.limiter = this.audioContext.createDynamicsCompressor();
-    this.limiter.threshold.setValueAtTime(-22, this.audioContext.currentTime);
-    this.limiter.knee.setValueAtTime(20, this.audioContext.currentTime);
-    this.limiter.ratio.setValueAtTime(5, this.audioContext.currentTime);
-    this.limiter.attack.setValueAtTime(0.002, this.audioContext.currentTime);
-    this.limiter.release.setValueAtTime(0.18, this.audioContext.currentTime);
-    this.masterGain.connect(this.limiter);
-    this.limiter.connect(this.audioContext.destination);
-    this.masterGain.gain.value = soundManager.isMuted() ? 0 : DEFAULT_VOLUME;
+    const gameContext = (scene.game.sound as any)?.context as AudioContext | undefined;
+    const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (gameContext) {
+      this.audioContext = gameContext;
+    } else if (typeof AudioContextCtor === 'function') {
+      this.audioContext = new AudioContextCtor();
+    } else {
+      // WebKit/headless environments can expose neither constructor.
+      this.audioContext = null;
+      return;
+    }
+
+    const audioContext = this.audioContext;
+    if (!audioContext) return;
+    const masterGain = audioContext.createGain();
+    const limiter = audioContext.createDynamicsCompressor();
+    limiter.threshold.setValueAtTime(-22, audioContext.currentTime);
+    limiter.knee.setValueAtTime(20, audioContext.currentTime);
+    limiter.ratio.setValueAtTime(5, audioContext.currentTime);
+    limiter.attack.setValueAtTime(0.002, audioContext.currentTime);
+    limiter.release.setValueAtTime(0.18, audioContext.currentTime);
+    masterGain.connect(limiter);
+    limiter.connect(audioContext.destination);
+    masterGain.gain.value = soundManager.isMuted() ? 0 : DEFAULT_VOLUME;
+    this.masterGain = masterGain;
   }
 
   public async resume() {
+    if (!this.audioContext) return;
     if (this.audioContext.state === 'suspended') await this.audioContext.resume();
   }
 
   public pauseAll() {
+    if (!this.audioContext) return;
     if (this.audioContext.state === 'running') this.audioContext.suspend();
   }
 
   public resumeAll() {
+    if (!this.audioContext) return;
     if (this.audioContext.state === 'suspended') this.audioContext.resume();
   }
 
   public setVolume(value: number) {
+    if (!this.audioContext || !this.masterGain) return;
     this.masterGain.gain.setTargetAtTime(value, this.audioContext.currentTime, 0.1);
   }
 
   public setDifficultyMix(key: AudioDifficultyKey) {
     this.mixProfile = AUDIO_MIX_PROFILES[key] ?? AUDIO_MIX_PROFILES.normal;
-    if (this.blackHoleLoopGain) {
+    if (this.audioContext && this.blackHoleLoopGain) {
       this.blackHoleLoopGain.gain.setTargetAtTime(
         0.075 * this.mixProfile.blackHoleLoopGainScale,
         this.audioContext.currentTime,
@@ -100,6 +115,7 @@ export class AudioManager {
   }
 
   private getNoiseBuffer(durationSec: number) {
+    if (!this.audioContext) return null;
     const clamped = Phaser.Math.Clamp(durationSec, 0.02, 2);
     const key = Math.max(1, Math.floor(clamped * 1000));
     const cached = this.noiseBuffers.get(key);
@@ -113,6 +129,7 @@ export class AudioManager {
   }
 
   private connectWithPan(input: AudioNode, pan: number) {
+    if (!this.audioContext || !this.masterGain) return;
     if (typeof this.audioContext.createStereoPanner === 'function') {
       const panner = this.audioContext.createStereoPanner();
       panner.pan.setValueAtTime(Phaser.Math.Clamp(pan, -1, 1), this.audioContext.currentTime);
@@ -124,7 +141,7 @@ export class AudioManager {
   }
 
   public playShoot(manual: boolean = false) {
-    if (this.audioContext.state !== 'running') return;
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
     const osc = this.audioContext.createOscillator();
     const osc2 = manual ? this.audioContext.createOscillator() : null;
     const gain = this.audioContext.createGain();
@@ -148,7 +165,7 @@ export class AudioManager {
   }
 
   public playExplosion() {
-    if (this.audioContext.state !== 'running') return;
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
     const bufferSize = this.audioContext.sampleRate * 0.3;
     const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
     const data = buffer.getChannelData(0);
@@ -169,7 +186,7 @@ export class AudioManager {
   }
 
   public playPlayerDeath() {
-    if (this.audioContext.state !== 'running') return;
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
     const osc = this.audioContext.createOscillator();
     osc.type = 'square';
     osc.frequency.setValueAtTime(400, this.audioContext.currentTime);
@@ -200,26 +217,28 @@ export class AudioManager {
   }
 
   public playPickup() {
-    if (this.audioContext.state !== 'running') return;
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
+    const audioContext = this.audioContext;
+    const masterGain = this.masterGain;
     const notes = [440, 554.37, 659.25, 880];
     const duration = 0.1;
     notes.forEach((freq, i) => {
-      const osc = this.audioContext.createOscillator();
-      const gain = this.audioContext.createGain();
-      const time = this.audioContext.currentTime + i * duration;
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      const time = audioContext.currentTime + i * duration;
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(freq, time);
       gain.gain.setValueAtTime(0.3, time);
       gain.gain.exponentialRampToValueAtTime(0.01, time + duration);
       osc.connect(gain);
-      gain.connect(this.masterGain);
+      gain.connect(masterGain);
       osc.start(time);
       osc.stop(time + duration);
     });
   }
 
   public playCoin() {
-    if (this.audioContext.state !== 'running') return;
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
     const now = this.audioContext.currentTime;
     const osc = this.audioContext.createOscillator();
     const gain = this.audioContext.createGain();
@@ -235,7 +254,7 @@ export class AudioManager {
   }
 
   public playEMP() {
-    if (this.audioContext.state !== 'running') return;
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
     const osc = this.audioContext.createOscillator();
     const gain = this.audioContext.createGain();
     osc.type = 'sawtooth';
@@ -250,7 +269,7 @@ export class AudioManager {
   }
 
   public playGhost() {
-    if (this.audioContext.state !== 'running') return;
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
     const osc = this.audioContext.createOscillator();
     const gain = this.audioContext.createGain();
     osc.type = 'sine';
@@ -265,7 +284,7 @@ export class AudioManager {
   }
 
   public playDrones() {
-    if (this.audioContext.state !== 'running') return;
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
     const osc = this.audioContext.createOscillator();
     const gain = this.audioContext.createGain();
     osc.type = 'square';
@@ -280,7 +299,7 @@ export class AudioManager {
   }
 
   public playBlackHole() {
-    if (this.audioContext.state !== 'running') return;
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
     const now = this.audioContext.currentTime;
     const triggerInterval = 0.25 * this.mixProfile.blackHoleTriggerRateScale;
     if (this.lastBlackHoleAt > 0 && now - this.lastBlackHoleAt < triggerInterval) return;
@@ -302,7 +321,9 @@ export class AudioManager {
     this.connectWithPan(gain, Phaser.Math.FloatBetween(-0.12, 0.12));
 
     const noise = this.audioContext.createBufferSource();
-    noise.buffer = this.getNoiseBuffer(0.7);
+    const noiseBuffer = this.getNoiseBuffer(0.7);
+    if (!noiseBuffer) return;
+    noise.buffer = noiseBuffer;
     const noiseFilter = this.audioContext.createBiquadFilter();
     noiseFilter.type = 'bandpass';
     noiseFilter.frequency.setValueAtTime(860, now);
@@ -323,7 +344,7 @@ export class AudioManager {
   }
 
   public startBlackHoleLoop() {
-    if (this.audioContext.state !== 'running') return;
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
     if (this.blackHoleLoopOsc || this.blackHoleLoopGain) return;
 
     const now = this.audioContext.currentTime;
@@ -353,6 +374,7 @@ export class AudioManager {
   }
 
   public stopBlackHoleLoop() {
+    if (!this.audioContext) return;
     const now = this.audioContext.currentTime;
     const loopGain = this.blackHoleLoopGain;
     if (loopGain) {
@@ -381,7 +403,7 @@ export class AudioManager {
   }
 
   public playUFOShoot(variant: UFOShootVariant = 'scout', pan: number = 0) {
-    if (this.audioContext.state !== 'running') return;
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
     const now = this.audioContext.currentTime;
     const minInterval = (variant === 'boss' ? 0.075 : 0.04) * this.mixProfile.ufoShotRateScale;
     if (this.lastUFOShootAt > 0 && now - this.lastUFOShootAt < minInterval) return;
@@ -422,7 +444,9 @@ export class AudioManager {
     );
 
     const click = this.audioContext.createBufferSource();
-    click.buffer = this.getNoiseBuffer(isBoss ? 0.08 : 0.05);
+    const clickBuffer = this.getNoiseBuffer(isBoss ? 0.08 : 0.05);
+    if (!clickBuffer) return;
+    click.buffer = clickBuffer;
     const clickFilter = this.audioContext.createBiquadFilter();
     clickFilter.type = 'highpass';
     clickFilter.frequency.setValueAtTime(isBoss ? 420 : 700, now);
@@ -445,7 +469,13 @@ export class AudioManager {
   }
 
   public startUFOSound() {
-    if (this.audioContext.state !== 'running' || this.ufoOsc) return;
+    if (
+      !this.audioContext ||
+      !this.masterGain ||
+      this.audioContext.state !== 'running' ||
+      this.ufoOsc
+    )
+      return;
     this.ufoOsc = this.audioContext.createOscillator();
     this.ufoGain = this.audioContext.createGain();
     const lfo = this.audioContext.createOscillator();

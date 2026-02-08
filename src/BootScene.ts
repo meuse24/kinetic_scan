@@ -2,15 +2,34 @@ import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT, IS_TOUCH } from './gameConfig';
 import { soundManager } from './SoundManager';
 import { creditManager } from './CreditManager';
+import {
+  GAMEPLAY_MUSIC_KEY,
+  GAMEPLAY_MUSIC_URL,
+  MENU_MUSIC_KEY,
+  MENU_MUSIC_URL,
+} from './MusicManager';
+
+let runtimeScenesLoadPromise: Promise<void> | null = null;
 
 export default class BootScene extends Phaser.Scene {
   private soundText!: Phaser.GameObjects.Text;
   private fsText?: Phaser.GameObjects.Text;
+  private startText!: Phaser.GameObjects.Text;
+  private isStarting = false;
   private soundListener?: (muted: boolean) => void;
   private wantFullscreen = true;
 
   constructor() {
     super('BootScene');
+  }
+
+  preload() {
+    if (!this.cache.audio.exists(MENU_MUSIC_KEY)) {
+      this.load.audio(MENU_MUSIC_KEY, MENU_MUSIC_URL);
+    }
+    if (!this.cache.audio.exists(GAMEPLAY_MUSIC_KEY)) {
+      this.load.audio(GAMEPLAY_MUSIC_KEY, GAMEPLAY_MUSIC_URL);
+    }
   }
 
   create() {
@@ -66,7 +85,7 @@ export default class BootScene extends Phaser.Scene {
     }
 
     // START button
-    const startText = this.add
+    this.startText = this.add
       .text(centerX, centerY + 120, '[ START (ENTER/SPACE) ]', {
         fontFamily,
         fontSize: '20px',
@@ -74,11 +93,11 @@ export default class BootScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
-    startText.on('pointerdown', () => this.begin());
+    this.startText.on('pointerdown', () => this.begin());
 
     // Pulsing start text
     this.tweens.add({
-      targets: startText,
+      targets: this.startText,
       scale: 1.08,
       duration: 600,
       yoyo: true,
@@ -149,11 +168,51 @@ export default class BootScene extends Phaser.Scene {
     this.fsText?.setColor(this.wantFullscreen ? '#00ff00' : '#ff6666');
   }
 
-  private begin() {
-    creditManager.addCredits(4);
-    if (!IS_TOUCH && this.wantFullscreen && !this.scale.isFullscreen) {
-      this.scale.startFullscreen();
+  private async begin() {
+    if (this.isStarting) return;
+    this.isStarting = true;
+    this.startText.setText('[ LOADING... ]');
+    this.startText.setColor('#00ffff');
+    this.startText.disableInteractive();
+    try {
+      await this.ensureRuntimeScenesLoaded();
+      creditManager.addCredits(4);
+      if (!IS_TOUCH && this.wantFullscreen && !this.scale.isFullscreen) {
+        this.scale.startFullscreen();
+      }
+      this.scene.start('AttractScene');
+    } catch (error) {
+      console.error('Failed to load runtime scenes', error);
+      this.isStarting = false;
+      this.startText.setText('[ START (ENTER/SPACE) ]');
+      this.startText.setColor('#ffff00');
+      this.startText.setInteractive({ useHandCursor: true });
     }
-    this.scene.start('AttractScene');
+  }
+
+  private ensureRuntimeScenesLoaded() {
+    if (!runtimeScenesLoadPromise) {
+      runtimeScenesLoadPromise = (async () => {
+        const [
+          { default: MainScene },
+          { default: GameOverScene },
+          { default: PauseScene },
+          { default: HelpScene },
+        ] = await Promise.all([
+          import('./MainScene'),
+          import('./GameOverScene'),
+          import('./PauseScene'),
+          import('./HelpScene'),
+        ]);
+
+        const sceneManager = this.game.scene;
+        if (!sceneManager.keys.MainScene) sceneManager.add('MainScene', MainScene, false);
+        if (!sceneManager.keys.GameOverScene)
+          sceneManager.add('GameOverScene', GameOverScene, false);
+        if (!sceneManager.keys.PauseScene) sceneManager.add('PauseScene', PauseScene, false);
+        if (!sceneManager.keys.HelpScene) sceneManager.add('HelpScene', HelpScene, false);
+      })();
+    }
+    return runtimeScenesLoadPromise;
   }
 }

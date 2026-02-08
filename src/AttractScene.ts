@@ -11,7 +11,7 @@ import {
 import type { DifficultyPresetKey } from './Difficulty';
 import { Enemy, EnemyManager } from './EnemyManager';
 import { soundManager } from './SoundManager';
-import { UFO } from './UFO';
+import { UFO, UFOProjectile } from './UFO';
 import { PowerUp, PowerUpType } from './PowerUp';
 import { performanceMonitor } from './PerformanceMonitor';
 import { musicManager } from './MusicManager';
@@ -48,6 +48,15 @@ type AttractBackgroundDecor = {
   pulseOffset: number;
 };
 
+type AttractNebulaLayer = {
+  sprite: Phaser.GameObjects.TileSprite;
+  vx: number;
+  vy: number;
+  baseAlpha: number;
+  alphaWave: number;
+  phase: number;
+};
+
 const ATTRACT_DECOR_TUNING = {
   initialSpawnDelayMs: {
     low: [2600, 4200] as const,
@@ -79,9 +88,33 @@ const ATTRACT_DECOR_TUNING = {
   spinRange: [-0.0016, 0.0016] as const,
 } as const;
 
+const ATTRACT_JUICE_TUNING = {
+  ufoTrailEmitIntervalMs: {
+    full: 38,
+    reduced: 72,
+  },
+  ufoTrailCapPerTick: {
+    full: 14,
+    reduced: 6,
+  },
+  warpLineCount: {
+    full: 12,
+    reduced: 8,
+  },
+  warpPulseDurationMs: {
+    soft: 420,
+    hard: 640,
+  },
+  warpPulseAlpha: {
+    soft: 0.32,
+    hard: 0.52,
+  },
+} as const;
+
 export default class AttractScene extends Phaser.Scene {
   private audio!: AudioManager;
   private coinText!: Phaser.GameObjects.Text;
+  private coinInfoText!: Phaser.GameObjects.Text;
   private helpText!: Phaser.GameObjects.Text;
   private soundText!: Phaser.GameObjects.Text;
   private creditLabel!: Phaser.GameObjects.Text;
@@ -115,6 +148,12 @@ export default class AttractScene extends Phaser.Scene {
   private backgroundDecorTier: AttractDecorTier = 'off';
   private backgroundDecorSpawnTimerMs: number = 0;
   private backgroundDecor: AttractBackgroundDecor[] = [];
+  private nebulaLayers: AttractNebulaLayer[] = [];
+  private nebulaProfileKey: string = 'off';
+  private attractWarpGraphics!: Phaser.GameObjects.Graphics;
+  private attractWarpTween: Phaser.Tweens.Tween | null = null;
+  private ufoTrailEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
+  private ufoTrailEmitAccumulatorMs: number = 0;
 
   constructor() {
     super('AttractScene');
@@ -128,7 +167,7 @@ export default class AttractScene extends Phaser.Scene {
     }
 
     this.audio = new AudioManager(this);
-    musicManager.play();
+    musicManager.play(this);
     const centerX = GAME_WIDTH / 2;
     const centerY = GAME_HEIGHT / 2;
     const uiDepth = 50;
@@ -150,6 +189,7 @@ export default class AttractScene extends Phaser.Scene {
       }
     }
     this.configureBackgroundDecor(true);
+    this.configureNebulaLayers(true);
 
     if (
       performanceMonitor.crtEnabled &&
@@ -172,6 +212,9 @@ export default class AttractScene extends Phaser.Scene {
       blendMode: 'ADD',
     });
     this.ambientEmitter.setDepth(1);
+    this.attractWarpGraphics = this.add.graphics().setDepth(uiDepth - 2);
+    this.createUFOTrailEmitter();
+    this.ufoTrailEmitAccumulatorMs = 0;
 
     this.enemyManager = new EnemyManager(this);
     this.attractCombatTarget = this.physics.add.sprite(centerX, centerY - 140, 'dust');
@@ -210,6 +253,16 @@ export default class AttractScene extends Phaser.Scene {
       .setDepth(uiDepth)
       .setInteractive({ useHandCursor: true });
     this.coinText.on('pointerdown', () => this.insertCoin());
+    this.coinInfoText = this.add
+      .text(centerX, centerY + 24, '(C) 2026 GMEU\nvite tsx\nphaser-3 claude\ncodex suno', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '20px',
+        color: '#00ffff',
+        align: 'center',
+        lineSpacing: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(uiDepth);
     this.helpText = this.add
       .text(centerX, GAME_HEIGHT - 200, 'HELP (H)', {
         fontFamily: '"Press Start 2P"',
@@ -309,9 +362,15 @@ export default class AttractScene extends Phaser.Scene {
       this.removeAttractBlackHole();
       this.clearDemoPowerUps();
       this.clearBackgroundDecor();
+      this.clearNebulaLayers();
+      this.attractWarpTween?.stop();
+      this.attractWarpTween = null;
+      this.attractWarpGraphics?.destroy();
       this.eventBannerTween?.stop();
       this.eventBannerTween = null;
       this.ambientEmitter.destroy();
+      this.ufoTrailEmitter?.destroy();
+      this.ufoTrailEmitter = null;
       this.audio.destroy();
       if (this.creditListener) creditManager.offChange(this.creditListener, this);
       if (this.soundListener) soundManager.offChange(this.soundListener, this);
@@ -328,10 +387,13 @@ export default class AttractScene extends Phaser.Scene {
     }
     if (qualityChanged) {
       this.configureBackgroundDecor();
+      this.configureNebulaLayers();
     }
     this.enemyManager.update(time, delta);
     this.updateAttractCombatTarget(delta);
     this.updateBackgroundDecor(delta);
+    this.updateNebulaLayers(delta);
+    this.updateUFOTrails(delta);
     this.enemyDepthRefreshMs -= delta;
     if (this.enemyDepthRefreshMs <= 0) {
       this.applyEnemyDepth(5);
@@ -415,8 +477,19 @@ export default class AttractScene extends Phaser.Scene {
 
   private toggleAttractMessage() {
     this.showScores = !this.showScores;
+    this.playAttractWarpPulse(
+      this.coinText?.x ?? GAME_WIDTH / 2,
+      (this.coinText?.y ?? GAME_HEIGHT / 2) - 40,
+      'soft',
+    );
     if (this.showScores) {
       this.tweens.add({ targets: this.coinText, alpha: 0, duration: 400, ease: 'Sine.easeInOut' });
+      this.tweens.add({
+        targets: this.coinInfoText,
+        alpha: 0,
+        duration: 400,
+        ease: 'Sine.easeInOut',
+      });
       this.tweens.add({ targets: this.helpText, alpha: 0, duration: 400, ease: 'Sine.easeInOut' });
       this.tweens.add({
         targets: this.highScoreGroup,
@@ -426,6 +499,12 @@ export default class AttractScene extends Phaser.Scene {
       });
     } else {
       this.tweens.add({ targets: this.coinText, alpha: 1, duration: 500, ease: 'Sine.easeInOut' });
+      this.tweens.add({
+        targets: this.coinInfoText,
+        alpha: 1,
+        duration: 500,
+        ease: 'Sine.easeInOut',
+      });
       this.tweens.add({ targets: this.helpText, alpha: 1, duration: 500, ease: 'Sine.easeInOut' });
       this.tweens.add({
         targets: this.highScoreGroup,
@@ -467,6 +546,64 @@ export default class AttractScene extends Phaser.Scene {
     });
   }
 
+  private playAttractWarpPulse(x: number, y: number, mode: 'soft' | 'hard' = 'soft') {
+    if (!this.attractWarpGraphics) return;
+    const reduced = performanceMonitor.reducedParticles;
+    const fxBudget = performanceMonitor.getFxBudgetScale(this.game);
+    const baseLineCount = reduced
+      ? ATTRACT_JUICE_TUNING.warpLineCount.reduced
+      : ATTRACT_JUICE_TUNING.warpLineCount.full;
+    const lineCount = Phaser.Math.Clamp(
+      Math.round(baseLineCount * fxBudget),
+      reduced ? 5 : 7,
+      baseLineCount,
+    );
+    const duration =
+      mode === 'hard'
+        ? ATTRACT_JUICE_TUNING.warpPulseDurationMs.hard
+        : ATTRACT_JUICE_TUNING.warpPulseDurationMs.soft;
+    const scaledDuration = Math.round(duration * (0.74 + fxBudget * 0.26));
+    const peakAlpha =
+      mode === 'hard'
+        ? ATTRACT_JUICE_TUNING.warpPulseAlpha.hard
+        : ATTRACT_JUICE_TUNING.warpPulseAlpha.soft;
+    const state = { progress: 0, alpha: peakAlpha * (0.76 + fxBudget * 0.24) };
+
+    this.attractWarpTween?.stop();
+    this.attractWarpGraphics.clear();
+    this.attractWarpTween = this.tweens.add({
+      targets: state,
+      progress: 1,
+      alpha: 0,
+      duration: scaledDuration,
+      ease: 'Cubic.easeOut',
+      onUpdate: () => {
+        const g = this.attractWarpGraphics;
+        g.clear();
+        const p = state.progress;
+        const lineAlpha = Phaser.Math.Clamp(state.alpha * (1 - p * 0.25), 0, 1);
+        for (let i = 0; i < lineCount; i++) {
+          const angle = (i / lineCount) * Math.PI * 2 + p * 0.33;
+          const inner = 24 + p * 16 + Math.sin(i + p * 5) * 2;
+          const outer = inner + 58 + p * 96 + (i % 3) * 8;
+          const x1 = x + Math.cos(angle) * inner;
+          const y1 = y + Math.sin(angle) * inner;
+          const x2 = x + Math.cos(angle) * outer;
+          const y2 = y + Math.sin(angle) * outer;
+          const color = i % 2 === 0 ? 0x87f2ff : 0xffa7eb;
+          g.lineStyle(i % 3 === 0 ? 3 : 2, color, lineAlpha * (i % 3 === 0 ? 0.62 : 0.48));
+          g.beginPath();
+          g.moveTo(x1, y1);
+          g.lineTo(x2, y2);
+          g.strokePath();
+        }
+      },
+      onComplete: () => {
+        this.attractWarpGraphics.clear();
+      },
+    });
+  }
+
   private createAmbientTexture() {
     if (this.textures.exists('dust')) return;
     const g = this.make.graphics({ x: 0, y: 0 });
@@ -476,12 +613,184 @@ export default class AttractScene extends Phaser.Scene {
     g.destroy();
   }
 
+  private createUFOTrailEmitter() {
+    if (!this.textures.exists('attract_trail_dot')) {
+      const g = this.make.graphics({ x: 0, y: 0 });
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(3, 3, 3);
+      g.generateTexture('attract_trail_dot', 6, 6);
+      g.destroy();
+    }
+    this.ufoTrailEmitter = this.add.particles(0, 0, 'attract_trail_dot', {
+      lifespan: { min: 140, max: 240 },
+      speed: { min: 10, max: 34 },
+      angle: { min: 230, max: 310 },
+      scale: { start: 0.35, end: 0 },
+      alpha: { start: 0.55, end: 0 },
+      tint: [0xff8cf4, 0xb090ff],
+      blendMode: 'ADD',
+      emitting: false,
+      quantity: 1,
+    });
+    this.ufoTrailEmitter.setDepth(7);
+  }
+
+  private updateUFOTrails(delta: number) {
+    if (!this.ufoTrailEmitter) return;
+    const shots = this.ufo.getProjectiles()?.getChildren() as UFOProjectile[] | undefined;
+    if (!shots || shots.length === 0) return;
+    const reduced = performanceMonitor.reducedParticles;
+    const baseEmitInterval = reduced
+      ? ATTRACT_JUICE_TUNING.ufoTrailEmitIntervalMs.reduced
+      : ATTRACT_JUICE_TUNING.ufoTrailEmitIntervalMs.full;
+    const emitInterval = Math.round(
+      baseEmitInterval * performanceMonitor.getFxIntervalScale(this.game),
+    );
+    this.ufoTrailEmitAccumulatorMs += delta;
+    if (this.ufoTrailEmitAccumulatorMs < emitInterval) return;
+    this.ufoTrailEmitAccumulatorMs = 0;
+
+    const baseCap = reduced
+      ? ATTRACT_JUICE_TUNING.ufoTrailCapPerTick.reduced
+      : ATTRACT_JUICE_TUNING.ufoTrailCapPerTick.full;
+    const cap = performanceMonitor.scaleFxCount(this.game, baseCap, reduced ? 1 : 2);
+    const stride = reduced ? 2 : 1;
+    let emitted = 0;
+    for (let i = 0; i < shots.length && emitted < cap; i += stride) {
+      const shot = shots[i];
+      if (!shot.active || !shot.visible) continue;
+      this.ufoTrailEmitter.emitParticleAt(shot.x, shot.y, 1);
+      emitted++;
+    }
+  }
+
   private rollRange(range: readonly [number, number]) {
     return Phaser.Math.Between(range[0], range[1]);
   }
 
   private rollFloatRange(range: readonly [number, number]) {
     return Phaser.Math.FloatBetween(range[0], range[1]);
+  }
+
+  private createNebulaTexture(
+    key: string,
+    size: number,
+    primaryColor: number,
+    secondaryColor: number,
+    cloudCount: number,
+  ) {
+    if (this.textures.exists(key)) return;
+    const g = this.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(0x000000, 0);
+    g.fillRect(0, 0, size, size);
+
+    for (let i = 0; i < cloudCount; i++) {
+      const cx = Phaser.Math.FloatBetween(0, size);
+      const cy = Phaser.Math.FloatBetween(0, size);
+      const rx = Phaser.Math.FloatBetween(size * 0.09, size * 0.25);
+      const ry = rx * Phaser.Math.FloatBetween(0.5, 0.9);
+      g.fillStyle(i % 2 === 0 ? primaryColor : secondaryColor, Phaser.Math.FloatBetween(0.03, 0.1));
+      g.fillEllipse(cx, cy, rx * 2, ry * 2);
+    }
+
+    for (let i = 0; i < 28; i++) {
+      const x = Phaser.Math.FloatBetween(0, size);
+      const y = Phaser.Math.FloatBetween(0, size);
+      const r = Phaser.Math.FloatBetween(0.6, 1.5);
+      g.fillStyle(i % 3 === 0 ? secondaryColor : primaryColor, Phaser.Math.FloatBetween(0.08, 0.2));
+      g.fillCircle(x, y, r);
+    }
+
+    g.generateTexture(key, size, size);
+    g.destroy();
+  }
+
+  private resolveNebulaProfileKey() {
+    if (this.game.renderer.type !== Phaser.WEBGL) return 'off';
+    if (!this.isDecorTierActive(this.backgroundDecorTier)) return 'off';
+    return `${this.backgroundDecorTier}-${performanceMonitor.reducedParticles ? 'reduced' : 'full'}`;
+  }
+
+  private configureNebulaLayers(force: boolean = false) {
+    const profileKey = this.resolveNebulaProfileKey();
+    if (!force && profileKey === this.nebulaProfileKey) return;
+
+    this.clearNebulaLayers();
+    this.nebulaProfileKey = profileKey;
+    if (profileKey === 'off') return;
+
+    this.createNebulaTexture('attract_nebula_a', 512, 0x3d79ff, 0xa36fff, 16);
+    this.createNebulaTexture('attract_nebula_b', 512, 0x65ddff, 0xff7bde, 22);
+
+    const reduced = performanceMonitor.reducedParticles;
+    const layerCount = this.backgroundDecorTier === 'low' || reduced ? 1 : 2;
+    const layerConfigs: Array<{
+      key: string;
+      vx: number;
+      vy: number;
+      baseAlpha: number;
+      alphaWave: number;
+      blendMode: Phaser.BlendModes;
+      depth: number;
+    }> = [
+      {
+        key: 'attract_nebula_a',
+        vx: 0.5,
+        vy: 3.2,
+        baseAlpha: this.backgroundDecorTier === 'high' ? 0.095 : 0.08,
+        alphaWave: 0.018,
+        blendMode: Phaser.BlendModes.NORMAL,
+        depth: 2,
+      },
+      {
+        key: 'attract_nebula_b',
+        vx: -0.38,
+        vy: 4.5,
+        baseAlpha: this.backgroundDecorTier === 'high' ? 0.08 : 0.065,
+        alphaWave: 0.02,
+        blendMode: Phaser.BlendModes.ADD,
+        depth: 2.5,
+      },
+    ];
+
+    for (let i = 0; i < layerCount; i++) {
+      const config = layerConfigs[i];
+      const baseAlpha = reduced ? config.baseAlpha * 0.84 : config.baseAlpha;
+      const sprite = this.add
+        .tileSprite(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, config.key)
+        .setDepth(config.depth)
+        .setAlpha(baseAlpha)
+        .setBlendMode(config.blendMode);
+      this.nebulaLayers.push({
+        sprite,
+        vx: config.vx,
+        vy: config.vy,
+        baseAlpha,
+        alphaWave: reduced ? config.alphaWave * 0.6 : config.alphaWave,
+        phase: Phaser.Math.FloatBetween(0, Math.PI * 2),
+      });
+    }
+  }
+
+  private updateNebulaLayers(delta: number) {
+    if (this.nebulaLayers.length === 0) return;
+    const t = this.time.now * 0.001;
+    for (const layer of this.nebulaLayers) {
+      layer.sprite.tilePositionX += (layer.vx * delta) / 1000;
+      layer.sprite.tilePositionY += (layer.vy * delta) / 1000;
+      layer.sprite.alpha = Phaser.Math.Clamp(
+        layer.baseAlpha + Math.sin(t * 0.33 + layer.phase) * layer.alphaWave,
+        0.025,
+        0.2,
+      );
+    }
+  }
+
+  private clearNebulaLayers() {
+    for (const layer of this.nebulaLayers) {
+      layer.sprite.destroy();
+    }
+    this.nebulaLayers.length = 0;
   }
 
   private isDecorTierActive(tier: AttractDecorTier): tier is Exclude<AttractDecorTier, 'off'> {
@@ -516,6 +825,7 @@ export default class AttractScene extends Phaser.Scene {
     if (!this.isDecorTierActive(nextTier)) {
       this.backgroundDecorSpawnTimerMs = 0;
       this.clearBackgroundDecor();
+      this.configureNebulaLayers(force);
       return;
     }
 
@@ -526,6 +836,7 @@ export default class AttractScene extends Phaser.Scene {
       removed?.sprite.destroy();
     }
     this.scheduleNextBackgroundDecorSpawn(true);
+    this.configureNebulaLayers(force);
   }
 
   private scheduleNextBackgroundDecorSpawn(initial: boolean) {
@@ -694,6 +1005,7 @@ export default class AttractScene extends Phaser.Scene {
     return {
       backgroundDecorTier: this.backgroundDecorTier,
       backgroundDecorCount: this.backgroundDecor.length,
+      nebulaLayerCount: this.nebulaLayers.length,
       gpu: this.gpuName,
     };
   }
@@ -741,6 +1053,7 @@ export default class AttractScene extends Phaser.Scene {
     this.eventBanner.setText(label);
     this.eventBanner.setAlpha(0);
     this.eventBanner.setScale(0.92);
+    this.playAttractWarpPulse(this.eventBanner.x, this.eventBanner.y, 'hard');
     this.eventBannerTween = this.tweens.add({
       targets: this.eventBanner,
       alpha: 1,

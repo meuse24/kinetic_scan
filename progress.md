@@ -757,3 +757,144 @@ TODOs for next agent
   - Implemented in `src/AttractScene.ts` by enabling combat on UFO, setting a hidden physics target, and updating that target via Lissajous-style motion each frame.
   - Cleanup on scene shutdown now detaches combat target and destroys the hidden target sprite.
   - Validation: `npm run lint` pass, `npm run build` pass.
+- 2026-02-08: Safari/WebKit compatibility check + audio fallback hardening
+  - Reproduced WebKit startup crash in Playwright WebKit: `TypeError: undefined is not a constructor (new AudioContext/webkitAudioContext)`.
+  - Fixed in `src/AudioManager.ts`: AudioContext is now optional with graceful no-audio fallback when constructors are unavailable.
+  - All audio methods now short-circuit safely when audio backend is unavailable.
+  - Validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+    - Playwright WebKit smoke checks (`output/web-game/safari-compat-check/*`):
+      - no `pageerror`/console errors
+      - AttractScene + MainScene state captured successfully.
+
+## 2026-02-08 - Juice pass (hit-stop + impact rings)
+- Added JUICE_TUNING in src/MainSceneTuning.ts for hit-stop and impact thresholds.
+- MainScene now applies short physics timeScale dips, tuned camera shake, and impact rings on elite/boss/player/large-asteroid hits.
+- Boss annihilation wave ease switched to Expo.easeOut for stronger perceived punch.
+- Validation: npm run lint ✅, npm run build ✅, Playwright smoke run completed with no console/page errors (output/web-game/juice-pass-1).
+- Note: captured Playwright screenshots were black in this environment despite valid state JSON; gameplay state capture and error checks were used for verification.
+
+## 2026-02-08 - Best 3 Phaser juice effects
+- Added subtle camera recoil on player shots via MainScene.onPlayerShot(), scaled by difficulty and throttled.
+- Added additive projectile trail emitters for player bullets and UFO projectiles with reduced-particles caps/intervals.
+- Added boss telegraph rings in UFO before volleys (phase-aware lead and color), with delayed volley fire after telegraph.
+- Validation: npm run lint ✅, npm run build ✅, Playwright smoke run ✅ no errors (output/web-game/juice-best3-pass-1).
+- Note: screenshot artifacts in headless capture persisted (black frames), state JSON and console error checks remained clean.
+
+## 2026-02-08 - Juice pass 2 (parallax + warp + damage overlay)
+- Added parallax nebula backdrop layers in MainScene with quality-aware profile selection (off/low/medium/high) and reduced-particles fallback.
+- Added level transition warp pulse graphics (soft/hard pulses) synchronized with countdown beats and GO cue.
+- Added subtle damage overlay flash on player hit; intensity scales by difficulty.
+- Added tuning values for overlay/warp in JUICE_TUNING and exposed nebulaLayerCount in render_game_to_text worldEvents.
+- Validation: npm run lint ✅, npm run build ✅, Playwright smoke run ✅ no console/page errors (output/web-game/juice-next3-pass-1).
+- Note: headless screenshots remain black in this environment; state JSON and error logs used for verification.
+
+## 2026-02-08 - Difficulty fine tuning for juice effects
+- Added difficulty-scaled warp pulse profile (duration/alpha/line count) in JUICE_TUNING and applied in MainScene.playLevelWarpPulse().
+- Added difficulty-scaled damage overlay duration (easy longer, hard snappier).
+- Added difficulty-scaled boss telegraph tuning in UFO (easy longer lead/lower alpha, hard shorter lead/stronger alpha).
+- Validation: npm run lint ✅, npm run build ✅, Playwright smoke run ✅ no error files (output/web-game/juice-difficulty-tune-1).
+- State check confirms new worldEvents.nebulaLayerCount present and active in gameplay state.
+- Attract-screen FX pass verified and stabilized:
+  - Nebula parallax layers (quality-aware) active in `AttractScene` (with graceful disable on low/off tiers).
+  - Warp pulse transitions tied to attract message/event swaps.
+  - UFO projectile trail particles added for ambient combat readability.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - Playwright smoke: `output/web-game/attract-effects-verify-2` (no errors file; attract state captured)
+- Level-transition hybridization implemented (best-practice pass):
+  - Added selective transition cleanup in `MainScene` via `preparePlayfieldForLevelTransition()`:
+    - clears active bullets, asteroids, UFO/projectiles, pending collision queue,
+    - clears temporary world-event leftovers (wormhole/elite drone),
+    - clears transition hazards (BLACK_HOLE + SHIELD_BUNKER state/visuals),
+    - keeps score/lives/perks progression intact.
+  - Added spawn-controller rearm hooks:
+    - `EnemyManager.resetSpawnController(initialDelayMs)` for deterministic fresh level pacing.
+    - `PowerUpDirector.resetForLevelStart(score)` to clear leftover drops and reset combo timing without wiping run-level progression.
+  - Added dedicated post-transition spawn-protection window:
+    - `SPAWN_PROTECTION_TUNING.levelTransitionGraceMs` and applied at countdown completion.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - Playwright smoke run: `output/web-game/level-transition-hybrid-pass-1` (no errors file)
+- Targeted boss->level-transition verification run completed (forced boss spawn/kill, frame-sampled).
+- Added capture-only debug hook in `src/main.ts` (`window.__debug_gameplay`) behind `FORCE_CANVAS_CAPTURE`:
+  - `forceBossEncounter()`
+  - `forceBossDefeat()`
+  - `getMainState()`
+- Verification artifacts in `output/web-game/boss-level-transition-verify`:
+  - `baseline-main.png`
+  - `boss-active.png`
+  - `transition-phase.png`
+  - `post-transition.png`
+  - `report.json`
+- Report assertions all `true`:
+  - forced boss appeared,
+  - forced boss defeat triggered transition,
+  - level incremented,
+  - transition countdown sequence observed (`3 -> 2 -> 1 -> GO!`),
+  - cleanup at transition start confirmed (enemies/bullets/ufo shots = 0),
+  - post-transition spawn protection active.
+- Performance guardrail pass for gimmicks completed (anti-FPS-drop):
+  - Added dynamic FPS-aware FX budget API in `src/PerformanceMonitor.ts`:
+    - `getCurrentFps(game)`
+    - `getFxBudgetScale(game)`
+    - `getFxIntervalScale(game)`
+    - `scaleFxCount(game, baseCount, minCount)`
+  - Wired budget into heavy gimmick FX paths:
+    - `src/ExplosionManager.ts`: asteroid/player/UFO debris particle counts now FPS-adaptive.
+    - `src/MainScene.ts`:
+      - projectile trail emission interval + caps now FPS-adaptive,
+      - level-transition warp pulse line count/alpha/duration now FPS-adaptive.
+    - `src/AttractScene.ts`:
+      - attract warp pulse density/duration now FPS-adaptive,
+      - UFO projectile trail interval/cap now FPS-adaptive.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - Playwright smoke run: `output/web-game/fx-budget-smoke` (no errors file)
+
+## 2026-02-08 - Chunk-size refactor (Vite) with runtime validation
+- Implemented lazy runtime scene loading in `BootScene`:
+  - Added async `ensureRuntimeScenesLoaded()` that dynamically imports and registers
+    `MainScene`, `GameOverScene`, `PauseScene`, `HelpScene` only when starting gameplay.
+  - Added guarded boot-start flow (`isStarting`) and loading state text while modules load.
+- Reduced eager bundle surface in `gameConfig`:
+  - Removed static imports for heavy runtime scenes.
+  - Kept only `[BootScene, AttractScene, BezelScene]` in static scene list.
+- Hardened scene lookups in `main.ts` for lazy-registration timing:
+  - Switched debug/state helpers from strict `getScene(...)` to safe `scene.keys` access.
+- Added conservative Vite manual chunking in `vite.config.ts`:
+  - `node_modules/phaser` is emitted as dedicated `phaser` chunk.
+  - Avoided extra custom split groups after circular dependency warning in trial config.
+- Build outcome after refactor:
+  - `index` runtime chunk ~91 kB
+  - `MainScene` chunk ~96 kB
+  - `GameOverScene` ~9.5 kB
+  - `HelpScene` ~7.7 kB
+  - `PauseScene` ~1.9 kB
+  - `phaser` chunk remains large (~1.2 MB) by design
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - Playwright smoke run (`output/web-game/chunk-refactor-smoke`) pass:
+    - flow reached gameplay (`activeScenes`: MainScene + BezelScene),
+    - no captured runtime errors (`errors-0.json` absent),
+    - screenshot + state JSON consistent with live gameplay.
+
+## 2026-02-08 - Phaser chunk reduction (low-risk runtime alias)
+- Updated `vite.config.ts` resolve alias:
+  - `phaser` -> `phaser/dist/phaser-arcade-physics.min.js`
+- Goal: keep current API usage and Arcade physics while dropping unused Phaser physics engines from runtime bundle.
+- Result (build output):
+  - Phaser chunk reduced from `~1208.08 kB` to `~1086.07 kB` minified.
+  - Gzip reduced from `~332.18 kB` to `~296.01 kB`.
+  - Approx. savings: `~122.01 kB` minified (`~36.17 kB` gzip).
+- Validation:
+  - `npm run build` pass.
+  - Playwright smoke in capture mode:
+    - `output/web-game/phaser-arcade-alias-smoke-2`
+    - state reached gameplay (`MainScene` active),
+    - no `errors-0.json` emitted.

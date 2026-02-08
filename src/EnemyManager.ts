@@ -123,6 +123,12 @@ export class EnemyManager {
     this.refreshEnemySpeedMultiplier();
   }
 
+  public resetSpawnController(initialDelayMs: number = INITIAL_SPAWN_INTERVAL) {
+    this.spawnInterval = INITIAL_SPAWN_INTERVAL;
+    this.spawnTimer = Math.max(0, Math.round(initialDelayMs));
+    this.offscreenCullTimer = 0;
+  }
+
   public getDifficultyLevel() {
     return this.difficultyLevel;
   }

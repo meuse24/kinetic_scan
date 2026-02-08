@@ -1,62 +1,89 @@
-import songUrl from './song.mp3';
-import gameplayLoopUrl from '../gameloop.mp3';
+import Phaser from 'phaser';
+import menuMusicUrl from './song.mp3';
+import gameplayMusicUrl from '../gameloop.mp3';
 import { soundManager } from './SoundManager';
 
+export const MENU_MUSIC_KEY = 'music_menu_loop';
+export const GAMEPLAY_MUSIC_KEY = 'music_gameplay_loop';
+export const MENU_MUSIC_URL = menuMusicUrl;
+export const GAMEPLAY_MUSIC_URL = gameplayMusicUrl;
+
 class MusicManager {
-  private menuAudio: HTMLAudioElement;
-  private gameplayAudio: HTMLAudioElement;
+  private readonly menuVolume = 0.3;
+  private readonly gameplayVolume = 0.1;
+  private phaserSoundManager: Phaser.Sound.BaseSoundManager | null = null;
+  private menuAudio: Phaser.Sound.BaseSound | null = null;
+  private gameplayAudio: Phaser.Sound.BaseSound | null = null;
+  private muteListenerBound = false;
 
-  constructor() {
-    this.menuAudio = new Audio(songUrl);
-    this.menuAudio.loop = true;
-    this.menuAudio.volume = 0.3;
+  private applyMuteState() {
+    if (!this.phaserSoundManager) return;
+    this.phaserSoundManager.mute = soundManager.isMuted();
+  }
 
-    this.gameplayAudio = new Audio(gameplayLoopUrl);
-    this.gameplayAudio.loop = true;
-    // Keep gameplay loop intentionally quiet so SFX stay in the foreground.
-    this.gameplayAudio.volume = 0.1;
-
-    const muted = soundManager.isMuted();
-    this.menuAudio.muted = muted;
-    this.gameplayAudio.muted = muted;
+  private bindMuteListener() {
+    if (this.muteListenerBound) return;
+    this.muteListenerBound = true;
     soundManager.onChange((muted: boolean) => {
-      this.menuAudio.muted = muted;
-      this.gameplayAudio.muted = muted;
+      if (!this.phaserSoundManager) return;
+      this.phaserSoundManager.mute = muted;
     });
   }
 
-  play() {
+  private ensureTracks(scene: Phaser.Scene) {
+    const sound = scene.sound;
+    this.phaserSoundManager = sound;
+    if (!this.menuAudio) {
+      this.menuAudio =
+        sound.get(MENU_MUSIC_KEY) ??
+        sound.add(MENU_MUSIC_KEY, {
+          loop: true,
+          volume: this.menuVolume,
+        });
+    }
+    if (!this.gameplayAudio) {
+      this.gameplayAudio =
+        sound.get(GAMEPLAY_MUSIC_KEY) ??
+        sound.add(GAMEPLAY_MUSIC_KEY, {
+          loop: true,
+          // Keep gameplay loop intentionally quiet so SFX stay in the foreground.
+          volume: this.gameplayVolume,
+        });
+    }
+    this.applyMuteState();
+    this.bindMuteListener();
+  }
+
+  play(scene: Phaser.Scene) {
+    this.ensureTracks(scene);
     this.stopGameplay();
-    if (this.menuAudio.paused) {
-      this.menuAudio.play().catch(() => {});
+    if (!this.menuAudio?.isPlaying) {
+      this.menuAudio?.play();
     }
   }
 
   stop() {
-    this.menuAudio.pause();
-    this.menuAudio.currentTime = 0;
+    this.menuAudio?.stop();
   }
 
-  playGameplay() {
+  playGameplay(scene: Phaser.Scene) {
+    this.ensureTracks(scene);
     this.stop();
-    if (this.gameplayAudio.paused) {
-      this.gameplayAudio.play().catch(() => {});
+    if (!this.gameplayAudio?.isPlaying) {
+      this.gameplayAudio?.play();
     }
   }
 
   pauseGameplay() {
-    this.gameplayAudio.pause();
+    if (this.gameplayAudio?.isPlaying) this.gameplayAudio.pause();
   }
 
   resumeGameplay() {
-    if (this.gameplayAudio.paused) {
-      this.gameplayAudio.play().catch(() => {});
-    }
+    if (this.gameplayAudio?.isPaused) this.gameplayAudio.resume();
   }
 
   stopGameplay() {
-    this.gameplayAudio.pause();
-    this.gameplayAudio.currentTime = 0;
+    this.gameplayAudio?.stop();
   }
 }
 

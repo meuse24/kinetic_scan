@@ -158,6 +158,45 @@ export class PerformanceMonitor {
   getQualityLabel(): string {
     return `Q${this.qualityLevel}`;
   }
+
+  getCurrentFps(game: Phaser.Game): number {
+    const fps = game.loop.actualFps;
+    if (!Number.isFinite(fps) || fps <= 0) return 60;
+    return fps;
+  }
+
+  getFxBudgetScale(game: Phaser.Game): number {
+    const fps = this.getCurrentFps(game);
+    let scale = 1;
+    if (fps < 58) scale = 0.92;
+    if (fps < 54) scale = 0.8;
+    if (fps < 50) scale = 0.68;
+    if (fps < 44) scale = 0.55;
+    if (fps < 38) scale = 0.42;
+    if (this.reducedParticles) {
+      scale = Math.min(scale, 0.62);
+    }
+    return Phaser.Math.Clamp(scale, 0.28, 1);
+  }
+
+  getFxIntervalScale(game: Phaser.Game): number {
+    const fps = this.getCurrentFps(game);
+    let scale = 1;
+    if (fps < 58) scale = 1.08;
+    if (fps < 54) scale = 1.22;
+    if (fps < 50) scale = 1.4;
+    if (fps < 44) scale = 1.65;
+    if (fps < 38) scale = 1.95;
+    if (this.reducedParticles) {
+      scale = Math.max(scale, 1.45);
+    }
+    return scale;
+  }
+
+  scaleFxCount(game: Phaser.Game, baseCount: number, minCount: number = 1): number {
+    const scaled = Math.round(baseCount * this.getFxBudgetScale(game));
+    return Phaser.Math.Clamp(scaled, Math.max(1, minCount), Math.max(1, baseCount));
+  }
 }
 
 export const performanceMonitor = new PerformanceMonitor();

@@ -1,12 +1,8 @@
 import Phaser from 'phaser';
 import BootScene from './BootScene';
 import AttractScene from './AttractScene';
-import MainScene from './MainScene';
-import GameOverScene from './GameOverScene';
-import PauseScene from './PauseScene';
 import CRTPipeline from './CRTPipeline';
 import BezelScene from './BezelScene';
-import HelpScene from './HelpScene';
 
 export const IS_TOUCH = !window.matchMedia('(pointer: fine)').matches;
 const SEARCH_PARAMS = new URLSearchParams(window.location.search);
@@ -84,5 +80,5 @@ export const config: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
-  scene: [BootScene, AttractScene, MainScene, GameOverScene, PauseScene, BezelScene, HelpScene],
+  scene: [BootScene, AttractScene, BezelScene],
 };

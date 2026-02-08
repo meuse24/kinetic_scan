@@ -46,6 +46,7 @@ export const SPAWN_PROTECTION_TUNING = {
   startGraceMs: 2200,
   respawnGraceMs: 2500,
   switchGraceMs: 1900,
+  levelTransitionGraceMs: 1400,
   clearRadius: 220,
   safeSpawnYOffset: 100,
 } as const;
@@ -120,6 +121,90 @@ export const SHIELD_BUNKER_TUNING = {
   warningBlinkCount: 4,
   warningBlinkHalfPeriodMs: 160,
   warningLeadMs: 1400,
+} as const;
+
+export const JUICE_TUNING = {
+  hitStopCooldownMs: 120,
+  eliteHitStopMs: 40,
+  eliteHitStopScale: 0.26,
+  bossHitStopMs: 55,
+  bossHitStopScale: 0.18,
+  bossKillHitStopMs: 82,
+  bossKillHitStopScale: 0.1,
+  playerHitStopMs: 88,
+  playerHitStopScale: 0.14,
+  largeAsteroidHitStopMs: 32,
+  largeAsteroidHitStopScale: 0.32,
+  largeAsteroidMinScale: 1.35,
+  playerRecoilCooldownMs: 70,
+  playerRecoilDurationMs: 58,
+  playerRecoilIntensity: {
+    easy: 0.001,
+    normal: 0.00125,
+    hard: 0.00155,
+  } as Record<DifficultyPresetKey, number>,
+  trailEmitIntervalMs: {
+    full: 34,
+    reduced: 68,
+  },
+  playerTrailCapPerTick: {
+    full: 26,
+    reduced: 10,
+  },
+  enemyTrailCapPerTick: {
+    full: 18,
+    reduced: 7,
+  },
+  damageOverlayDurationMs: 320,
+  damageOverlayDurationByDifficultyMs: {
+    easy: 360,
+    normal: 320,
+    hard: 280,
+  } as Record<DifficultyPresetKey, number>,
+  damageOverlayMaxAlpha: {
+    easy: 0.2,
+    normal: 0.24,
+    hard: 0.3,
+  } as Record<DifficultyPresetKey, number>,
+  warpPulseDurationMs: {
+    soft: 380,
+    hard: 700,
+  },
+  warpPulseAlpha: {
+    soft: 0.38,
+    hard: 0.68,
+  },
+  warpLineCount: {
+    full: 18,
+    reduced: 10,
+  },
+  warpPulseDifficultyScale: {
+    easy: {
+      duration: 1.14,
+      alpha: 0.9,
+      lines: 0.88,
+    },
+    normal: {
+      duration: 1,
+      alpha: 1,
+      lines: 1,
+    },
+    hard: {
+      duration: 0.9,
+      alpha: 1.16,
+      lines: 1.14,
+    },
+  } as Record<DifficultyPresetKey, { duration: number; alpha: number; lines: number }>,
+  bossTelegraphLeadScale: {
+    easy: 1.16,
+    normal: 1,
+    hard: 0.86,
+  } as Record<DifficultyPresetKey, number>,
+  bossTelegraphAlphaScale: {
+    easy: 0.92,
+    normal: 1,
+    hard: 1.14,
+  } as Record<DifficultyPresetKey, number>,
 } as const;
 
 export const pickEliteDroneSpawnDelayRange = (reason: EliteDroneDeactivateReason): IntRange => {

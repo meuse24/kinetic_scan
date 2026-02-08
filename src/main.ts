@@ -11,6 +11,20 @@ declare global {
   interface Window {
     render_game_to_text?: () => string;
     advanceTime?: (ms: number) => Promise<void>;
+    __debug_gameplay?: {
+      forceBossEncounter: () => {
+        ok: boolean;
+        reason?: string;
+      };
+      forceBossDefeat: () => {
+        ok: boolean;
+        reason?: string;
+        level?: number;
+        transitionActive?: boolean;
+        transitionLabel?: string;
+      };
+      getMainState: () => Record<string, unknown>;
+    };
   }
 }
 
@@ -51,9 +65,9 @@ function handleResize() {
   }, 250);
 }
 
-window.addEventListener('resize', handleResize);
-document.addEventListener('fullscreenchange', handleResize);
-document.addEventListener('webkitfullscreenchange', handleResize);
+game.scale.on(Phaser.Scale.Events.RESIZE, handleResize);
+game.scale.on(Phaser.Scale.Events.ENTER_FULLSCREEN, handleResize);
+game.scale.on(Phaser.Scale.Events.LEAVE_FULLSCREEN, handleResize);
 
 if (typeof window.render_game_to_text !== 'function') {
   window.render_game_to_text = () => {
@@ -67,7 +81,7 @@ if (typeof window.render_game_to_text !== 'function') {
       viewport: { width: game.scale.width, height: game.scale.height },
     };
 
-    const main = game.scene.getScene('MainScene') as any;
+    const main = (game.scene.keys as Record<string, any>).MainScene;
     if (main?.scene?.isActive()) {
       const player = main.player;
       payload.player = player
@@ -136,7 +150,7 @@ if (typeof window.render_game_to_text !== 'function') {
         }));
     }
 
-    const attract = game.scene.getScene('AttractScene') as any;
+    const attract = (game.scene.keys as Record<string, any>).AttractScene;
     if (attract?.scene?.isActive() && typeof attract.getAmbientVisualState === 'function') {
       payload.attract = attract.getAmbientVisualState();
     }
@@ -150,4 +164,80 @@ if (typeof window.advanceTime !== 'function') {
     new Promise((resolve) => {
       window.setTimeout(resolve, Math.max(0, ms));
     });
+}
+
+if (FORCE_CANVAS_CAPTURE) {
+  window.__debug_gameplay = {
+    forceBossEncounter: () => {
+      const main = (game.scene.keys as Record<string, any>).MainScene;
+      if (!main?.scene?.isActive?.()) {
+        return { ok: false, reason: 'MainScene not active' };
+      }
+      main.levelBossPendingDefeat = true;
+      if (main.ufo?.active && main.ufo.getVariant?.() !== 'boss') {
+        main.ufo.deactivate?.();
+      }
+      main.ufoSpawnTimer = 1;
+      main.updateHUD?.();
+      return { ok: true };
+    },
+    forceBossDefeat: () => {
+      const main = (game.scene.keys as Record<string, any>).MainScene;
+      if (!main?.scene?.isActive?.()) {
+        return { ok: false, reason: 'MainScene not active' };
+      }
+      if (!main.ufo?.active) {
+        return { ok: false, reason: 'UFO not active' };
+      }
+      if (main.ufo.getVariant?.() !== 'boss') {
+        return { ok: false, reason: 'UFO is not boss' };
+      }
+      main.ufo.hitPoints = 1;
+      const bullet = main.bullets?.get?.(main.ufo.x, main.ufo.y);
+      if (!bullet) {
+        return { ok: false, reason: 'No pooled bullet available' };
+      }
+      bullet.setActive?.(true);
+      bullet.setVisible?.(true);
+      const body = bullet.body;
+      if (body) {
+        body.enable = true;
+        if (typeof body.reset === 'function') {
+          body.reset(main.ufo.x, main.ufo.y);
+        }
+      }
+      main.handleBulletHitUFO?.(bullet, main.ufo);
+      return {
+        ok: true,
+        level: main.level,
+        transitionActive: Boolean(main.isLevelTransition),
+        transitionLabel: main.levelTransitionCountdownLabel ?? '',
+      };
+    },
+    getMainState: () => {
+      const main = (game.scene.keys as Record<string, any>).MainScene;
+      if (!main?.scene?.isActive?.()) {
+        return { active: false };
+      }
+      return {
+        active: true,
+        level: main.level,
+        progressionScore: main.progressionScore,
+        nextLevelScore: main.nextLevelScore,
+        bossPending: main.levelBossPendingDefeat,
+        isLevelTransition: main.isLevelTransition,
+        transitionLabel: main.levelTransitionCountdownLabel ?? '',
+        physicsPaused: Boolean(main.physics?.world?.isPaused),
+        enemiesActive: main.enemyManager?.enemies?.countActive?.(true) ?? 0,
+        bulletsActive: main.bullets?.countActive?.(true) ?? 0,
+        ufoActive: Boolean(main.ufo?.active),
+        ufoVariant: main.ufo?.getVariant?.() ?? null,
+        ufoHealth: main.ufo?.getHealth?.() ?? 0,
+        ufoShots: main.ufo?.getActiveProjectileCount?.() ?? 0,
+        spawnProtectionMs: main.spawnProtectionTimerMs ?? 0,
+      };
+    },
+  };
+} else if (window.__debug_gameplay) {
+  delete window.__debug_gameplay;
 }

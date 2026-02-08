@@ -3,6 +3,8 @@ import { getDifficultyPreset } from './Difficulty';
 import type { DifficultyPreset } from './Difficulty';
 import { PowerUp, PowerUpType } from './PowerUp';
 
+const SHIELD_BUNKER_REROLL_PERCENT = 45;
+
 export class PowerUpDirector {
   private scene: Phaser.Scene;
   private powerUps: Phaser.Physics.Arcade.Group;
@@ -19,6 +21,7 @@ export class PowerUpDirector {
     PowerUpType.WINGMAN_DRONES,
     PowerUpType.CANNON_COOLING,
     PowerUpType.CANNON_COOLING,
+    PowerUpType.SHIELD_BUNKER,
     PowerUpType.SHIELD_BUNKER,
   ];
 
@@ -79,6 +82,17 @@ export class PowerUpDirector {
 
   public resetDamageFreeTime() {
     this.damageFreeTime = 0;
+  }
+
+  public resetForLevelStart(score: number) {
+    this.comboCount = 0;
+    this.lastKillTime = 0;
+    this.nearMisses = 0;
+    this.damageFreeTime = 0;
+    this.lastPowerUpTime = this.scene.time.now;
+    this.powerUps.clear(true, true);
+    const scoreStride = Math.max(1, this.scoreInterval);
+    this.lastScoreThreshold = Math.floor(score / scoreStride) * scoreStride;
   }
 
   public reset() {
@@ -186,7 +200,11 @@ export class PowerUpDirector {
     }
     const spawnPool = this.getSpawnPool();
     let type = forcedType || Phaser.Utils.Array.GetRandom(spawnPool);
-    if (!forcedType && type === PowerUpType.SHIELD_BUNKER && Phaser.Math.Between(0, 99) < 70) {
+    if (
+      !forcedType &&
+      type === PowerUpType.SHIELD_BUNKER &&
+      Phaser.Math.Between(0, 99) < SHIELD_BUNKER_REROLL_PERCENT
+    ) {
       const fallbackPool = spawnPool.filter((entry) => entry !== PowerUpType.SHIELD_BUNKER);
       if (fallbackPool.length > 0) {
         type = Phaser.Utils.Array.GetRandom(fallbackPool);
@@ -213,6 +231,7 @@ export class PowerUpDirector {
         PowerUpType.WINGMAN_DRONES,
         PowerUpType.CANNON_COOLING,
         PowerUpType.SHIELD_BUNKER,
+        PowerUpType.SHIELD_BUNKER,
       ];
     }
     if (this.difficultyLevel >= 4) {
@@ -226,6 +245,7 @@ export class PowerUpDirector {
         PowerUpType.BLACK_HOLE,
         PowerUpType.WINGMAN_DRONES,
         PowerUpType.CANNON_COOLING,
+        PowerUpType.SHIELD_BUNKER,
         PowerUpType.SHIELD_BUNKER,
       ];
     }

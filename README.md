@@ -6,6 +6,9 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 ## Highlights
 
 - Phaser 3 game loop with Arcade Physics and responsive viewport scaling.
+- Startup bundle optimization:
+  - runtime gameplay scenes are lazy-loaded from `BootScene` on first start,
+  - Phaser is bundled with the Arcade-focused build (`phaser-arcade-physics.min.js`) to trim engine payload.
 - Difficulty presets: `EASY`, `NORMAL`, `HARD` (affects enemies, drops, UFO pressure, and level curve).
 - Two UFO variants:
   - `Scout`: light pressure, occasional aimed shots, single-hit destroy.
@@ -83,6 +86,15 @@ Preview production build:
 ```bash
 npm run preview
 ```
+
+## Bundle Notes
+
+- Build currently emits a dedicated `phaser` chunk plus separate runtime scene chunks.
+- Typical split after optimization:
+  - `phaser` ~1.09 MB minified (~296 kB gzip),
+  - `MainScene` ~96 kB,
+  - `index` runtime chunk ~91 kB,
+  - menu/overlay scenes each in small separate chunks.
 
 ## Capture / Automation Notes
 
