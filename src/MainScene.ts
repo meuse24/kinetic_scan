@@ -17,6 +17,14 @@ import type { DifficultyPreset, DifficultyPresetKey } from './Difficulty';
 import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize } from './gameConfig';
 import { performanceMonitor } from './PerformanceMonitor';
 import { musicManager } from './MusicManager';
+import {
+  ELITE_DRONE_TUNING,
+  LEVEL_TRANSITION_TUNING,
+  WORMHOLE_TUNING,
+  pickEliteDroneSpawnDelayRange,
+  type EliteDroneDeactivateReason,
+  type IntRange,
+} from './MainSceneTuning';
 
 interface PlayerState {
   score: number;
@@ -105,8 +113,6 @@ export default class MainScene extends Phaser.Scene {
   private levelTransitionPrompt!: Phaser.GameObjects.Text;
   private levelTransitionEvents: Phaser.Time.TimerEvent[] = [];
   private levelTransitionCountdownLabel: string = '';
-  private readonly bossDefeatCelebrationDelayMs: number = 1600;
-  private readonly levelTransitionBeatMs: number = 1050;
   private awaitingTurnInput: boolean = false;
   private turnKeyHandler?: (event: KeyboardEvent) => void;
   private turnPointerHandler?: () => void;
@@ -389,8 +395,7 @@ export default class MainScene extends Phaser.Scene {
       this.ufo.deactivate();
       this.removeDrones();
       this.removeBlackHole();
-      this.deactivateWormhole();
-      this.deactivateEliteDrone('reset');
+      this.clearWorldEvents('reset');
       this.pendingEnemyHits.length = 0;
       this.powerUpBar.destroy();
       this.heatBar.destroy();
@@ -634,7 +639,7 @@ export default class MainScene extends Phaser.Scene {
     this.level += 1;
     this.nextLevelScore = this.progressionScore + this.getNextLevelScore(this.level);
     this.applyDifficultyProfile();
-    this.startLevelTransitionCountdown(this.bossDefeatCelebrationDelayMs);
+    this.startLevelTransitionCountdown(LEVEL_TRANSITION_TUNING.bossDefeatCelebrationDelayMs);
     this.tweens.add({
       targets: this.levelText,
       scaleX: 1.24,
@@ -731,10 +736,29 @@ export default class MainScene extends Phaser.Scene {
       .setVisible(false);
   }
 
+  private rollRange(range: IntRange) {
+    return Phaser.Math.Between(range[0], range[1]);
+  }
+
+  private setWormholeSpawnTimer(mode: 'initial' | 'respawn') {
+    const range =
+      mode === 'initial' ? WORMHOLE_TUNING.initialSpawnDelayMs : WORMHOLE_TUNING.respawnDelayMs;
+    this.wormholeSpawnTimer = this.rollRange(range);
+  }
+
+  private setEliteDroneSpawnTimer(reason: EliteDroneDeactivateReason) {
+    this.eliteDroneSpawnTimer = this.rollRange(pickEliteDroneSpawnDelayRange(reason));
+  }
+
+  private clearWorldEvents(reason: EliteDroneDeactivateReason = 'reset') {
+    this.deactivateWormhole();
+    this.deactivateEliteDrone(reason);
+  }
+
   private resetWorldEventTimers() {
-    this.wormholeSpawnTimer = Phaser.Math.Between(13000, 21000);
+    this.setWormholeSpawnTimer('initial');
     this.wormholeForceAccumulatorMs = 0;
-    this.eliteDroneSpawnTimer = Phaser.Math.Between(22000, 34000);
+    this.eliteDroneSpawnTimer = this.rollRange(ELITE_DRONE_TUNING.initialSpawnDelayMs);
     this.eliteDroneLifetimeMs = 0;
   }
 
@@ -824,19 +848,19 @@ export default class MainScene extends Phaser.Scene {
     if (this.wormhole?.active || this.isGameOver) return;
     const width = this.scale.width;
     const height = this.scale.height;
-    const vx = Phaser.Math.Between(-60, 60) || 35;
-    const vy = Phaser.Math.Between(-42, 42);
+    const vx = this.rollRange(WORMHOLE_TUNING.velocityX) || 35;
+    const vy = this.rollRange(WORMHOLE_TUNING.velocityY);
     this.wormhole = {
       active: true,
       x: Phaser.Math.Between(130, width - 130),
       y: Phaser.Math.Between(110, Math.round(height * 0.58)),
       vx,
       vy,
-      ttlMs: Phaser.Math.Between(8200, 10800),
+      ttlMs: this.rollRange(WORMHOLE_TUNING.ttlMs),
     };
     this.wormholeGraphics.setVisible(true);
     this.wormholeForceAccumulatorMs = 0;
-    this.wormholeSpawnTimer = Phaser.Math.Between(25000, 36000);
+    this.setWormholeSpawnTimer('respawn');
   }
 
   private deactivateWormhole() {
@@ -864,7 +888,7 @@ export default class MainScene extends Phaser.Scene {
 
     const width = this.scale.width;
     const height = this.scale.height;
-    const pad = 96;
+    const pad = WORMHOLE_TUNING.motionPadding;
     this.wormhole.x += (this.wormhole.vx * delta) / 1000;
     this.wormhole.y += (this.wormhole.vy * delta) / 1000;
 
@@ -872,14 +896,16 @@ export default class MainScene extends Phaser.Scene {
       this.wormhole.vx *= -1;
       this.wormhole.x = Phaser.Math.Clamp(this.wormhole.x, pad, width - pad);
     }
-    if (this.wormhole.y < pad || this.wormhole.y > height * 0.78) {
+    if (this.wormhole.y < pad || this.wormhole.y > height * WORMHOLE_TUNING.maxYRatio) {
       this.wormhole.vy *= -1;
-      this.wormhole.y = Phaser.Math.Clamp(this.wormhole.y, pad, height * 0.78);
+      this.wormhole.y = Phaser.Math.Clamp(this.wormhole.y, pad, height * WORMHOLE_TUNING.maxYRatio);
     }
 
     const t = this.time.now * 0.004;
-    const radiusOuter = 34 + Math.sin(t * 1.8) * 4;
-    const radiusInner = 19 + Math.cos(t * 2.6) * 3;
+    const radiusOuter =
+      WORMHOLE_TUNING.outerRadiusBase + Math.sin(t * 1.8) * WORMHOLE_TUNING.outerRadiusWave;
+    const radiusInner =
+      WORMHOLE_TUNING.innerRadiusBase + Math.cos(t * 2.6) * WORMHOLE_TUNING.innerRadiusWave;
     this.wormholeGraphics
       .clear()
       .lineStyle(3, 0x9f52ff, 0.85)
@@ -896,13 +922,13 @@ export default class MainScene extends Phaser.Scene {
     }
 
     this.wormholeForceAccumulatorMs += delta;
-    if (this.wormholeForceAccumulatorMs < 33) return;
+    if (this.wormholeForceAccumulatorMs < WORMHOLE_TUNING.forceIntervalMs) return;
 
     const forceScale = this.wormholeForceAccumulatorMs / (1000 / 60);
     this.wormholeForceAccumulatorMs = 0;
     const wx = this.wormhole.x;
     const wy = this.wormhole.y;
-    const radius = 250;
+    const radius = WORMHOLE_TUNING.pullRadius;
     const radiusSq = radius * radius;
 
     const enemies = this.enemyManager.enemies.getChildren() as Enemy[];
@@ -913,7 +939,7 @@ export default class MainScene extends Phaser.Scene {
       const distSq = dx * dx + dy * dy;
       if (distSq <= 36 || distSq > radiusSq) continue;
       const invDist = 1 / Math.sqrt(distSq);
-      const pull = (1 - distSq / radiusSq) * 16 * forceScale;
+      const pull = (1 - distSq / radiusSq) * WORMHOLE_TUNING.enemyPullStrength * forceScale;
       enemy.body.velocity.x += dx * invDist * pull;
       enemy.body.velocity.y += dy * invDist * pull;
     }
@@ -926,12 +952,12 @@ export default class MainScene extends Phaser.Scene {
       const distSq = dx * dx + dy * dy;
       if (distSq <= 16 || distSq > radiusSq) continue;
       const invDist = 1 / Math.sqrt(distSq);
-      const bend = (1 - distSq / radiusSq) * 24 * forceScale;
+      const bend = (1 - distSq / radiusSq) * WORMHOLE_TUNING.bulletBendStrength * forceScale;
       bullet.body.velocity.x += dx * invDist * bend;
       bullet.body.velocity.y += dy * invDist * bend;
       const speed = bullet.body.velocity.length();
-      if (speed > 760) {
-        const scale = 760 / speed;
+      if (speed > WORMHOLE_TUNING.bulletMaxSpeed) {
+        const scale = WORMHOLE_TUNING.bulletMaxSpeed / speed;
         bullet.body.velocity.x *= scale;
         bullet.body.velocity.y *= scale;
       }
@@ -950,13 +976,13 @@ export default class MainScene extends Phaser.Scene {
     this.eliteDrone.setVisible(true);
     this.eliteDrone.setAlpha(1);
     this.eliteDrone.setTint(0xa7ffd8);
-    this.eliteDroneLifetimeMs = Phaser.Math.Between(6300, 8200);
+    this.eliteDroneLifetimeMs = this.rollRange(ELITE_DRONE_TUNING.lifetimeMs);
     this.eliteDroneLabel.setVisible(true);
-    this.eliteDroneSpawnTimer = Phaser.Math.Between(28000, 42000);
+    this.eliteDroneSpawnTimer = this.rollRange(ELITE_DRONE_TUNING.postSpawnDelayMs);
     this.cameras.main.flash(70, 120, 255, 120, false);
   }
 
-  private deactivateEliteDrone(reason: 'rescued' | 'shot' | 'expired' | 'reset') {
+  private deactivateEliteDrone(reason: EliteDroneDeactivateReason) {
     if (!this.eliteDrone) return;
     if (this.eliteDrone.active) {
       this.eliteDrone.disableBody(true, true);
@@ -965,13 +991,7 @@ export default class MainScene extends Phaser.Scene {
     }
     this.eliteDroneLabel?.setVisible(false);
     this.eliteDroneLifetimeMs = 0;
-    if (reason === 'reset') {
-      this.eliteDroneSpawnTimer = Phaser.Math.Between(16000, 26000);
-    } else if (reason === 'expired') {
-      this.eliteDroneSpawnTimer = Phaser.Math.Between(19000, 30000);
-    } else {
-      this.eliteDroneSpawnTimer = Phaser.Math.Between(30000, 45000);
-    }
+    this.setEliteDroneSpawnTimer(reason);
   }
 
   private updateEliteDrone(delta: number) {
@@ -996,7 +1016,9 @@ export default class MainScene extends Phaser.Scene {
     const dist = Math.max(20, Math.hypot(dx, dy));
     const awayX = dx / dist;
     const awayY = dy / dist;
-    const baseSpeed = 210 + Math.min(120, this.level * 8);
+    const baseSpeed =
+      ELITE_DRONE_TUNING.speedBase +
+      Math.min(ELITE_DRONE_TUNING.speedBonusCap, this.level * ELITE_DRONE_TUNING.speedPerLevel);
     const wave = this.time.now * 0.0036;
     let vx = awayX * baseSpeed + Math.cos(wave) * 62;
     let vy = awayY * baseSpeed + Math.sin(wave * 1.15) * 52 - 36;
@@ -1011,7 +1033,7 @@ export default class MainScene extends Phaser.Scene {
     this.eliteDroneLabel.setPosition(this.eliteDrone.x, this.eliteDrone.y - 24);
     this.eliteDroneLabel.setAlpha(0.55 + Math.sin(this.time.now * 0.01) * 0.3);
 
-    const outBounds = 140;
+    const outBounds = ELITE_DRONE_TUNING.outOfBoundsPadding;
     if (
       this.eliteDrone.x < -outBounds ||
       this.eliteDrone.x > this.scale.width + outBounds ||
@@ -1155,8 +1177,7 @@ export default class MainScene extends Phaser.Scene {
     this.enemyManager.enemies.clear(true, true);
     this.powerUpDirector.reset();
     this.ufo.deactivate();
-    this.deactivateWormhole();
-    this.deactivateEliteDrone('reset');
+    this.clearWorldEvents('reset');
     this.resetWorldEventTimers();
     this.ufoSpawnTimer = this.levelBossPendingDefeat
       ? Phaser.Math.Between(500, 900)
@@ -1271,6 +1292,11 @@ export default class MainScene extends Phaser.Scene {
     this.levelTransitionEvents.length = 0;
   }
 
+  private stopLevelTransitionTweens() {
+    this.tweens.killTweensOf(this.levelTransitionCountdown);
+    this.tweens.killTweensOf(this.levelTransitionPrompt);
+  }
+
   private startLevelTransitionCountdown(delayBeforeOverlayMs: number = 0) {
     if (this.isLevelTransition || this.isGameOver) return;
     this.isLevelTransition = true;
@@ -1278,8 +1304,7 @@ export default class MainScene extends Phaser.Scene {
     this.ufo.setCombatTarget(null);
     if (this.player.body) this.player.body.enable = false;
 
-    this.tweens.killTweensOf(this.levelTransitionCountdown);
-    this.tweens.killTweensOf(this.levelTransitionPrompt);
+    this.stopLevelTransitionTweens();
     this.clearLevelTransitionEvents();
     this.levelTransitionOverlay.setVisible(false);
     this.levelTransitionCountdownLabel = '';
@@ -1307,7 +1332,7 @@ export default class MainScene extends Phaser.Scene {
       });
 
       const beats = ['3', '2', '1', 'GO!'] as const;
-      const beatMs = this.levelTransitionBeatMs;
+      const beatMs = LEVEL_TRANSITION_TUNING.beatMs;
       beats.forEach((beat, index) => {
         const event = this.time.delayedCall(index * beatMs, () => {
           if (!this.isLevelTransition || !this.scene.isActive(this.scene.key)) return;
@@ -1350,8 +1375,7 @@ export default class MainScene extends Phaser.Scene {
 
   private finishLevelTransitionCountdown(resumePhysics: boolean) {
     this.clearLevelTransitionEvents();
-    this.tweens.killTweensOf(this.levelTransitionCountdown);
-    this.tweens.killTweensOf(this.levelTransitionPrompt);
+    this.stopLevelTransitionTweens();
     this.levelTransitionOverlay.setVisible(false);
     this.levelTransitionCountdownLabel = '';
     const wasActive = this.isLevelTransition;
@@ -2074,8 +2098,7 @@ export default class MainScene extends Phaser.Scene {
     this.finishLevelTransitionCountdown(false);
     this.ufo.setCombatTarget(null);
     this.ufo.deactivate();
-    this.deactivateWormhole();
-    this.deactivateEliteDrone('reset');
+    this.clearWorldEvents('reset');
     this.player.setActive(false).setVisible(false);
     this.saveActivePlayerState();
     this.switchTimer?.remove(false);

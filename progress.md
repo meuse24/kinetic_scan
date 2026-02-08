@@ -487,3 +487,10 @@ TODOs for next agent (optional deeper perf pass)
 - Validation (without Playwright):
   - `npm run lint` pass.
   - `npm run build` pass.
+- Refactoring pass (maintainability, cautious):
+  - Added `src/MainSceneTuning.ts` to centralize level-transition, wormhole, and elite-drone tuning values plus spawn-range helper.
+  - MainScene now uses small helper methods (`rollRange`, `setWormholeSpawnTimer`, `setEliteDroneSpawnTimer`, `clearWorldEvents`, `stopLevelTransitionTweens`) to remove duplicated timer/reset/tween logic.
+  - Goal was readability and safer future balancing without changing gameplay rules.
+- Validation after refactor:
+  - `npm run lint` pass.
+  - `npm run build` pass (existing chunk-size warning unchanged).
