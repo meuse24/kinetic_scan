@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 import { performanceMonitor } from './PerformanceMonitor';
 import type { PerkDefinition, PerkSystem } from './PerkSystem';
+import SceneBackground from './SceneBackground';
 
 interface PerkSelectData {
   perkSystem: PerkSystem;
@@ -12,14 +13,25 @@ export default class PerkSelectScene extends Phaser.Scene {
   private perkSystem!: PerkSystem;
   private choices: PerkDefinition[] = [];
   private autoTimer?: Phaser.Time.TimerEvent;
+  private sceneBackground?: SceneBackground;
 
   constructor() {
     super('PerkSelectScene');
   }
 
+  preload() {
+    SceneBackground.preload(this);
+  }
+
   create(data: PerkSelectData) {
     this.perkSystem = data.perkSystem;
     const level = data.level;
+    this.sceneBackground = new SceneBackground(this, {
+      depth: -120,
+      alpha: 0.42,
+      maxOffsetX: 42,
+      maxOffsetY: 28,
+    });
 
     if (
       performanceMonitor.crtEnabled &&
@@ -34,6 +46,28 @@ export default class PerkSelectScene extends Phaser.Scene {
     // Overlay
     const overlay = this.add.rectangle(centerX, centerY, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.8);
     overlay.setInteractive();
+
+    // Roll choices
+    this.choices = this.perkSystem.rollChoices(3);
+
+    if (this.choices.length === 0) {
+      // All perks maxed — auto-close
+      this.selectDone();
+      return;
+    }
+
+    // Layout calculations
+    const isNarrow = GAME_WIDTH < 768;
+    const cardWidth = isNarrow ? Math.min(480, GAME_WIDTH - 60) : 240;
+    const cardHeight = isNarrow ? 120 : 280;
+    const cardGap = isNarrow ? 16 : 24;
+
+    const totalHeight = isNarrow
+      ? this.choices.length * cardHeight + (this.choices.length - 1) * cardGap
+      : cardHeight;
+    const totalWidth = isNarrow
+      ? cardWidth
+      : this.choices.length * cardWidth + (this.choices.length - 1) * cardGap;
 
     const titleY = isNarrow ? centerY - totalHeight / 2 - 80 : centerY - 220;
     const subtitleY = isNarrow ? centerY - totalHeight / 2 - 40 : centerY - 175;
@@ -57,28 +91,7 @@ export default class PerkSelectScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // Roll choices
-    this.choices = this.perkSystem.rollChoices(3);
-
-    if (this.choices.length === 0) {
-      // All perks maxed — auto-close
-      this.selectDone();
-      return;
-    }
-
     // Render cards
-    const isNarrow = GAME_WIDTH < 768;
-    const cardWidth = isNarrow ? Math.min(480, GAME_WIDTH - 60) : 240;
-    const cardHeight = isNarrow ? 120 : 280;
-    const cardGap = isNarrow ? 16 : 24;
-
-    const totalHeight = isNarrow
-      ? this.choices.length * cardHeight + (this.choices.length - 1) * cardGap
-      : cardHeight;
-    const totalWidth = isNarrow
-      ? cardWidth
-      : this.choices.length * cardWidth + (this.choices.length - 1) * cardGap;
-
     const startX = isNarrow ? centerX : centerX - totalWidth / 2 + cardWidth / 2;
     const startY = isNarrow ? centerY - totalHeight / 2 + cardHeight / 2 + 20 : centerY + 20;
 
@@ -245,6 +258,11 @@ export default class PerkSelectScene extends Phaser.Scene {
         }
       },
     });
+
+    this.events.once('shutdown', () => {
+      this.sceneBackground?.destroy();
+      this.sceneBackground = undefined;
+    });
   }
 
   private selectPerk(perk: PerkDefinition) {
@@ -257,5 +275,9 @@ export default class PerkSelectScene extends Phaser.Scene {
     this.scene.stop();
     // Signal MainScene to continue level transition
     this.scene.get('MainScene').events.emit('perkSelectDone');
+  }
+
+  update(_time: number, delta: number) {
+    this.sceneBackground?.updateIdle(delta);
   }
 }

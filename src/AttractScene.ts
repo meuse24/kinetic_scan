@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize, recalculateDimensions } from './gameConfig';
+import {
+  GAME_WIDTH,
+  GAME_HEIGHT,
+  IS_TOUCH,
+  applyPendingResize,
+  recalculateDimensions,
+} from './gameConfig';
 import { AudioManager, DEFAULT_VOLUME } from './AudioManager';
 import { creditManager } from './CreditManager';
 import {
@@ -15,6 +21,7 @@ import { UFO, UFOProjectile } from './UFO';
 import { PowerUp, PowerUpType } from './PowerUp';
 import { performanceMonitor } from './PerformanceMonitor';
 import { musicManager } from './MusicManager';
+import SceneBackground from './SceneBackground';
 
 type PlayerButton = {
   requiredCredits: number;
@@ -116,7 +123,7 @@ export default class AttractScene extends Phaser.Scene {
   private coinText!: Phaser.GameObjects.Text;
   private coinInfoText!: Phaser.GameObjects.Text;
   private helpText!: Phaser.GameObjects.Text;
-  private soundText!: Phaser.GameObjects.Text;
+  private settingsText!: Phaser.GameObjects.Text;
   private creditLabel!: Phaser.GameObjects.Text;
   private enemyManager!: EnemyManager;
   private ufo!: UFO;
@@ -142,7 +149,15 @@ export default class AttractScene extends Phaser.Scene {
   private eventBanner!: Phaser.GameObjects.Text;
   private eventBannerTween: Phaser.Tweens.Tween | null = null;
   private difficultyKey: DifficultyPresetKey = getCurrentDifficultyKey();
-  private difficultyText!: Phaser.GameObjects.Text;
+  private settingsOverlayOpen: boolean = false;
+  private settingsOverlay?: Phaser.GameObjects.Container;
+  private settingsBackdrop?: Phaser.GameObjects.Rectangle;
+  private settingsPanel?: Phaser.GameObjects.Rectangle;
+  private settingsSoundValue?: Phaser.GameObjects.Text;
+  private settingsFullscreenValue?: Phaser.GameObjects.Text;
+  private settingsDifficultyValue?: Phaser.GameObjects.Text;
+  private settingsCrtValue?: Phaser.GameObjects.Text;
+  private settingsHint?: Phaser.GameObjects.Text;
   private creditListener?: (credits: number) => void;
   private soundListener?: (muted: boolean) => void;
   private gpuName: string = '';
@@ -155,9 +170,14 @@ export default class AttractScene extends Phaser.Scene {
   private attractWarpTween: Phaser.Tweens.Tween | null = null;
   private ufoTrailEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
   private ufoTrailEmitAccumulatorMs: number = 0;
+  private sceneBackground?: SceneBackground;
 
   constructor() {
     super('AttractScene');
+  }
+
+  preload() {
+    SceneBackground.preload(this);
   }
 
   create() {
@@ -172,11 +192,18 @@ export default class AttractScene extends Phaser.Scene {
     const centerX = GAME_WIDTH / 2;
     const centerY = GAME_HEIGHT / 2;
     const uiDepth = 50;
+    this.sceneBackground = new SceneBackground(this, {
+      depth: -120,
+      alpha: 0.42,
+      maxOffsetX: 46,
+      maxOffsetY: 30,
+    });
 
     if (!this.scene.isActive('BezelScene')) {
       this.scene.launch('BezelScene');
     }
     this.scene.bringToTop('BezelScene');
+    this.difficultyKey = getCurrentDifficultyKey();
     performanceMonitor.init(this.game);
     if (this.game.renderer.type === Phaser.WEBGL) {
       const gl = (this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl;
@@ -255,7 +282,7 @@ export default class AttractScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
     this.coinText.on('pointerdown', () => this.insertCoin());
     this.coinInfoText = this.add
-      .text(centerX, centerY + 24, '(C) 2026 GMEU\nvite tsx\nphaser-3 claude\ncodex suno', {
+      .text(centerX, centerY + 24, '(C) 2026 GMEU\nvite tsx claude\ngemini codex suno', {
         fontFamily: '"Press Start 2P"',
         fontSize: '20px',
         color: '#00ffff',
@@ -274,6 +301,16 @@ export default class AttractScene extends Phaser.Scene {
       .setDepth(uiDepth)
       .setInteractive({ useHandCursor: true });
     this.helpText.on('pointerdown', () => this.openHelp());
+    this.settingsText = this.add
+      .text(centerX, GAME_HEIGHT - 165, 'SETTINGS (O)', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '16px',
+        color: '#9be7ff',
+      })
+      .setOrigin(0.5)
+      .setDepth(uiDepth)
+      .setInteractive({ useHandCursor: true });
+    this.settingsText.on('pointerdown', () => this.openSettingsOverlay());
 
     this.startHeartbeatPulse();
 
@@ -297,28 +334,7 @@ export default class AttractScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(uiDepth);
-
-    this.soundText = this.add
-      .text(centerX, GAME_HEIGHT - 165, this.getSoundLabel(), {
-        fontFamily: '"Press Start 2P"',
-        fontSize: '16px',
-        color: '#ffffff',
-      })
-      .setOrigin(0.5)
-      .setDepth(uiDepth)
-      .setInteractive({ useHandCursor: true });
-    this.soundText.on('pointerdown', () => this.toggleSound());
-
-    this.difficultyText = this.add
-      .text(centerX, GAME_HEIGHT - 230, this.getDifficultyLabel(), {
-        fontFamily: '"Press Start 2P"',
-        fontSize: '16px',
-        color: '#ffcc66',
-      })
-      .setOrigin(0.5)
-      .setDepth(uiDepth)
-      .setInteractive({ useHandCursor: true });
-    this.difficultyText.on('pointerdown', () => this.cycleDifficulty(1));
+    this.buildSettingsOverlay(uiDepth + 6);
 
     this.createPlayerButtons(centerX, centerY + 210, uiDepth);
 
@@ -334,12 +350,34 @@ export default class AttractScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-SPACE', () => this.startGame(1));
     this.input.keyboard?.on('keydown-ENTER', () => this.startGame(1));
     this.input.keyboard?.on('keydown-UP', () => this.startGame(1));
-    this.input.keyboard?.on('keydown-A', () => this.cycleDifficulty(-1));
-    this.input.keyboard?.on('keydown-D', () => this.cycleDifficulty(1));
-    this.input.keyboard?.on('keydown-LEFT', () => this.cycleDifficulty(-1));
-    this.input.keyboard?.on('keydown-RIGHT', () => this.cycleDifficulty(1));
-    this.input.keyboard?.on('keydown-S', () => this.toggleSound());
+    this.input.keyboard?.on('keydown-A', () => {
+      if (this.settingsOverlayOpen) this.cycleDifficulty(-1);
+    });
+    this.input.keyboard?.on('keydown-D', () => {
+      if (this.settingsOverlayOpen) this.cycleDifficulty(1);
+    });
+    this.input.keyboard?.on('keydown-LEFT', () => {
+      if (this.settingsOverlayOpen) this.cycleDifficulty(-1);
+    });
+    this.input.keyboard?.on('keydown-RIGHT', () => {
+      if (this.settingsOverlayOpen) this.cycleDifficulty(1);
+    });
+    this.input.keyboard?.on('keydown-S', () => {
+      if (this.settingsOverlayOpen) this.toggleSound();
+    });
+    this.input.keyboard?.on('keydown-F', () => {
+      if (this.settingsOverlayOpen) this.toggleFullscreen();
+    });
+    this.input.keyboard?.on('keydown-C', () => {
+      if (this.settingsOverlayOpen) this.toggleCrt();
+    });
     this.input.keyboard?.on('keydown-H', () => this.openHelp());
+    this.input.keyboard?.on('keydown-O', () => {
+      if (this.settingsOverlayOpen) this.closeSettingsOverlay();
+      else this.openSettingsOverlay();
+    });
+    this.input.keyboard?.on('keydown-ESC', () => this.closeSettingsOverlay());
+    this.input.keyboard?.on('keydown-B', () => this.closeSettingsOverlay());
 
     this.creditListener = (credits) => {
       this.creditLabel.setText(`CREDITS: ${credits}`);
@@ -349,13 +387,24 @@ export default class AttractScene extends Phaser.Scene {
     this.updatePlayerButtons();
 
     this.soundListener = (muted) => {
-      this.updateSoundLabel(muted);
       this.audio.setVolume(muted ? 0 : DEFAULT_VOLUME);
+      if (this.settingsOverlayOpen) this.refreshSettingsOverlayLabels();
     };
     soundManager.onChange(this.soundListener, this);
-    this.updateSoundLabel(soundManager.isMuted());
+    this.audio.setVolume(soundManager.isMuted() ? 0 : DEFAULT_VOLUME);
 
     this.events.once('shutdown', () => {
+      this.sceneBackground?.destroy();
+      this.sceneBackground = undefined;
+      this.settingsOverlay?.destroy(true);
+      this.settingsOverlay = undefined;
+      this.settingsBackdrop = undefined;
+      this.settingsPanel = undefined;
+      this.settingsSoundValue = undefined;
+      this.settingsFullscreenValue = undefined;
+      this.settingsDifficultyValue = undefined;
+      this.settingsCrtValue = undefined;
+      this.settingsHint = undefined;
       this.heartbeatActive = false;
       this.heartbeatTimer?.remove(false);
       this.heartbeatTimer = null;
@@ -382,12 +431,15 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
+    this.sceneBackground?.updateIdle(delta);
     const qualityChanged = performanceMonitor.update(this.game);
-    if (
-      !performanceMonitor.crtEnabled &&
-      this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
-    ) {
-      this.cameras.main.removePostPipeline('CRTPipeline');
+    if (this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
+      const hasCrt = this.hasCrtPipeline();
+      if (performanceMonitor.crtEnabled && !hasCrt) {
+        this.cameras.main.setPostPipeline('CRTPipeline');
+      } else if (!performanceMonitor.crtEnabled && hasCrt) {
+        this.cameras.main.removePostPipeline('CRTPipeline');
+      }
     }
     if (qualityChanged) {
       this.configureBackgroundDecor();
@@ -441,6 +493,7 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   private async insertCoin() {
+    if (this.settingsOverlayOpen) return;
     await this.audio.resume();
     this.audio.playCoin();
     creditManager.addCredits(1);
@@ -449,34 +502,202 @@ export default class AttractScene extends Phaser.Scene {
   private toggleSound() {
     void this.audio.resume();
     soundManager.toggle();
+    this.refreshSettingsOverlayLabels();
+  }
+
+  private toggleFullscreen() {
+    if (IS_TOUCH) return;
+    if (this.scale.isFullscreen) {
+      this.scale.stopFullscreen();
+    } else {
+      this.scale.startFullscreen();
+    }
+    this.refreshSettingsOverlayLabels();
+  }
+
+  private toggleCrt() {
+    if (!performanceMonitor.isCrtSupported()) return;
+    performanceMonitor.toggleCrtUserEnabled();
+    this.refreshSettingsOverlayLabels();
   }
 
   private getSoundLabel() {
     return `SOUND: ${soundManager.isMuted() ? 'OFF' : 'ON'} (S)`;
   }
 
+  private getFullscreenLabel() {
+    if (IS_TOUCH) return 'FULLSCREEN: N/A (TOUCH)';
+    return `FULLSCREEN: ${this.scale.isFullscreen ? 'ON' : 'OFF'} (F)`;
+  }
+
   private getDifficultyLabel() {
     return `DIFFICULTY: ${getDifficultyPreset(this.difficultyKey).label} (A/D)`;
   }
 
+  private getCrtLabel() {
+    if (!performanceMonitor.isCrtSupported()) return 'SCAN / CRT: N/A';
+    if (!performanceMonitor.isCrtUserEnabled()) return 'SCAN / CRT: OFF (C)';
+    if (!performanceMonitor.crtEnabled) return 'SCAN / CRT: AUTO OFF (PERF)';
+    return 'SCAN / CRT: ON (C)';
+  }
+
   private cycleDifficulty(direction: 1 | -1) {
     this.difficultyKey = cycleDifficulty(direction);
-    this.difficultyText.setText(this.getDifficultyLabel());
     const preset = getDifficultyPreset(this.difficultyKey);
     this.audio.setDifficultyMix(this.difficultyKey);
     this.enemyManager.setDifficultyPreset(preset);
     this.ufo.setDifficultyPreset(preset);
-  }
-
-  private updateSoundLabel(muted: boolean) {
-    this.soundText.setText(`SOUND: ${muted ? 'OFF' : 'ON'} (S)`);
-    this.soundText.setColor(muted ? '#ff6666' : '#ffffff');
+    this.refreshSettingsOverlayLabels();
   }
 
   private openHelp() {
+    if (this.settingsOverlayOpen) return;
     if (this.scene.isActive('HelpScene')) return;
     this.scene.launch('HelpScene', { returnScene: this.scene.key });
     this.scene.pause();
+  }
+
+  private openSettingsOverlay() {
+    if (this.settingsOverlayOpen) return;
+    if (this.scene.isActive('HelpScene')) return;
+    this.settingsOverlayOpen = true;
+    this.refreshSettingsOverlayLabels();
+    this.settingsOverlay?.setVisible(true);
+    this.settingsText.setColor('#ffffff');
+  }
+
+  private closeSettingsOverlay() {
+    if (!this.settingsOverlayOpen) return;
+    this.settingsOverlayOpen = false;
+    this.settingsOverlay?.setVisible(false);
+    this.settingsText.setColor('#9be7ff');
+  }
+
+  private buildSettingsOverlay(depth: number) {
+    if (this.settingsOverlay) return;
+    const centerX = GAME_WIDTH / 2;
+    const centerY = GAME_HEIGHT / 2;
+    const showCrtToggle = performanceMonitor.isCrtSupported();
+    const panelWidth = Math.min(760, GAME_WIDTH - 120);
+    const panelHeight = Math.min(560, GAME_HEIGHT - 140);
+    const rowY = centerY - panelHeight * 0.25;
+    const rowStep = 58;
+    const valueStyle: Phaser.Types.GameObjects.Text.TextStyle = {
+      fontFamily: '"Press Start 2P"',
+      fontSize: '16px',
+      color: '#ffffff',
+    };
+
+    this.settingsBackdrop = this.add
+      .rectangle(centerX, centerY, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.78)
+      .setDepth(depth)
+      .setInteractive();
+    this.settingsPanel = this.add
+      .rectangle(centerX, centerY, panelWidth, panelHeight, 0x111827, 0.94)
+      .setStrokeStyle(2, 0x6ee7ff)
+      .setDepth(depth + 1);
+    const title = this.add
+      .text(centerX, centerY - panelHeight * 0.39, 'SETTINGS', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '26px',
+        color: '#9be7ff',
+      })
+      .setOrigin(0.5)
+      .setDepth(depth + 2);
+
+    this.settingsSoundValue = this.add
+      .text(centerX, rowY, '', valueStyle)
+      .setOrigin(0.5)
+      .setDepth(depth + 2)
+      .setInteractive({ useHandCursor: true });
+    this.settingsSoundValue.on('pointerdown', () => this.toggleSound());
+
+    this.settingsFullscreenValue = this.add
+      .text(centerX, rowY + rowStep, '', valueStyle)
+      .setOrigin(0.5)
+      .setDepth(depth + 2)
+      .setInteractive({ useHandCursor: !IS_TOUCH });
+    this.settingsFullscreenValue.on('pointerdown', () => this.toggleFullscreen());
+
+    this.settingsDifficultyValue = this.add
+      .text(centerX, rowY + rowStep * 2, '', valueStyle)
+      .setOrigin(0.5)
+      .setDepth(depth + 2)
+      .setInteractive({ useHandCursor: true });
+    this.settingsDifficultyValue.on('pointerdown', () => this.cycleDifficulty(1));
+
+    if (showCrtToggle) {
+      this.settingsCrtValue = this.add
+        .text(centerX, rowY + rowStep * 3, '', valueStyle)
+        .setOrigin(0.5)
+        .setDepth(depth + 2)
+        .setInteractive({ useHandCursor: true });
+      this.settingsCrtValue.on('pointerdown', () => this.toggleCrt());
+    } else {
+      this.settingsCrtValue = undefined;
+    }
+
+    this.settingsHint = this.add
+      .text(
+        centerX,
+        centerY + panelHeight * 0.32,
+        showCrtToggle ? 'SOUND[S]  FS[F]  DIFF[A/D]  CRT[C]' : 'SOUND[S]  FS[F]  DIFF[A/D]',
+        {
+          fontFamily: '"Press Start 2P"',
+          fontSize: '10px',
+          color: '#9ca3af',
+        },
+      )
+      .setOrigin(0.5)
+      .setDepth(depth + 2);
+
+    const backText = this.add
+      .text(centerX, centerY + panelHeight * 0.4, 'BACK (ESC / B / O)', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '14px',
+        color: '#ffdd88',
+      })
+      .setOrigin(0.5)
+      .setDepth(depth + 2)
+      .setInteractive({ useHandCursor: true });
+    backText.on('pointerdown', () => this.closeSettingsOverlay());
+
+    this.settingsOverlay = this.add.container(0, 0, [
+      this.settingsBackdrop,
+      this.settingsPanel,
+      title,
+      this.settingsSoundValue,
+      this.settingsFullscreenValue,
+      this.settingsDifficultyValue,
+      this.settingsHint,
+      backText,
+    ]);
+    if (this.settingsCrtValue) {
+      this.settingsOverlay.add(this.settingsCrtValue);
+    }
+    this.settingsOverlay.setDepth(depth);
+    this.settingsOverlay.setVisible(false);
+  }
+
+  private refreshSettingsOverlayLabels() {
+    this.settingsSoundValue?.setText(this.getSoundLabel());
+    this.settingsFullscreenValue?.setText(this.getFullscreenLabel());
+    this.settingsDifficultyValue?.setText(this.getDifficultyLabel());
+    this.settingsCrtValue?.setText(this.getCrtLabel());
+    if (this.settingsFullscreenValue?.input) {
+      this.settingsFullscreenValue.input.enabled = !IS_TOUCH;
+      this.settingsFullscreenValue.setAlpha(IS_TOUCH ? 0.45 : 1);
+    }
+    if (this.settingsCrtValue?.input) {
+      const enableCrtToggle = performanceMonitor.isCrtSupported();
+      this.settingsCrtValue.input.enabled = enableCrtToggle;
+      this.settingsCrtValue.setAlpha(enableCrtToggle ? 1 : 0.45);
+    }
+  }
+
+  private hasCrtPipeline() {
+    const pipeline = this.cameras.main.getPostPipeline('CRTPipeline');
+    return Array.isArray(pipeline) ? pipeline.length > 0 : Boolean(pipeline);
   }
 
   private toggleAttractMessage() {
@@ -497,7 +718,9 @@ export default class AttractScene extends Phaser.Scene {
     // Infoblock
     this.tweens.add({ targets: this.coinText, alpha: infoAlpha, duration, ease });
     this.tweens.add({ targets: this.coinInfoText, alpha: infoAlpha, duration, ease });
-    this.tweens.add({ targets: this.helpText, alpha: infoAlpha, duration, ease });
+    // Keep primary navigation actions always visible in attract mode.
+    this.tweens.add({ targets: this.helpText, alpha: 1, duration, ease });
+    this.tweens.add({ targets: this.settingsText, alpha: 1, duration, ease });
 
     // Scores
     this.tweens.add({ targets: this.highScoreGroup, alpha: scoresAlpha, duration, ease });
@@ -1381,6 +1604,7 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   private startGame(requiredCredits: number) {
+    if (this.settingsOverlayOpen) return;
     if (!creditManager.spendCredits(requiredCredits)) return;
     void this.audio.resume();
     recalculateDimensions();
@@ -1388,7 +1612,11 @@ export default class AttractScene extends Phaser.Scene {
     this.scene.start('MainScene', { players: requiredCredits, difficulty: this.difficultyKey });
   }
 
-  private createDailyChallengeBlock(centerX: number, y: number, depth: number): Phaser.GameObjects.Container {
+  private createDailyChallengeBlock(
+    centerX: number,
+    y: number,
+    depth: number,
+  ): Phaser.GameObjects.Container {
     const title = this.add
       .text(centerX, y - 40, 'DAILY CHALLENGE', {
         fontFamily: '"Press Start 2P"',
@@ -1419,6 +1647,7 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   private startDaily() {
+    if (this.settingsOverlayOpen) return;
     if (!creditManager.spendCredits(1)) return;
     void this.audio.resume();
     recalculateDimensions();

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 import { performanceMonitor } from './PerformanceMonitor';
+import SceneBackground from './SceneBackground';
 
 type HelpSceneData = {
   returnScene?: string;
@@ -30,9 +31,14 @@ export default class HelpScene extends Phaser.Scene {
   ) => void;
   private keyHandler?: (event: KeyboardEvent) => void;
   private pointerUpHandler?: () => void;
+  private sceneBackground?: SceneBackground;
 
   constructor() {
     super('HelpScene');
+  }
+
+  preload() {
+    SceneBackground.preload(this);
   }
 
   init(data: HelpSceneData) {
@@ -42,6 +48,12 @@ export default class HelpScene extends Phaser.Scene {
   create() {
     const centerX = GAME_WIDTH / 2;
     const titleY = 80;
+    this.sceneBackground = new SceneBackground(this, {
+      depth: -120,
+      alpha: 0.4,
+      maxOffsetX: 42,
+      maxOffsetY: 28,
+    });
 
     if (this.returnScene) {
       const targetScene = this.scene.get(this.returnScene);
@@ -204,6 +216,8 @@ export default class HelpScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown', this.keyHandler);
 
     this.events.once('shutdown', () => {
+      this.sceneBackground?.destroy();
+      this.sceneBackground = undefined;
       if (this.returnScene) {
         const targetScene = this.scene.get(this.returnScene);
         if (targetScene?.input) {
@@ -214,6 +228,10 @@ export default class HelpScene extends Phaser.Scene {
       if (this.keyHandler) this.input.keyboard?.off('keydown', this.keyHandler);
       if (this.pointerUpHandler) this.input.off('pointerup', this.pointerUpHandler);
     });
+  }
+
+  update(_time: number, delta: number) {
+    this.sceneBackground?.updateIdle(delta);
   }
 
   private buildContent(wrapWidth: number) {

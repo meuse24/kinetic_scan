@@ -969,3 +969,104 @@ TODOs for next agent
   - All text elements enlarged (icon 36→44px, name 11→14px, description 9→11px, key hints 14→18px).
   - Title and subtitle enlarged and repositioned.
 - Validation: `npx tsc --noEmit` pass, `npm run build` pass.
+
+## 2026-02-08 - Global image background system (all scenes)
+- Implemented a reusable background controller in `src/SceneBackground.ts`.
+  - Loads `background.png` once as shared texture key `scene_background_image`.
+  - Uses a central crop via scaled full-image sampling and bounded camera-like offsets.
+  - Keeps a movement safety margin (`maxOffsetX/maxOffsetY`) so no empty edges can appear.
+  - Adds slow randomized idle drift for static/menu scenes.
+  - Adds player-driven motion for gameplay (smoothed velocity + position influence) for subtle perspective/parallax feel.
+- Integrated into scenes:
+  - `src/BootScene.ts`
+  - `src/AttractScene.ts`
+  - `src/MainScene.ts`
+  - `src/GameOverScene.ts`
+  - `src/HelpScene.ts`
+  - `src/PauseScene.ts`
+  - `src/PerkSelectScene.ts`
+- MainScene behavior:
+  - During active play: background responds to player movement.
+  - During level switch/transition lock states: background falls back to gentle idle drift.
+
+### Validation
+- `npm run lint` pass.
+- `npm run build` pass.
+- Playwright capture verification run:
+  - Artifacts: `output/web-game/background-image-pass-1`
+  - Scenes captured: Boot, Attract, Main (center/right/left/settle)
+  - No captured runtime errors (`errors.json` is empty array).
+  - Visual inspection confirms:
+    - static screens show subtle slow drift,
+    - gameplay background offsets shift with player movement.
+
+## 2026-02-08 - Slow-Mo grayscale fix (CRT/scanline persistence)
+- Root cause: `MainScene.applySlowMo(false)` used `this.cameras.main.postFX.clear()`, which clears camera PostFX stack and can remove the scan/CRT look.
+- Fix in `src/MainScene.ts`:
+  - Added dedicated slow-mo FX handle: `slowMoColorMatrixFx`.
+  - On slow-mo start: create/reuse only one ColorMatrix controller and apply `night()+grayscale()`.
+  - On slow-mo end: remove only this specific controller via `postFX.remove(...)` and keep other camera pipelines intact.
+  - Added shutdown cleanup for the slow-mo ColorMatrix controller.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - Playwright smoke flow pass:
+    - artifacts: `output/web-game/ui-flow-pass-1`
+    - verified sequence: Boot -> Attract -> Attract Settings -> Main -> Pause -> Exit to Attract
+    - `errors.json` is `[]`
+
+## 2026-02-08 - Attract settings overlay + CRT user toggle
+- Added in-attract settings overlay in `src/AttractScene.ts`, opened via new `SETTINGS (O)` action and closed via `ESC / B / O`.
+- Moved attract-facing options into overlay:
+  - `SOUND` toggle (`S`)
+  - `FULLSCREEN` toggle (`F`, desktop only)
+  - `DIFFICULTY` cycle (`A/D` or `LEFT/RIGHT`)
+- Added `SCAN / CRT` toggle (`C`) shown only when supported hardware path is active.
+- Added user CRT preference persistence in `src/PerformanceMonitor.ts` (`spaceShooterCrtEnabled`) with quality-gated runtime behavior (`ON`, `OFF`, `AUTO OFF (PERF)`).
+- Removed obsolete Boot option controls from `src/BootScene.ts`; Boot now only handles start flow.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+
+## 2026-02-08 - UI flow polish (Attract/GameOver/Pause)
+- `src/AttractScene.ts`
+  - `HELP (H)` and `SETTINGS (O)` are now persistent (no longer faded out during attract message rotations).
+- `src/GameOverScene.ts`
+  - Added `SETTINGS (O)` action and full settings overlay (Sound, Fullscreen, Difficulty, optional CRT toggle, Back).
+  - Added settings key controls while overlay is open: `S`, `F`, `A/D` (or arrows), `C`, `ESC/B/O`.
+  - Blocked gameplay-start/help/coin interactions while settings overlay is open.
+  - Added live CRT pipeline add/remove handling so CRT toggle changes apply immediately.
+- `src/PauseScene.ts`
+  - Added `EXIT TO ATTRACT (X)` button below `RESUME`.
+  - Added keyboard shortcut `X` for exiting pause directly to `AttractScene`.
+  - Shifted pause sound/slider controls downward to keep visual spacing clean.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+
+## 2026-02-08 - Follow-up UX adjustments
+- `src/PauseScene.ts`
+  - Exit button label simplified from `EXIT TO ATTRACT (X)` to `EXIT (X)`.
+- `src/MainScene.ts`
+  - Level transition countdown now deactivates the player ship before overlay display (`setActive(false).setVisible(false)` + body disabled/velocity reset), preventing shots during transition.
+  - On transition finish, player ship is reactivated before gameplay resumes and spawn protection is applied.
+- `src/BootScene.ts`
+  - Restored boot-screen sound toggle (`SOUND: ON/OFF (S)`) with click + keyboard (`S`) support and live label updates via `soundManager` listener.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - Playwright UI smoke pass:
+    - artifacts: `output/web-game/ui-flow-pass-3`
+    - checks: boot sound toggle visible/toggleable, pause screen shows updated exit button label
+    - `errors.json` is `[]`
+
+## 2026-02-08 - Background asset switch + fullscreen default
+- `src/SceneBackground.ts`
+  - Switched global background source from `background.png` to `background.jpg` for smaller transfer size.
+- `src/BootScene.ts`
+  - Restored fullscreen default-on behavior on startup flow (desktop): after `START`, game now attempts `scale.startFullscreen()` before entering `AttractScene`.
+  - Kept graceful fallback if browser blocks fullscreen request.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - Build output confirms JPG asset bundling: `dist/assets/background-*.jpg` (~349 kB in current build)

@@ -63,16 +63,23 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 
 ### UI Button Hotkeys
 
-- Boot: `START (ENTER/SPACE)`.
-- Pause scene: `RESUME (P)`, `SOUND (S)`, volume sliders (MASTER/SFX/BGM).
+- Boot: `SOUND (S)`, `START (ENTER/SPACE)` (desktop tries fullscreen on start).
+- Pause scene: `RESUME (P)`, `EXIT (X)`, `SOUND (S)`, volume sliders (MASTER/SFX/BGM).
 - Help scene: `BACK (ESC/H)`.
-- Game Over: `HELP (H)`, `1 PLAYER (1)`, `2 PLAYER (2)`, `INSERT COIN (I)`.
+- Game Over: `HELP (H)`, `SETTINGS (O)`, `1 PLAYER (1)`, `2 PLAYER (2)`, `INSERT COIN (I)`.
 
 ### Attract / Game Over
 
 - Insert coin: `I`.
 - Start game: `1`, `2`, `Enter`, `Space`.
-- Change difficulty: `A/D` or `Left/Right`.
+- Help: `H`.
+- Open settings: `O`.
+- Settings overlay controls:
+  - Sound: `S`
+  - Fullscreen: `F` (desktop)
+  - Difficulty: `A/D` or `Left/Right`
+  - Scan/CRT toggle: `C` (only when supported)
+  - Back: `Esc`, `B`, or `O`
 - Daily challenge: `C`.
 
 ## Development
@@ -133,8 +140,10 @@ Automation helpers are exposed on `window`:
 ## Manual Smoke Test Checklist
 
 - Attract -> Start -> Gameplay -> Pause/Help -> Game Over.
+- Attract and Game Over both expose settings overlay (`O`) with sound/fullscreen/difficulty/CRT controls.
 - Difficulty switch persists and affects pacing.
 - Level transition overlay appears (`3, 2, 1, GO!`).
+- Player ship is inactive during level-transition overlay (no firing while countdown is shown).
 - Boss appears at level end and requires multiple hits.
 - Boss energy bar is shown directly on the boss UFO and decreases on hits (segmented bar + numeric label).
 - Boss hit-flash and damage-drain animation visible on each hit.
@@ -148,3 +157,4 @@ Automation helpers are exposed on `window`:
 - Daily challenge mode with seeded runs and separate leaderboard.
 - Tutorial hints shown on first play.
 - Volume sliders (master/SFX/BGM) available in pause menu.
+- Pause menu exit path returns to attract screen (`EXIT (X)` / `X`).

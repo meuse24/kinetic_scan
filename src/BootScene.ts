@@ -1,29 +1,30 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT, IS_TOUCH } from './gameConfig';
-import { soundManager } from './SoundManager';
 import { creditManager } from './CreditManager';
+import { soundManager } from './SoundManager';
 import {
   GAMEPLAY_MUSIC_KEY,
   GAMEPLAY_MUSIC_URL,
   MENU_MUSIC_KEY,
   MENU_MUSIC_URL,
 } from './MusicManager';
+import SceneBackground from './SceneBackground';
 
 let runtimeScenesLoadPromise: Promise<void> | null = null;
 
 export default class BootScene extends Phaser.Scene {
   private soundText!: Phaser.GameObjects.Text;
-  private fsText?: Phaser.GameObjects.Text;
   private startText!: Phaser.GameObjects.Text;
+  private sceneBackground?: SceneBackground;
   private isStarting = false;
   private soundListener?: (muted: boolean) => void;
-  private wantFullscreen = true;
 
   constructor() {
     super('BootScene');
   }
 
   preload() {
+    SceneBackground.preload(this);
     if (!this.cache.audio.exists(MENU_MUSIC_KEY)) {
       this.load.audio(MENU_MUSIC_KEY, MENU_MUSIC_URL);
     }
@@ -36,6 +37,12 @@ export default class BootScene extends Phaser.Scene {
     const centerX = GAME_WIDTH / 2;
     const centerY = GAME_HEIGHT / 2;
     const fontFamily = '"Press Start 2P"';
+    this.sceneBackground = new SceneBackground(this, {
+      depth: -120,
+      alpha: 0.5,
+      maxOffsetX: 42,
+      maxOffsetY: 28,
+    });
 
     // Title
     this.add
@@ -70,19 +77,6 @@ export default class BootScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
     this.soundText.on('pointerdown', () => this.toggleSound());
-
-    // Fullscreen toggle (desktop only)
-    if (!IS_TOUCH) {
-      this.fsText = this.add
-        .text(centerX, centerY + 30, this.getFullscreenLabel(), {
-          fontFamily,
-          fontSize: '20px',
-          color: '#00ff00',
-        })
-        .setOrigin(0.5)
-        .setInteractive({ useHandCursor: true });
-      this.fsText.on('pointerdown', () => this.toggleFullscreen());
-    }
 
     // START button
     this.startText = this.add
@@ -132,13 +126,9 @@ export default class BootScene extends Phaser.Scene {
 
     // Keyboard shortcuts
     this.input.keyboard?.on('keydown-S', () => this.toggleSound());
-    if (!IS_TOUCH) {
-      this.input.keyboard?.on('keydown-F', () => this.toggleFullscreen());
-    }
     this.input.keyboard?.on('keydown-ENTER', () => this.begin());
     this.input.keyboard?.on('keydown-SPACE', () => this.begin());
 
-    // Listen for sound changes
     this.soundListener = (muted) => {
       this.soundText.setText(this.getSoundLabel());
       this.soundText.setColor(muted ? '#ff6666' : '#00ff00');
@@ -146,26 +136,22 @@ export default class BootScene extends Phaser.Scene {
     soundManager.onChange(this.soundListener, this);
 
     this.events.once('shutdown', () => {
+      this.sceneBackground?.destroy();
+      this.sceneBackground = undefined;
       if (this.soundListener) soundManager.offChange(this.soundListener, this);
     });
   }
 
-  private getSoundLabel(): string {
-    return `SOUND: ${soundManager.isMuted() ? 'OFF' : 'ON'} (S)`;
+  update(_time: number, delta: number) {
+    this.sceneBackground?.updateIdle(delta);
   }
 
-  private getFullscreenLabel(): string {
-    return `FULLSCREEN: ${this.wantFullscreen ? 'ON' : 'OFF'} (F)`;
+  private getSoundLabel() {
+    return `SOUND: ${soundManager.isMuted() ? 'OFF' : 'ON'} (S)`;
   }
 
   private toggleSound() {
     soundManager.toggle();
-  }
-
-  private toggleFullscreen() {
-    this.wantFullscreen = !this.wantFullscreen;
-    this.fsText?.setText(this.getFullscreenLabel());
-    this.fsText?.setColor(this.wantFullscreen ? '#00ff00' : '#ff6666');
   }
 
   private async begin() {
@@ -177,8 +163,12 @@ export default class BootScene extends Phaser.Scene {
     try {
       await this.ensureRuntimeScenesLoaded();
       creditManager.addCredits(4);
-      if (!IS_TOUCH && this.wantFullscreen && !this.scale.isFullscreen) {
-        this.scale.startFullscreen();
+      if (!IS_TOUCH && !this.scale.isFullscreen) {
+        try {
+          this.scale.startFullscreen();
+        } catch {
+          // Fullscreen can be blocked by browser policy; game still continues.
+        }
       }
       this.scene.start('AttractScene');
     } catch (error) {

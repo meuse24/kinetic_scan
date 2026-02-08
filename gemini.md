@@ -98,7 +98,10 @@ The game features a highly dynamic power-up system that reacts to both player sk
 ### 11. Arcade Simulation & Shaders
 The game is transformed into an authentic arcade experience.
 
-- **Attract Mode:** A new entry scene simulates waiting for a coin insert ('INSERT COIN'). The text is interactive and adds credits on touch.
+- **Attract Mode:** A new entry scene simulates waiting for a coin insert ('INSERT COIN'). The text is interactive and adds credits on touch. The UI cycles every 5 seconds between three message blocks:
+    - **Infoblock:** INSERT COIN prompt and basic credits info.
+    - **Top Scores:** Local leaderboard summary.
+    - **Daily Challenge:** Dedicated entry point for the seeded daily run.
 - **CRT Post-Processing Shader:**
     - **Scanlines:** Recreates the look of an old CRT.
     - **Curvature:** Distorts the image edges for the 3D feel of a curved monitor.
@@ -160,6 +163,7 @@ Classic arcade credits and a two-player alternating flow keep the game loop auth
 ### 19. Rogue-Lite Perk System
 - **Post-Boss Selection:** After each boss defeat, a `PerkSelectScene` overlay presents 3 random perk cards.
 - **12 Perks:** Fire rate, max life, fragment score, homing chance, cooldown speed, bullet speed, score multiplier, shield-on-level, explosion radius, combo window, magnet range, start shield.
+- **Responsive Layout:** On narrow screens (mobile), cards are automatically stacked vertically with an internal horizontal layout (Icon | Title + Description) to ensure visibility without scrolling.
 - **Stacking:** Most perks can be stacked up to 3 times for cumulative effects.
 - **15s Auto-Timeout:** If no selection is made, a random perk is chosen automatically.
 - **Keyboard/Mouse:** Select via keys `1`/`2`/`3` or click.
@@ -177,7 +181,7 @@ Classic arcade credits and a two-player alternating flow keep the game loop auth
 - **Fixed Difficulty:** Always `normal`, 1P only.
 - **Separate Leaderboard:** Daily high scores stored independently (`spaceShooterDailyHighscore`).
 - **HUD Badge:** "DAILY CHALLENGE" displayed during gameplay.
-- **Access:** `C` key or "DAILY (C)" button in attract screen.
+- **UI Integration:** Accessible via the "DAILY CHALLENGE" block in the Attract screen rotation or the `C` key.
 
 ### 22. Persistent Stats & Unlocks
 - **Lifetime Stats:** Total kills, total score, total games, total deaths, highest combo, highest level, boss kills, playtime — all persisted to `localStorage`.

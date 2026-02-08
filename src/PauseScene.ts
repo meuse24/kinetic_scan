@@ -4,19 +4,31 @@ import MainScene from './MainScene';
 import { soundManager } from './SoundManager';
 import { DEFAULT_VOLUME } from './AudioManager';
 import { performanceMonitor } from './PerformanceMonitor';
+import SceneBackground from './SceneBackground';
 
 export default class PauseScene extends Phaser.Scene {
   private soundText!: Phaser.GameObjects.Text;
   private soundListener?: (muted: boolean) => void;
   private volumeListener?: () => void;
+  private sceneBackground?: SceneBackground;
 
   constructor() {
     super('PauseScene');
   }
 
+  preload() {
+    SceneBackground.preload(this);
+  }
+
   create() {
     const centerX = GAME_WIDTH / 2;
     const centerY = GAME_HEIGHT / 2;
+    this.sceneBackground = new SceneBackground(this, {
+      depth: -120,
+      alpha: 0.38,
+      maxOffsetX: 40,
+      maxOffsetY: 26,
+    });
 
     if (!this.scene.isActive('BezelScene')) {
       this.scene.launch('BezelScene');
@@ -60,8 +72,21 @@ export default class PauseScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    const exitBtnY = centerY + 5;
+    const exitBtn = this.add
+      .rectangle(centerX, exitBtnY, btnWidth, btnHeight, 0xaa2222)
+      .setInteractive({ useHandCursor: true });
+
+    this.add
+      .text(centerX, exitBtnY, 'EXIT (X)', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '20px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+
     // SOUND Button
-    const soundBtnY = centerY - 5;
+    const soundBtnY = centerY + 95;
     this.soundText = this.add
       .text(centerX, soundBtnY, this.getSoundLabel(), {
         fontFamily: '"Press Start 2P"',
@@ -78,7 +103,7 @@ export default class PauseScene extends Phaser.Scene {
     });
 
     // Volume Sliders
-    const sliderStartY = centerY + 50;
+    const sliderStartY = centerY + 150;
     const sliderLabels = ['MASTER', 'SFX', 'BGM'];
     const sliderValues = [
       soundManager.masterVolume,
@@ -132,11 +157,18 @@ export default class PauseScene extends Phaser.Scene {
       this.scene.resume('MainScene');
     };
 
+    const exitToAttract = () => {
+      this.scene.stop('MainScene');
+      this.scene.start('AttractScene');
+    };
+
     resumeBtn.on('pointerdown', resumeGame);
+    exitBtn.on('pointerdown', exitToAttract);
 
     // Keyboard support
     this.input.keyboard?.on('keydown-P', resumeGame);
     this.input.keyboard?.on('keydown-ESC', resumeGame);
+    this.input.keyboard?.on('keydown-X', exitToAttract);
     this.input.keyboard?.on('keydown-S', () => soundManager.toggle());
 
     // Pulsing effect for button
@@ -149,6 +181,8 @@ export default class PauseScene extends Phaser.Scene {
     });
 
     this.events.once('shutdown', () => {
+      this.sceneBackground?.destroy();
+      this.sceneBackground = undefined;
       if (this.soundListener) {
         soundManager.offChange(this.soundListener, this);
       }
@@ -248,5 +282,9 @@ export default class PauseScene extends Phaser.Scene {
   private updateSoundLabel(muted: boolean) {
     this.soundText.setText(`SOUND: ${muted ? 'OFF' : 'ON'} (S)`);
     this.soundText.setColor(muted ? '#ff6666' : '#ffffff');
+  }
+
+  update(_time: number, delta: number) {
+    this.sceneBackground?.updateIdle(delta);
   }
 }

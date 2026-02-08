@@ -37,6 +37,7 @@ import { ComboManager } from './ComboManager';
 import type { ComboState } from './ComboManager';
 import { PerkSystem } from './PerkSystem';
 import { statsManager } from './StatsManager';
+import SceneBackground from './SceneBackground';
 
 interface PlayerState {
   score: number;
@@ -168,6 +169,7 @@ export default class MainScene extends Phaser.Scene {
   private useHighEndVFX: boolean = false;
   private slowMoOverlay!: Phaser.GameObjects.Rectangle;
   private slowMoActive: boolean = false;
+  private slowMoColorMatrixFx: Phaser.FX.ColorMatrix | null = null;
   private gpuName: string = '';
 
   private powerUpTimer: number = 0; // UFO Magnetic
@@ -277,6 +279,7 @@ export default class MainScene extends Phaser.Scene {
   private lastPlayerRecoilAt: number = -1000;
   private hitStopTimer?: Phaser.Time.TimerEvent;
   private hitStopCooldownUntil: number = 0;
+  private sceneBackground?: SceneBackground;
 
   constructor() {
     super('MainScene');
@@ -346,6 +349,7 @@ export default class MainScene extends Phaser.Scene {
   }
 
   preload() {
+    SceneBackground.preload(this);
     const pGraphics = this.make.graphics({ x: 0, y: 0 });
     pGraphics.fillStyle(0xffffff, 1);
     pGraphics.fillCircle(4, 4, 4);
@@ -389,6 +393,12 @@ export default class MainScene extends Phaser.Scene {
       this.scene.launch('BezelScene');
     }
     this.scene.bringToTop('BezelScene');
+    this.sceneBackground = new SceneBackground(this, {
+      depth: -120,
+      alpha: 0.54,
+      maxOffsetX: 42,
+      maxOffsetY: 28,
+    });
     this.createGraphics();
     this.createStarfield();
     this.createProjectileTrailEmitters();
@@ -401,6 +411,7 @@ export default class MainScene extends Phaser.Scene {
     this.shieldBunkers = this.physics.add.staticGroup();
     this.player = new Player(this, GAME_WIDTH / 2, GAME_HEIGHT - 100, this.bullets);
     this.player.updateBounds(GAME_WIDTH, GAME_HEIGHT);
+    this.sceneBackground.resetPlayerTracking(this.player.x, this.player.y);
     this.enemyManager = new EnemyManager(this);
     this.explosionManager = new ExplosionManager(this);
     this.ufo = new UFO(this, this.audio, { combatEnabled: true });
@@ -536,6 +547,8 @@ export default class MainScene extends Phaser.Scene {
     // Cleanup on scene shutdown
 
     this.events.once('shutdown', () => {
+      this.sceneBackground?.destroy();
+      this.sceneBackground = undefined;
       this.finishLevelTransitionCountdown(false);
       this.ufo.deactivate();
       this.removeDrones();
@@ -554,6 +567,12 @@ export default class MainScene extends Phaser.Scene {
       this.heatBar.destroy();
       this.damageOverlayTween?.stop();
       this.damageOverlay?.destroy();
+      if (this.slowMoColorMatrixFx) {
+        this.cameras.main.postFX.remove(
+          this.slowMoColorMatrixFx as unknown as Phaser.FX.Controller,
+        );
+        this.slowMoColorMatrixFx = null;
+      }
       this.smokeEmitter?.destroy();
       this.playerTrailEmitter?.destroy();
       this.enemyTrailEmitter?.destroy();
@@ -589,6 +608,7 @@ export default class MainScene extends Phaser.Scene {
   update(time: number, delta: number) {
     if (this.isSwitching || this.isLevelTransition) {
       this.ufo.setCombatTarget(null);
+      this.sceneBackground?.updateIdle(delta);
       return;
     }
     this.ufo.setCombatTarget(this.player.active ? this.player : null);
@@ -597,6 +617,11 @@ export default class MainScene extends Phaser.Scene {
     this.updateGuaranteedSupportDrop(delta);
     this.updateDynamicBulletCap(delta);
     this.player.update(time, delta);
+    if (this.player.active) {
+      this.sceneBackground?.updatePlayerDriven(delta, this.player.x, this.player.y);
+    } else {
+      this.sceneBackground?.updateIdle(delta);
+    }
     this.enemyManager.update(time, delta);
     this.updateWormhole(delta);
     this.updateEliteDrone(delta);
@@ -2169,7 +2194,11 @@ export default class MainScene extends Phaser.Scene {
     if (this.isLevelTransition || this.isGameOver) return;
     this.isLevelTransition = true;
     this.ufo.setCombatTarget(null);
-    if (this.player.body) this.player.body.enable = false;
+    if (this.player.body) {
+      this.player.body.enable = false;
+      this.player.body.velocity.set(0, 0);
+    }
+    this.player.setActive(false).setVisible(false);
     this.preparePlayfieldForLevelTransition();
     this.physics.world.pause();
 
@@ -2253,6 +2282,7 @@ export default class MainScene extends Phaser.Scene {
     const wasActive = this.isLevelTransition;
     this.isLevelTransition = false;
     if (wasActive && resumePhysics && !this.isSwitching && !this.isGameOver) {
+      this.player.setActive(true).setVisible(true);
       this.physics.world.resume();
       this.applySpawnProtection(SPAWN_PROTECTION_TUNING.levelTransitionGraceMs, true);
       this.ufo.setCombatTarget(this.player.active ? this.player : null);
@@ -2496,11 +2526,19 @@ export default class MainScene extends Phaser.Scene {
     this.physics.world.timeScale = active ? 2.0 : 1.0;
     if (this.useHighEndVFX) {
       if (active) {
-        const fx = this.cameras.main.postFX.addColorMatrix();
-        fx.night();
-        fx.grayscale();
+        if (!this.slowMoColorMatrixFx) {
+          this.slowMoColorMatrixFx = this.cameras.main.postFX.addColorMatrix();
+        }
+        this.slowMoColorMatrixFx.reset();
+        this.slowMoColorMatrixFx.night();
+        this.slowMoColorMatrixFx.grayscale();
       } else {
-        this.cameras.main.postFX.clear();
+        if (this.slowMoColorMatrixFx) {
+          this.cameras.main.postFX.remove(
+            this.slowMoColorMatrixFx as unknown as Phaser.FX.Controller,
+          );
+          this.slowMoColorMatrixFx = null;
+        }
       }
     } else {
       this.tweens.add({ targets: this.slowMoOverlay, alpha: active ? 0.3 : 0, duration: 500 });

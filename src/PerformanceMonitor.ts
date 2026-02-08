@@ -4,6 +4,7 @@ const WINDOW_SIZE = 60; // ~1 second at 60 FPS
 const FPS_THRESHOLD = 55;
 const CRITICAL_FPS = 35;
 const EARLY_SAMPLE_COUNT = 20;
+const CRT_PREF_STORAGE_KEY = 'spaceShooterCrtEnabled';
 
 export const QualityLevel = {
   FULL: 5,
@@ -24,6 +25,9 @@ export class PerformanceMonitor {
   private done = false;
   private initialized = false;
   private totalFrames = 0;
+  private crtSupported = false;
+  private crtAllowOnMinimal = false;
+  private crtUserEnabled = true;
 
   qualityLevel: QualityLevel = QualityLevel.FULL;
   reflectionEnabled = true;
@@ -39,6 +43,9 @@ export class PerformanceMonitor {
 
     const isDesktop = game.device.os.desktop;
     const isWebGL = game.renderer.type === Phaser.WEBGL;
+    this.crtSupported = isWebGL;
+    this.crtAllowOnMinimal = !isDesktop && isWebGL;
+    this.loadCrtUserPreference();
 
     if (isDesktop && isWebGL) {
       this.qualityLevel = QualityLevel.FULL;
@@ -48,7 +55,6 @@ export class PerformanceMonitor {
       // Mobile / canvas: minimal VFX, no monitoring needed
       this.qualityLevel = QualityLevel.MINIMAL;
       this.applyLevel();
-      this.crtEnabled = isWebGL; // CRT shader still works on mobile WebGL
       this.done = true;
     }
   }
@@ -151,8 +157,46 @@ export class PerformanceMonitor {
     this.reflectionEnabled = this.qualityLevel >= QualityLevel.FULL;
     this.crtHighEndEnabled = this.qualityLevel >= QualityLevel.NO_REFLECTION;
     this.smokeEnabled = this.qualityLevel >= QualityLevel.NO_CRT_HIGH_END;
-    this.crtEnabled = this.qualityLevel >= QualityLevel.NO_SMOKE;
+    const qualityAllowsCrt = this.qualityLevel >= QualityLevel.NO_SMOKE || this.crtAllowOnMinimal;
+    this.crtEnabled = this.crtSupported && this.crtUserEnabled && qualityAllowsCrt;
     this.reducedParticles = this.qualityLevel <= QualityLevel.MINIMAL;
+  }
+
+  isCrtSupported(): boolean {
+    return this.crtSupported;
+  }
+
+  isCrtUserEnabled(): boolean {
+    return this.crtUserEnabled;
+  }
+
+  setCrtUserEnabled(enabled: boolean): boolean {
+    this.crtUserEnabled = Boolean(enabled);
+    this.saveCrtUserPreference();
+    this.applyLevel();
+    return this.crtEnabled;
+  }
+
+  toggleCrtUserEnabled(): boolean {
+    return this.setCrtUserEnabled(!this.crtUserEnabled);
+  }
+
+  private loadCrtUserPreference() {
+    try {
+      const raw = localStorage.getItem(CRT_PREF_STORAGE_KEY);
+      if (raw === null) return;
+      this.crtUserEnabled = raw !== '0';
+    } catch {
+      // ignore unavailable storage
+    }
+  }
+
+  private saveCrtUserPreference() {
+    try {
+      localStorage.setItem(CRT_PREF_STORAGE_KEY, this.crtUserEnabled ? '1' : '0');
+    } catch {
+      // ignore unavailable storage
+    }
   }
 
   getQualityLabel(): string {
