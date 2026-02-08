@@ -67,7 +67,7 @@ export default class BootScene extends Phaser.Scene {
 
     // START button
     const startText = this.add
-      .text(centerX, centerY + 120, '[ START AND INSERT COIN ]', {
+      .text(centerX, centerY + 120, '[ START (ENTER/SPACE) ]', {
         fontFamily,
         fontSize: '20px',
         color: '#ffff00',

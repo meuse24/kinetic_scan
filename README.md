@@ -27,6 +27,10 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 - `DRN` (Wingman Drones): support fire.
 - `CLG` (Cannon Cooling): no heat build-up; thruster flame shifts to icy white.
 - `BLK` (Black Hole): gravity-like control effect.
+- `BNK` (Shield Bunker): deploys temporary indestructible bunkers that block ships, bullets, and asteroids.
+  - Base duration: ~18s (difficulty-scaled).
+  - Compact/mobile layouts spawn 2 bunkers instead of 3.
+  - Bunkers blink 4x shortly before deactivation.
 
 ## Controls
 
@@ -34,8 +38,17 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 
 - Move: `Arrow Keys` or pointer/touch drag.
 - Fire: hold `Space` or pointer.
-- Pause: UI button / scene controls.
-- Help: `H`.
+- Pause: UI button `PAUSE (P)` / `P` or `Esc`.
+- Help: UI button `HELP (H)` / `H`.
+- Debug overlay (off by default): `D`.
+- Test spawn (debug): `B` activates shield bunkers.
+
+### UI Button Hotkeys
+
+- Boot: `START (ENTER/SPACE)`.
+- Pause scene: `RESUME (P)`, `SOUND (S)`.
+- Help scene: `BACK (ESC/H)`.
+- Game Over: `HELP (H)`, `1 PLAYER (1)`, `2 PLAYER (2)`, `INSERT COIN (I)`.
 
 ### Attract / Game Over
 

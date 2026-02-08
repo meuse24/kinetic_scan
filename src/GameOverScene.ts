@@ -130,7 +130,7 @@ export default class GameOverScene extends Phaser.Scene {
         .setOrigin(0.5);
 
       this.controlHint = this.add
-        .text(centerX, GAME_HEIGHT - 260, 'ARROWS = CHANGE  FIRE = CONFIRM', {
+        .text(centerX, GAME_HEIGHT - 260, 'ARROWS = CHANGE  CONFIRM (ENTER/SPACE)', {
           fontFamily: '"Press Start 2P"',
           fontSize: '12px',
           color: '#888888',
@@ -559,9 +559,9 @@ export default class GameOverScene extends Phaser.Scene {
 
   private createHelpButton() {
     const btn = this.add
-      .text(GAME_WIDTH - 40, 40, 'H', {
+      .text(GAME_WIDTH - 96, 40, 'HELP (H)', {
         fontFamily: '"Press Start 2P"',
-        fontSize: '16px',
+        fontSize: '14px',
         color: '#ffffff',
         backgroundColor: '#111111',
         padding: { x: 6, y: 6 },

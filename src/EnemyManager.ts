@@ -99,7 +99,9 @@ export class EnemyManager {
   private spawnTimer: number = 0;
   private spawnInterval: number = INITIAL_SPAWN_INTERVAL;
   private difficultyLevel: number = 1;
+  private baseEnemySpeedMultiplier: number = 1;
   private enemySpeedMultiplier: number = 1;
+  private runtimeIntensity: number = 1;
   private preset: DifficultyPreset = getDifficultyPreset('normal');
 
   constructor(scene: Phaser.Scene) {
@@ -117,8 +119,9 @@ export class EnemyManager {
   public setDifficultyLevel(level: number) {
     this.difficultyLevel = Math.max(1, Math.floor(level));
     const ramp = this.difficultyLevel - 1;
-    this.enemySpeedMultiplier =
+    this.baseEnemySpeedMultiplier =
       this.preset.enemySpeedScale * (1 + Phaser.Math.Clamp(ramp * 0.07, 0, 1.05));
+    this.refreshEnemySpeedMultiplier();
   }
 
   public setDifficultyPreset(preset: DifficultyPreset) {
@@ -126,8 +129,18 @@ export class EnemyManager {
     this.setDifficultyLevel(this.difficultyLevel);
   }
 
+  public setRuntimeIntensity(intensity: number) {
+    this.runtimeIntensity = Phaser.Math.Clamp(intensity, 0.6, 1.25);
+    this.refreshEnemySpeedMultiplier();
+  }
+
   public getDifficultyLevel() {
     return this.difficultyLevel;
+  }
+
+  private refreshEnemySpeedMultiplier() {
+    const speedEase = Phaser.Math.Linear(0.84, 1, this.getIntensityRamp());
+    this.enemySpeedMultiplier = this.baseEnemySpeedMultiplier * speedEase;
   }
 
   /**
@@ -253,6 +266,8 @@ export class EnemyManager {
 
     const activeCount = this.enemies.countActive(true);
     const activeCap = this.getActiveEnemyCap();
+    const intensityRamp = this.getIntensityRamp();
+    const spawnCadenceScale = Phaser.Math.Linear(1.35, 1, intensityRamp);
 
     if (activeCount >= activeCap) {
       const overload = activeCount - activeCap;
@@ -263,7 +278,9 @@ export class EnemyManager {
     const spawned = this.spawnEnemy();
     const minInterval = this.getMinSpawnInterval();
     const intervalStep =
-      (4 + Math.floor((this.difficultyLevel - 1) * 0.65)) * this.preset.enemySpawnScale;
+      (4 + Math.floor((this.difficultyLevel - 1) * 0.65)) *
+      this.preset.enemySpawnScale *
+      Phaser.Math.Linear(0.75, 1, intensityRamp);
 
     if (spawned && this.spawnInterval > minInterval) {
       this.spawnInterval -= intervalStep;
@@ -278,7 +295,9 @@ export class EnemyManager {
     const pressurePenaltyScale = Phaser.Math.Clamp(1 - (this.difficultyLevel - 1) * 0.025, 0.7, 1);
     const presetPressureScale = Phaser.Math.Clamp(1 / this.preset.enemySpawnScale, 0.72, 1.22);
     const pressurePenalty = Math.round(pressure * 350 * pressurePenaltyScale);
-    this.spawnTimer = this.spawnInterval + pressurePenalty * presetPressureScale;
+    this.spawnTimer = Math.round(
+      (this.spawnInterval + pressurePenalty * presetPressureScale) * spawnCadenceScale,
+    );
   }
 
   private spawnEnemy(): boolean {
@@ -302,11 +321,20 @@ export class EnemyManager {
       ? Math.min(12, (this.difficultyLevel - 1) * 1.6)
       : Math.min(20, (this.difficultyLevel - 1) * 2.5);
     const levelBonus = Math.round(levelBonusBase * this.preset.enemyCapScale);
-    return base + levelBonus;
+    const easedCap = Math.round(
+      (base + levelBonus) * Phaser.Math.Linear(0.72, 1, this.getIntensityRamp()),
+    );
+    return Math.max(12, easedCap);
   }
 
   private getMinSpawnInterval() {
     const levelReduction = (this.difficultyLevel - 1) * 9 * this.preset.enemySpawnScale;
-    return Math.max(120, MIN_SPAWN_INTERVAL - levelReduction);
+    const baseMin = Math.max(120, MIN_SPAWN_INTERVAL - levelReduction);
+    const openingScale = Phaser.Math.Linear(1.3, 1, this.getIntensityRamp());
+    return Math.round(baseMin * openingScale);
+  }
+
+  private getIntensityRamp() {
+    return Phaser.Math.Clamp((this.runtimeIntensity - 0.6) / 0.4, 0, 1);
   }
 }

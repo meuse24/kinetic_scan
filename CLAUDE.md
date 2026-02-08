@@ -19,27 +19,32 @@ All game graphics are procedurally generated at runtime via Phaser's `Graphics.g
 ## Architecture
 
 ### Entry Point & Config
+
 - `src/main.ts` — Creates the `Phaser.Game` instance using config from `gameConfig.ts`. Registers a debounced (250 ms) handler on `resize` and `fullscreenchange` that recalculates dimensions and restarts non-gameplay scenes. During `MainScene`, resize is deferred to the next scene transition.
 - `src/gameConfig.ts` — Phaser config with dynamic viewport: `GAME_WIDTH`/`GAME_HEIGHT` (mutable `let` exports) are computed from `window.innerWidth/innerHeight`. Desktop uses 1000 units on the short axis, mobile uses 600 (so objects appear larger on small screens). Uses `Phaser.Scale.FIT` to fill the screen without black bars. Exports `recalculateDimensions()` to recompute from current window size and `applyPendingResize(game)` to apply deferred resizes at scene transitions.
 
 ### Scene Flow
+
 Scenes are Phaser's unit of game state. The game flows: **AttractScene** (title/menu) -> **MainScene** (gameplay) -> **GameOverScene** -> back to AttractScene. **PauseScene** and **HelpScene** overlay during gameplay. **BezelScene** runs as a persistent overlay providing a CRT monitor bezel frame.
 
 - `src/AttractScene.ts` — Title screen with attract-mode demo, credit system, 1P/2P start buttons, high scores
 - `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, 2-player turn switching
 - `src/GameOverScene.ts` — Game over screen with high score entry (keyboard, touch swipe/tap, mouse wheel)
 - `src/PauseScene.ts` — Pause overlay
-- `src/HelpScene.ts` — Controls/help overlay
+- `src/HelpScene.ts` — Controls/help overlay with scrollable content, `BACK (ESC/H)`, and a dedicated click hit-area for reliable pointer input
 - `src/BezelScene.ts` — Decorative CRT bezel frame with optional reflection effect
 
 ### Game Entities
+
 - `src/Player.ts` — `Player` class (ship movement, input handling for keyboard/mouse/touch, heat system) and `Bullet` class. All textures generated procedurally.
 - `src/EnemyManager.ts` — `Enemy` (asteroid) class and `EnemyManager` that handles spawning, fragmentation on destroy, and difficulty scaling
 - `src/UFO.ts` — UFO enemy with two variants: `scout` (single-hit, sine-wave movement) and `boss` (multi-hit with segmented energy bar, phase-based attack patterns, dodge AI). Both drawn procedurally with animated tentacles, hull, and antenna
 
 ### Systems
-- `src/PowerUp.ts` — `PowerUp` sprite class and `PowerUpType` enum (TRIPLE_SHOT, SLOW_MOTION, SHIELD, EMP_WAVE, GHOST_PHASE, WINGMAN_DRONES, BLACK_HOLE)
+
+- `src/PowerUp.ts` — `PowerUp` sprite class and `PowerUpType` enum (TRIPLE_SHOT, SLOW_MOTION, SHIELD, EMP_WAVE, GHOST_PHASE, WINGMAN_DRONES, CANNON_COOLING, BLACK_HOLE, SHIELD_BUNKER)
 - `src/PowerUpDirector.ts` — Decides when/what power-ups spawn based on combo streaks, score thresholds, accuracy, and idle time
+- `src/MainSceneTuning.ts` — Central tuning constants for transitions, early-level ramp, spawn protection, background decor, and shield bunker timing/layout
 - `src/ExplosionManager.ts` — Particle emitter pools for asteroid and player death explosions
 - `src/AudioManager.ts` — Web Audio API synthesizer for all game sounds (shoot, explode, power-up, UFO hum, etc.)
 - `src/SoundManager.ts` — Global mute toggle singleton, persisted to localStorage
@@ -57,3 +62,4 @@ Scenes are Phaser's unit of game state. The game flows: **AttractScene** (title/
 ## Known Pitfalls
 
 - **Phaser 3 overlap callback argument order**: In Phaser 3.90, `physics.add.overlap(group, sprite, callback)` does NOT guarantee `obj1` = group member and `obj2` = sprite. Always use identity checks: `const bullet = (obj1 === this.ufo ? obj2 : obj1) as Bullet;`
+- **Overlay input conflicts**: When opening modal-like scenes (Help/Pause), the underlying scene can still contain interactive UI. If pointer clicks feel unreliable, ensure the return scene input is disabled while the overlay is active and restored on shutdown.

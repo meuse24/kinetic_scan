@@ -52,7 +52,7 @@ export default class PauseScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
 
     this.add
-      .text(centerX, btnY, 'RESUME', {
+      .text(centerX, btnY, 'RESUME (P)', {
         fontFamily: '"Press Start 2P"',
         fontSize: '24px',
         color: '#ffffff',

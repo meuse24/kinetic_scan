@@ -565,3 +565,166 @@ TODOs for next agent (optional deeper perf pass)
   - Playwright run `output/web-game/audio-balance-pass` (hard preset URL):
     - no `errors-*.json`
     - stable gameplay/state capture with `difficulty.preset = "hard"`.
+
+- Background-VFX pass (requested: planets/galaxy clusters, hardware-dependent, no collisions):
+  - Added GPU/performance-aware ambient background decor system in `src/MainScene.ts`.
+    - Occasional drifting planets and galaxy-cluster sprites are spawned as pure visuals (no physics/overlaps).
+    - Uses renderer + GPU-name heuristic + `PerformanceMonitor` flags to choose tier (`off|low|medium|high`).
+    - Auto-disables and clears visuals when performance drops to reduced-particles mode.
+  - Added centralized tuning in `src/MainSceneTuning.ts`:
+    - `BACKGROUND_DECOR_TUNING` (spawn cadence, max active, scale/alpha/speed ranges, depth).
+    - exported `BackgroundDecorTier` type.
+  - Added state telemetry fields (`getDifficultyState()`):
+    - `worldEvents.backgroundDecorTier`
+    - `worldEvents.backgroundDecorCount`
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+
+- Smartphone Attract-Title Renderfix:
+  - Problem: Titel wechselte zeitweise zu Balken/Artefakten auf Mobile (AttractScene).
+  - Ursache sehr wahrscheinlich im fragilen Text-Glow (`preFX.addGlow`) der Logo-Linien.
+  - Fix in `src/AttractScene.ts`:
+    - `createLogoLine(...)` rendert jetzt stabil als normale Textglyphen mit sichtbarer Textfarbe.
+    - Titel-`preFX`-Glow für diese Logo-Texte entfernt.
+  - Validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+  - Playwright skill runs:
+    - `output/web-game/background-vfx-pass-1` (canvas capture mode): no `errors-0.json`
+    - `output/web-game/background-vfx-pass-2` (default renderer): no `errors-0.json`
+  - Note from sampled states:
+    - In this environment, default-renderer run dropped to low FPS and reported `backgroundDecorTier: "off"` (auto quality safety path engaged as designed).
+  - Follow-up adjustment:
+    - In reduced-particles mode the decor tier now falls back to `low` (statt vollständig `off`), damit der gewünschte Effekt auch auf schwächerer Hardware gelegentlich sichtbar bleibt.
+  - Re-validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+    - Playwright run `output/web-game/background-vfx-pass-4`: no `errors-0.json`, sampled state shows `worldEvents.backgroundDecorTier = "low"` and `backgroundDecorCount = 1`.
+
+- AttractScene cinematic decor pass (follow-up request):
+  - Added hardware/performance-aware background decor in `src/AttractScene.ts`:
+    - occasional large drifting planets + galaxy clusters,
+    - tiered intensity (`off|low|medium|high`) based on renderer, GPU hint, and `PerformanceMonitor`,
+    - pulsing alpha + slow cinematic movement, pure visual only (no collision/physics),
+    - runtime quality-change adaptation + cleanup on shutdown.
+  - Added attract telemetry accessor `getAmbientVisualState()` and wired it into `render_game_to_text` via `src/main.ts` (`payload.attract`).
+  - Validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+    - Playwright runs:
+      - `output/web-game/attract-decor-pass-3`: no `errors-0.json`, sampled state includes `mode=AttractScene` and `attract.backgroundDecorTier=\"medium\"`.
+      - Additional smoke runs `output/web-game/attract-decor-pass-1/2/4` completed without `errors-0.json`.
+
+- Gameplay-Optimierung (Follow-up: Änderungen 1/2/3) umgesetzt:
+  1) Spawn-Schutz + sichere Respawn-Positionen:
+    - `MainScene` erhält zeitbasierten Spawn-Protection-State mit Blink-Feedback.
+    - Start des Runs, Singleplayer-Respawn und 2P-Turn-Switch nutzen jetzt Schutzfenster.
+    - Respawn sucht sichere X-Position anhand naher Asteroiden/UFO-Shots/UFO und räumt unmittelbare Threats im Spawn-Radius.
+  2) Sanftere Early-Game-Kurve:
+    - Neue Runtime-Intensität für `EnemyManager` (zwischen soften Openings und voller Zielintensität).
+    - Intensity-Ramp basiert auf Zeit seit Levelstart + Score-Fortschritt im Level.
+    - Enemy-Cap, Spawn-Cadence, Min-Interval und Speed folgen dieser Ramp statt direkt vollem Druck.
+  3) Garantierter früher Support-Drop:
+    - `PowerUpDirector.spawnGuaranteedSupportDrop(...)` ergänzt.
+    - `MainScene` triggert pro Level einen garantierten frühen Support-Drop (Shield/Cooling/Wingman), timer- oder progressgesteuert.
+    - Bei frühem Lebensverlust wird dieser Drop beschleunigt.
+- Tuning-Konstanten zentralisiert in `src/MainSceneTuning.ts`:
+  - `SPAWN_PROTECTION_TUNING`
+  - `EARLY_LEVEL_TUNING`
+- Telemetrie erweitert:
+  - `getDifficultyState()` enthält jetzt `spawnProtectionMs` und `levelOpening` (elapsed/startScore/supportDrop-Status).
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - Playwright skill run (preview+capture mode): `output/web-game/gameplay-opt-pass-impl-123d`
+    - `shot-0..4.png` + `state-0..4.json` erzeugt
+    - kein `errors-0.json`
+    - state belegt aktive neue Telemetrie (`difficulty.spawnProtectionMs`, `difficulty.levelOpening.*`)
+
+- Neues Power-up `SHIELD_BUNKER` (Schutzbunker) implementiert:
+  - `src/PowerUp.ts`:
+    - `PowerUpType.SHIELD_BUNKER` ergänzt,
+    - eigenes Icon + Label-Kürzel `BNK`,
+    - Attract-/HUD-Icon-Generierung erweitert.
+  - `src/PowerUpDirector.ts`:
+    - Spawn-Pools um `SHIELD_BUNKER` erweitert,
+    - zusätzliche Seltenheits-Gate eingebaut (70% Reroll bei random bunker roll), damit Bunker deutlich seltener als Standard-Drops erscheinen.
+  - `src/MainScene.ts`:
+    - neue statische Bunkergruppe `shieldBunkers`,
+    - temporäres Spawning von 3 Bunkern über `SHIELD_BUNKER`-Power-up,
+    - Kollisionen:
+      - Player <-> Bunker als Collider (Ship kann nicht durchfliegen),
+      - Player-Bullets <-> Bunker (Bullets werden gestoppt),
+      - UFO-Projectiles <-> Bunker (Projektile werden gestoppt),
+      - Asteroiden <-> Bunker (Asteroiden zerschellen: disable + Explosion SFX/VFX),
+    - Cleanup in Reset/Shutdown/GameOver ergänzt.
+    - Test-Hotkey `B` ergänzt (`keydown-B` -> sofortige Aktivierung zu Testzwecken).
+    - Laufzeit für `SHIELD_BUNKER` auf 12s (vor Skalierung) gesetzt.
+    - Difficulty-State erweitert um `worldEvents.shieldBunkerActive` + `worldEvents.shieldBunkerCount`.
+  - `src/main.ts`:
+    - `render_game_to_text` erweitert um `shieldBunkers`-Liste für Skill-Validierung.
+  - UI/Docs:
+    - `src/AttractScene.ts`: Abkürzung/Preview/Drop-Demo um `BNK` ergänzt.
+    - `src/HelpScene.ts`: Bunker-Beschreibung + Debug-Hinweis (`B`) ergänzt.
+    - `README.md`: Power-up-Liste + Test-Key-Hinweis aktualisiert.
+    - `CLAUDE.md`: PowerUpType-Liste aktualisiert.
+
+- Validation:
+  - `npm run lint` pass.
+  - `npm run build` pass.
+  - Playwright skill runs:
+    - `output/web-game/shield-bunker-pass-1`:
+      - keine `errors-*.json`,
+      - Gameplay-State vorhanden,
+      - State belegt aktive Bunker (`shieldBunkerActive=true`, `shieldBunkerCount=3`),
+      - Screenshot zeigt drei sichtbare Schutzbunker im Playfield.
+    - Zusatzläufe (`shield-bunker-pass-2..7`, `shield-bunker-pass-final`) durchgeführt:
+      - keine Laufzeitfehler,
+      - einzelne Runs blieben wegen Input-Fokus/Timing in AttractScene; bekannte Automationsflakiness bei Tastaturaktionen.
+
+TODOs for next agent
+- Optional: deterministische Playwright-Sequenz für MainScene-Start via robustem UI-Klick/Selector stabilisieren, damit `B`-Hotkey-Validierung in jeder Iteration reproduzierbar ist.
+
+- Debug-Overlay Toggle (requested) umgesetzt:
+  - Debug-Infos sind nun standardmäßig **aus**.
+  - `D` toggelt die Debug-Anzeige in `MainScene`.
+  - Enthaltene Informationen:
+    - Renderer/GPU/FPS/Quality/Bullet-Cap,
+    - aktive Objektzähler (`Enemies`, `PowerUps`, `UFO Projectiles`, `Bunker`, `Decor`, `Wormhole`, `Elite Drone`, `Physics Bodies`).
+  - Bestehende Debug-Textblöcke (`debugText`, `powerUpListText`, `perkText`) werden nur bei aktivem Overlay sichtbar.
+  - Aktive Power-up-Timerliste wird nur noch aufgebaut, wenn Debug-Overlay aktiv ist (kleine Laufzeitentlastung).
+  - Dateien:
+    - `src/MainScene.ts` (Toggle-Logik, neue Stats-Zeile, Sichtbarkeitssteuerung, Keybind `keydown-D`)
+    - `src/HelpScene.ts` (D-Hinweis ergänzt)
+    - `README.md` (D-Hinweis ergänzt)
+
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+- 2026-02-08: SHIELD_BUNKER follow-up tuning umgesetzt:
+  - Aktivdauer erhöht via `SHIELD_BUNKER_TUNING.baseDurationMs = 18000`.
+  - Responsive Layout: auf schmalen Playfields (`<= 720`) nur 2 Bunker statt 3.
+  - Ablaufwarnung ergänzt: Bunker blinken vor Ende 4x (`warningBlinkCount = 4`) und werden danach deaktiviert.
+  - Neue Tuning-Sektion in `src/MainSceneTuning.ts`: `SHIELD_BUNKER_TUNING`.
+  - `MainScene` erweitert um Warn-Tween-Handling (Start/Stop/Cleanup) zur stabilen Deaktivierung ohne Leaks.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+- 2026-02-08: Help-Backbutton Fix (Mouse-Click reliability)
+  - `src/HelpScene.ts`:
+    - Back-Button um große transparente Hit-Area (`176x52`) ergänzt, damit Klicks auch bei kleiner Schrift zuverlässig greifen.
+    - Hover-Farbwechsel für visuelles Feedback hinzugefügt.
+    - Eingabe der pausierten Return-Scene beim Öffnen der HelpScene temporär deaktiviert und auf `shutdown` wiederhergestellt, um Input-Konflikte mit darunterliegenden interaktiven UI-Elementen auszuschließen.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+- 2026-02-08: UI key-hint pass für Buttons umgesetzt.
+  - `src/BootScene.ts`: Start-Button jetzt `[ START (ENTER/SPACE) ]`.
+  - `src/MainScene.ts`: HUD-Buttons jetzt `|| PAUSE (P)` und `HELP (H)`.
+  - `src/HelpScene.ts`: Back-Button-Label zu `BACK (ESC/H)` aktualisiert (inkl. bestehender großer Hit-Area).
+  - `src/PauseScene.ts`: Resume-Button jetzt `RESUME (P)`.
+  - `src/GameOverScene.ts`: Help-Button jetzt `HELP (H)`; Initials-Hinweis präzisiert zu `CONFIRM (ENTER/SPACE)`.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass

@@ -9,6 +9,7 @@ export const PowerUpType = {
   WINGMAN_DRONES: 'WINGMAN_DRONES',
   CANNON_COOLING: 'CANNON_COOLING',
   BLACK_HOLE: 'BLACK_HOLE',
+  SHIELD_BUNKER: 'SHIELD_BUNKER',
 } as const;
 
 export type PowerUpType = (typeof PowerUpType)[keyof typeof PowerUpType];
@@ -46,6 +47,7 @@ export class PowerUp extends Phaser.Physics.Arcade.Sprite {
       { type: PowerUpType.WINGMAN_DRONES, color: 0x00ff00, points: 2 }, // Line/Bar
       { type: PowerUpType.CANNON_COOLING, color: 0x66ddff, points: 6 },
       { type: PowerUpType.BLACK_HOLE, color: 0xaa00ff, points: 12 },
+      { type: PowerUpType.SHIELD_BUNKER, color: 0x74ff9e, points: 5 },
     ];
 
     types.forEach((p) => {
@@ -70,6 +72,13 @@ export class PowerUp extends Phaser.Physics.Arcade.Sprite {
           graphics.strokeLineShape(new Phaser.Geom.Line(6, 16, 26, 16));
           graphics.strokeLineShape(new Phaser.Geom.Line(9, 9, 23, 23));
           graphics.strokeLineShape(new Phaser.Geom.Line(23, 9, 9, 23));
+        } else if (p.type === PowerUpType.SHIELD_BUNKER) {
+          graphics.fillRoundedRect(3, 10, 26, 16, 4);
+          graphics.strokeRoundedRect(3, 10, 26, 16, 4);
+          graphics.fillStyle(0x111111, 0.95);
+          graphics.fillRect(8, 16, 4, 10);
+          graphics.fillRect(14, 16, 4, 10);
+          graphics.fillRect(20, 16, 4, 10);
         } else {
           graphics.beginPath();
           const sides = p.points;
@@ -126,6 +135,8 @@ export class PowerUp extends Phaser.Physics.Arcade.Sprite {
         return 'CLG';
       case PowerUpType.BLACK_HOLE:
         return 'BLK';
+      case PowerUpType.SHIELD_BUNKER:
+        return 'BNK';
       default:
         return 'PWR';
     }

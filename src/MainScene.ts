@@ -18,10 +18,15 @@ import { GAME_WIDTH, GAME_HEIGHT, applyPendingResize } from './gameConfig';
 import { performanceMonitor } from './PerformanceMonitor';
 import { musicManager } from './MusicManager';
 import {
+  BACKGROUND_DECOR_TUNING,
+  EARLY_LEVEL_TUNING,
   ELITE_DRONE_TUNING,
   LEVEL_TRANSITION_TUNING,
+  SHIELD_BUNKER_TUNING,
+  SPAWN_PROTECTION_TUNING,
   WORMHOLE_TUNING,
   pickEliteDroneSpawnDelayRange,
+  type BackgroundDecorTier,
   type EliteDroneDeactivateReason,
   type IntRange,
 } from './MainSceneTuning';
@@ -45,6 +50,13 @@ interface WormholeState {
   vx: number;
   vy: number;
   ttlMs: number;
+}
+
+interface BackgroundDecorState {
+  sprite: Phaser.GameObjects.Image;
+  vx: number;
+  vy: number;
+  spin: number;
 }
 
 type MainSceneData = {
@@ -84,6 +96,7 @@ interface CollisionPressureMetrics {
 export default class MainScene extends Phaser.Scene {
   private player!: Player;
   private bullets!: Phaser.Physics.Arcade.Group;
+  private shieldBunkers!: Phaser.Physics.Arcade.StaticGroup;
   public enemyManager!: EnemyManager;
   private explosionManager!: ExplosionManager;
   public audio!: AudioManager;
@@ -98,6 +111,10 @@ export default class MainScene extends Phaser.Scene {
   private progressionScore: number = 0;
   private nextLevelScore: number = 2500;
   private levelBossPendingDefeat: boolean = false;
+  private levelStartScore: number = 0;
+  private levelElapsedMs: number = 0;
+  private earlySupportDropGranted: boolean = false;
+  private earlySupportDropTimerMs: number = 0;
   private playerStates: PlayerState[] = [];
   private activePlayerIndex: number = 0;
   private playerCount: number = 1;
@@ -145,6 +162,9 @@ export default class MainScene extends Phaser.Scene {
   private eliteDroneSpawnTimer: number = 0;
   private eliteDroneLifetimeMs: number = 0;
   private empGraphics!: Phaser.GameObjects.Graphics;
+  private backgroundDecorTier: BackgroundDecorTier = 'off';
+  private backgroundDecorSpawnTimerMs: number = 0;
+  private backgroundDecor: BackgroundDecorState[] = [];
 
   private p1ScoreText!: Phaser.GameObjects.Text;
   private p2ScoreText?: Phaser.GameObjects.Text;
@@ -154,8 +174,10 @@ export default class MainScene extends Phaser.Scene {
   private activeMarkerRight?: Phaser.GameObjects.Text;
   private activeMarkerTween?: Phaser.Tweens.Tween;
   private lastActiveMarkerIndex: number = -1;
+  private debugOverlayEnabled: boolean = false;
   private debugRefreshMs: number = 0;
   private lastDebugLine: string = '';
+  private lastDebugStatsLine: string = '';
   private powerUpTextRefreshMs: number = 0;
   private lastPowerUpList: string = '';
   private powerUpBarRefreshMs: number = 0;
@@ -190,6 +212,7 @@ export default class MainScene extends Phaser.Scene {
   private dynamicBulletCap: number = 100;
   private bulletCapRefreshMs: number = 0;
   private debugText!: Phaser.GameObjects.Text;
+  private debugStatsText!: Phaser.GameObjects.Text;
   private powerUpBar!: Phaser.GameObjects.Graphics;
   private powerUpListText!: Phaser.GameObjects.Text;
   private perkText!: Phaser.GameObjects.Text;
@@ -199,6 +222,10 @@ export default class MainScene extends Phaser.Scene {
   private passiveCoolingMultiplier: number = 1;
   private magneticDurationMultiplier: number = 1;
   private smokeEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
+  private spawnProtectionTimerMs: number = 0;
+  private spawnProtectionTween?: Phaser.Tweens.Tween;
+  private shieldBunkerWarningStarted: boolean = false;
+  private shieldBunkerWarningTween?: Phaser.Tweens.Tween;
 
   constructor() {
     super('MainScene');
@@ -210,10 +237,15 @@ export default class MainScene extends Phaser.Scene {
     setCurrentDifficultyKey(this.difficultyKey);
     this.difficultyPreset = getDifficultyPreset(this.difficultyKey);
     this.activePlayerIndex = 0;
+    this.debugOverlayEnabled = false;
     this.level = 1;
     this.progressionScore = 0;
     this.nextLevelScore = this.getNextLevelScore(1);
     this.levelBossPendingDefeat = false;
+    this.levelStartScore = 0;
+    this.levelElapsedMs = 0;
+    this.earlySupportDropGranted = false;
+    this.earlySupportDropTimerMs = 0;
     this.powerUpBarRefreshMs = 0;
     this.heatBarRefreshMs = 0;
     this.lastP1ScoreLabel = '';
@@ -221,9 +253,17 @@ export default class MainScene extends Phaser.Scene {
     this.lastP1LivesLabel = '';
     this.lastP2LivesLabel = '';
     this.lastLevelLabel = '';
+    this.lastDebugStatsLine = '';
     this.lastPerkLabel = '';
     this.passiveCoolingMultiplier = 1;
     this.magneticDurationMultiplier = 1;
+    this.spawnProtectionTimerMs = 0;
+    this.spawnProtectionTween = undefined;
+    this.shieldBunkerWarningStarted = false;
+    this.shieldBunkerWarningTween = undefined;
+    this.backgroundDecorTier = 'off';
+    this.backgroundDecorSpawnTimerMs = 0;
+    this.backgroundDecor = [];
     this.playerStates = [];
     for (let i = 0; i < this.playerCount; i++) {
       this.playerStates.push({
@@ -284,6 +324,7 @@ export default class MainScene extends Phaser.Scene {
       runChildUpdate: true,
       maxSize: 100,
     });
+    this.shieldBunkers = this.physics.add.staticGroup();
     this.player = new Player(this, GAME_WIDTH / 2, GAME_HEIGHT - 100, this.bullets);
     this.player.updateBounds(GAME_WIDTH, GAME_HEIGHT);
     this.enemyManager = new EnemyManager(this);
@@ -313,6 +354,7 @@ export default class MainScene extends Phaser.Scene {
           .trim();
       }
     }
+    this.configureBackgroundDecor(true);
 
     this.slowMoOverlay = this.add
       .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x0000ff, 0)
@@ -331,6 +373,8 @@ export default class MainScene extends Phaser.Scene {
     this.applyPassivePerksFromActiveState();
     this.updateHUD();
     this.applyActivePowerUpEffects(true);
+    this.resetLevelOpeningState();
+    this.applySpawnProtection(SPAWN_PROTECTION_TUNING.startGraceMs, true);
     this.ufoSpawnTimer = this.computeNextUFOSpawnDelay();
 
     this.physics.add.overlap(
@@ -341,6 +385,21 @@ export default class MainScene extends Phaser.Scene {
       this,
     );
     this.physics.add.overlap(this.bullets, this.ufo, this.handleBulletHitUFO, undefined, this);
+    this.physics.add.collider(this.player, this.shieldBunkers);
+    this.physics.add.collider(
+      this.bullets,
+      this.shieldBunkers,
+      this.handleBulletHitShieldBunker,
+      undefined,
+      this,
+    );
+    this.physics.add.collider(
+      this.enemyManager.enemies,
+      this.shieldBunkers,
+      this.handleAsteroidHitShieldBunker,
+      undefined,
+      this,
+    );
     this.physics.add.overlap(
       this.player,
       this.enemyManager.enemies,
@@ -371,6 +430,13 @@ export default class MainScene extends Phaser.Scene {
     );
     const ufoProjectiles = this.ufo.getProjectiles();
     if (ufoProjectiles) {
+      this.physics.add.collider(
+        ufoProjectiles,
+        this.shieldBunkers,
+        this.handleUFOProjectileHitShieldBunker,
+        undefined,
+        this,
+      );
       this.physics.add.overlap(
         this.player,
         ufoProjectiles,
@@ -398,15 +464,25 @@ export default class MainScene extends Phaser.Scene {
       this.audio.destroy();
       this.clearWorldEvents('reset');
       this.pendingEnemyHits.length = 0;
+      this.stopShieldBunkerWarning(false);
+      const bunkerGroup = this.shieldBunkers as any;
+      if (bunkerGroup?.children && typeof bunkerGroup.clear === 'function') {
+        bunkerGroup.clear(true, true);
+      }
       this.powerUpBar.destroy();
       this.heatBar.destroy();
       this.smokeEmitter?.destroy();
+      this.stopSpawnProtectionVisuals();
+      this.clearBackgroundDecor();
       this.wormholeGraphics.destroy();
       this.eliteDroneLabel.destroy();
       this.eliteDrone.destroy();
       this.perkText.destroy();
       this.empGraphics.destroy();
       this.slowMoOverlay.destroy();
+      if (bunkerGroup?.scene && typeof bunkerGroup.destroy === 'function') {
+        bunkerGroup.destroy(true);
+      }
       this.switchTimer?.remove(false);
       this.switchOverlay?.destroy();
       this.levelTransitionOverlay?.destroy();
@@ -425,6 +501,9 @@ export default class MainScene extends Phaser.Scene {
       return;
     }
     this.ufo.setCombatTarget(this.player.active ? this.player : null);
+    this.updateLevelOpeningBalance(delta);
+    this.updateSpawnProtection(delta);
+    this.updateGuaranteedSupportDrop(delta);
     this.updateDynamicBulletCap(delta);
     this.player.update(time, delta);
     this.enemyManager.update(time, delta);
@@ -447,21 +526,41 @@ export default class MainScene extends Phaser.Scene {
       }
       this.ufo.setReducedVisualDetail(performanceMonitor.reducedParticles);
       this.useHighEndVFX = performanceMonitor.smokeEnabled && this.useHighEndVFX;
+      this.configureBackgroundDecor();
     }
+    this.updateBackgroundDecor(delta);
 
-    this.debugRefreshMs -= delta;
-    if (this.debugRefreshMs <= 0) {
-      let renderer = 'UNKNOWN';
-      if (this.game.renderer.type === Phaser.WEBGL) renderer = 'WEBGL';
-      else if (this.game.renderer.type === Phaser.CANVAS) renderer = 'CANVAS';
-      else if (this.game.renderer.type === (Phaser as any).WEBGPU) renderer = 'WEBGPU';
-      const bulletActive = this.bullets.countActive(true);
-      const nextDebugLine = `${renderer}${this.gpuName ? ` | ${this.gpuName}` : ''} | ${Math.round(this.game.loop.actualFps)} FPS | L ${this.level} ${this.difficultyPreset.label} | ${performanceMonitor.getQualityLabel()} | B ${bulletActive}/${this.dynamicBulletCap}`;
-      if (nextDebugLine !== this.lastDebugLine) {
-        this.debugText.setText(nextDebugLine);
-        this.lastDebugLine = nextDebugLine;
+    if (this.debugOverlayEnabled) {
+      this.debugRefreshMs -= delta;
+      if (this.debugRefreshMs <= 0) {
+        let renderer = 'UNKNOWN';
+        if (this.game.renderer.type === Phaser.WEBGL) renderer = 'WEBGL';
+        else if (this.game.renderer.type === Phaser.CANVAS) renderer = 'CANVAS';
+        else if (this.game.renderer.type === (Phaser as any).WEBGPU) renderer = 'WEBGPU';
+
+        const bulletActive = this.bullets.countActive(true);
+        const nextDebugLine = `${renderer}${this.gpuName ? ` | ${this.gpuName}` : ''} | ${Math.round(this.game.loop.actualFps)} FPS | L ${this.level} ${this.difficultyPreset.label} | Q ${performanceMonitor.getQualityLabel()} | B ${bulletActive}/${this.dynamicBulletCap}`;
+        if (nextDebugLine !== this.lastDebugLine) {
+          this.debugText.setText(nextDebugLine);
+          this.lastDebugLine = nextDebugLine;
+        }
+
+        const activeEnemies = this.enemyManager.enemies.countActive(true);
+        const activePowerUps = this.powerUpDirector.getGroup().countActive(true);
+        const activeUFOProjectiles = this.ufo.getActiveProjectileCount();
+        const activeBunkers = this.shieldBunkers.countActive(true);
+        const physicsBodies = (this.physics.world as any)?.bodies?.size ?? 0;
+        const nextDebugStatsLine =
+          `OBJ E ${activeEnemies} | P ${activePowerUps} | UP ${activeUFOProjectiles} | ` +
+          `BNK ${activeBunkers} | DEC ${this.backgroundDecor.length}(${this.backgroundDecorTier}) | ` +
+          `WH ${this.wormhole?.active ? 1 : 0} | ED ${this.eliteDrone?.active ? 1 : 0} | BOD ${physicsBodies}`;
+        if (nextDebugStatsLine !== this.lastDebugStatsLine) {
+          this.debugStatsText.setText(nextDebugStatsLine);
+          this.lastDebugStatsLine = nextDebugStatsLine;
+        }
+
+        this.debugRefreshMs = 200;
       }
-      this.debugRefreshMs = 200;
     }
 
     if (!this.ufo.active) {
@@ -584,7 +683,7 @@ export default class MainScene extends Phaser.Scene {
     if (this.levelBossPendingDefeat) {
       nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  BOSS FIGHT`;
     } else {
-      nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  NEXT ${Math.max(0, this.nextLevelScore - this.progressionScore)}`;
+      nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  SURVIVE ${Math.max(0, this.nextLevelScore - this.progressionScore)}`;
     }
     if (nextLevelLabel !== this.lastLevelLabel) {
       this.levelText.setText(nextLevelLabel);
@@ -640,6 +739,7 @@ export default class MainScene extends Phaser.Scene {
     this.level += 1;
     this.nextLevelScore = this.progressionScore + this.getNextLevelScore(this.level);
     this.applyDifficultyProfile();
+    this.resetLevelOpeningState();
     this.startLevelTransitionCountdown(LEVEL_TRANSITION_TUNING.bossDefeatCelebrationDelayMs);
     this.tweens.add({
       targets: this.levelText,
@@ -663,6 +763,70 @@ export default class MainScene extends Phaser.Scene {
     if (!silent) {
       this.updateHUD();
     }
+  }
+
+  private resetLevelOpeningState() {
+    this.levelStartScore = this.progressionScore;
+    this.levelElapsedMs = 0;
+    this.earlySupportDropGranted = false;
+    this.earlySupportDropTimerMs = this.rollRange(
+      EARLY_LEVEL_TUNING.guaranteedSupportDropDelayMs[this.difficultyKey],
+    );
+    this.enemyManager.setRuntimeIntensity(EARLY_LEVEL_TUNING.minIntensity[this.difficultyKey]);
+  }
+
+  private getLevelProgressRatio() {
+    const requirement = Math.max(1, this.nextLevelScore - this.levelStartScore);
+    const gained = Math.max(0, this.progressionScore - this.levelStartScore);
+    return Phaser.Math.Clamp(gained / requirement, 0, 1);
+  }
+
+  private updateLevelOpeningBalance(delta: number) {
+    if (this.levelBossPendingDefeat || this.isGameOver) {
+      this.enemyManager.setRuntimeIntensity(1);
+      return;
+    }
+    this.levelElapsedMs += delta;
+    const timeRamp = Phaser.Math.Clamp(
+      this.levelElapsedMs / EARLY_LEVEL_TUNING.rampDurationMs[this.difficultyKey],
+      0,
+      1,
+    );
+    const scoreRamp = Phaser.Math.Clamp(
+      this.getLevelProgressRatio() / EARLY_LEVEL_TUNING.scoreRampPortion,
+      0,
+      1,
+    );
+    const easedRamp = Phaser.Math.Easing.Cubic.Out(Math.max(timeRamp, scoreRamp));
+    const minIntensity = EARLY_LEVEL_TUNING.minIntensity[this.difficultyKey];
+    this.enemyManager.setRuntimeIntensity(Phaser.Math.Linear(minIntensity, 1, easedRamp));
+  }
+
+  private updateGuaranteedSupportDrop(delta: number) {
+    if (this.earlySupportDropGranted || this.levelBossPendingDefeat || this.isGameOver) return;
+    this.earlySupportDropTimerMs -= delta;
+    const lowLifeUrgency = this.lives <= 1 && this.levelElapsedMs > 2400;
+    const progressReady = this.getLevelProgressRatio() >= 0.32;
+    if (this.earlySupportDropTimerMs > 0 && !lowLifeUrgency && !progressReady) return;
+    this.triggerGuaranteedSupportDrop();
+  }
+
+  private triggerGuaranteedSupportDrop() {
+    const targetX = Phaser.Math.Clamp(
+      this.player.x + Phaser.Math.Between(-120, 120),
+      90,
+      this.scale.width - 90,
+    );
+    const spawnedType = this.powerUpDirector.spawnGuaranteedSupportDrop(
+      targetX,
+      EARLY_LEVEL_TUNING.supportDropSpawnY,
+    );
+    if (!spawnedType) {
+      this.earlySupportDropTimerMs = 1200;
+      return;
+    }
+    this.earlySupportDropGranted = true;
+    this.cameras.main.flash(70, 90, 255, 120, false);
   }
 
   private updateActiveMarker() {
@@ -1077,6 +1241,7 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private updateActivePowerUps(delta: number) {
+    const showDebugLists = this.debugOverlayEnabled;
     let list = '';
     this.activePowerUps.forEach((timeLeft, type) => {
       const newTime = timeLeft - delta;
@@ -1085,9 +1250,24 @@ export default class MainScene extends Phaser.Scene {
         this.deactivatePowerUp(type);
       } else {
         this.activePowerUps.set(type, newTime);
-        list += `${type}: ${(newTime / 1000).toFixed(1)}s\n`;
+        if (type === PowerUpType.SHIELD_BUNKER) {
+          this.maybeStartShieldBunkerExpiryWarning(newTime);
+        }
+        if (showDebugLists) {
+          list += `${type}: ${(newTime / 1000).toFixed(1)}s\n`;
+        }
       }
     });
+    if (!showDebugLists) {
+      if (this.lastPowerUpList !== '') {
+        this.powerUpListText.setText('');
+        this.lastPowerUpList = '';
+      }
+      if (this.playerStates[this.activePlayerIndex]) {
+        this.playerStates[this.activePlayerIndex].activePowerUps = new Map(this.activePowerUps);
+      }
+      return;
+    }
     this.powerUpTextRefreshMs -= delta;
     if (this.powerUpTextRefreshMs <= 0) {
       if (list !== this.lastPowerUpList) {
@@ -1150,6 +1330,11 @@ export default class MainScene extends Phaser.Scene {
     } else {
       this.removeBlackHole();
     }
+    if (this.activePowerUps.has(PowerUpType.SHIELD_BUNKER)) {
+      this.spawnShieldBunkers();
+    } else {
+      this.removeShieldBunkers();
+    }
     this.player.setMagnetic(this.powerUpTimer > 0);
     if (this.powerUpTimer <= 0) this.powerUpBar.clear();
   }
@@ -1168,6 +1353,7 @@ export default class MainScene extends Phaser.Scene {
     this.applySlowMo(false);
     this.removeDrones();
     this.removeBlackHole();
+    this.removeShieldBunkers();
     this.powerUpBar.clear();
     this.lastPowerUpList = '';
     this.powerUpListText.setText('');
@@ -1179,6 +1365,7 @@ export default class MainScene extends Phaser.Scene {
     this.enemyManager.enemies.clear(true, true);
     this.powerUpDirector.reset();
     this.ufo.deactivate();
+    this.removeShieldBunkers();
     this.clearWorldEvents('reset');
     this.resetWorldEventTimers();
     this.ufoSpawnTimer = this.levelBossPendingDefeat
@@ -1385,27 +1572,138 @@ export default class MainScene extends Phaser.Scene {
     if (wasActive && resumePhysics && !this.isSwitching && !this.isGameOver) {
       const ghostActive = this.activePowerUps.has(PowerUpType.GHOST_PHASE);
       if (this.player.body) {
-        this.player.body.enable = !ghostActive;
+        this.player.body.enable = !ghostActive && this.spawnProtectionTimerMs <= 0;
+      }
+      if (this.spawnProtectionTimerMs <= 0) {
+        this.player.setAlpha(ghostActive ? 0.5 : 1);
       }
       this.physics.world.resume();
       this.ufo.setCombatTarget(this.player.active ? this.player : null);
     }
   }
 
-  private resetPlayerForTurn() {
-    this.player.setPosition(GAME_WIDTH / 2, GAME_HEIGHT - 100);
-    this.player.setActive(true).setVisible(true);
-    const ghostActive = this.activePowerUps.has(PowerUpType.GHOST_PHASE);
-    if (this.player.body) this.player.body.enable = !ghostActive;
-    if (!ghostActive) {
-      this.player.setAlpha(1);
+  private getSafeRespawnPoint() {
+    const y = this.scale.height - SPAWN_PROTECTION_TUNING.safeSpawnYOffset;
+    const width = this.scale.width;
+    const samples = [0.14, 0.3, 0.5, 0.7, 0.86].map((ratio) => Math.round(width * ratio));
+    let bestX = width / 2;
+    let bestScore = -1;
+
+    for (const x of samples) {
+      let nearestDistSq = Number.POSITIVE_INFINITY;
+      const enemies = this.enemyManager.enemies.getChildren() as Enemy[];
+      for (const enemy of enemies) {
+        if (!enemy.active) continue;
+        const dx = enemy.x - x;
+        const dy = enemy.y - y;
+        nearestDistSq = Math.min(nearestDistSq, dx * dx + dy * dy);
+      }
+      const projectiles = this.ufo.getProjectiles()?.getChildren() as UFOProjectile[] | undefined;
+      if (projectiles) {
+        for (const shot of projectiles) {
+          if (!shot.active) continue;
+          const dx = shot.x - x;
+          const dy = shot.y - y;
+          nearestDistSq = Math.min(nearestDistSq, dx * dx + dy * dy);
+        }
+      }
+      if (this.ufo.active) {
+        const dx = this.ufo.x - x;
+        const dy = this.ufo.y - y;
+        nearestDistSq = Math.min(nearestDistSq, dx * dx + dy * dy);
+      }
+      if (nearestDistSq > bestScore) {
+        bestScore = nearestDistSq;
+        bestX = x;
+      }
     }
+
+    return { x: bestX, y };
+  }
+
+  private clearThreatsNearPlayer(radius: number) {
+    const px = this.player.x;
+    const py = this.player.y;
+    const radiusSq = radius * radius;
+    const enemies = this.enemyManager.enemies.getChildren() as Enemy[];
+    for (const enemy of enemies) {
+      if (!enemy.active) continue;
+      const dx = enemy.x - px;
+      const dy = enemy.y - py;
+      if (dx * dx + dy * dy <= radiusSq) {
+        enemy.disableBody(true, true);
+      }
+    }
+    const projectiles = this.ufo.getProjectiles()?.getChildren() as UFOProjectile[] | undefined;
+    if (!projectiles) return;
+    for (const shot of projectiles) {
+      if (!shot.active) continue;
+      const dx = shot.x - px;
+      const dy = shot.y - py;
+      if (dx * dx + dy * dy <= radiusSq) {
+        shot.disableBody(true, true);
+      }
+    }
+  }
+
+  private stopSpawnProtectionVisuals() {
+    if (this.spawnProtectionTween) {
+      this.spawnProtectionTween.stop();
+      this.spawnProtectionTween = undefined;
+    }
+    this.tweens.killTweensOf(this.player);
+  }
+
+  private applySpawnProtection(durationMs: number, clearNearbyThreats: boolean) {
+    this.spawnProtectionTimerMs = Math.max(this.spawnProtectionTimerMs, durationMs);
+    if (this.player.body) {
+      this.player.body.enable = false;
+    }
+    this.stopSpawnProtectionVisuals();
+    this.player.setAlpha(0.5);
+    this.spawnProtectionTween = this.tweens.add({
+      targets: this.player,
+      alpha: 0.18,
+      duration: 95,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+    if (clearNearbyThreats) {
+      this.clearThreatsNearPlayer(SPAWN_PROTECTION_TUNING.clearRadius);
+    }
+  }
+
+  private updateSpawnProtection(delta: number) {
+    if (this.spawnProtectionTimerMs <= 0) return;
+    this.spawnProtectionTimerMs -= delta;
+    if (this.spawnProtectionTimerMs > 0) return;
+    this.spawnProtectionTimerMs = 0;
+    this.stopSpawnProtectionVisuals();
+    const ghostActive = this.activePowerUps.has(PowerUpType.GHOST_PHASE);
+    if (this.player.body) {
+      this.player.body.enable = !ghostActive;
+    }
+    this.player.setAlpha(ghostActive ? 0.5 : 1);
+  }
+
+  private respawnPlayerSafely(protectionMs: number) {
+    const spawnPoint = this.getSafeRespawnPoint();
+    this.player.setPosition(spawnPoint.x, spawnPoint.y);
+    this.player.setActive(true).setVisible(true);
     this.player.resetHeat();
+    this.applySpawnProtection(protectionMs, true);
+  }
+
+  private resetPlayerForTurn() {
+    this.respawnPlayerSafely(SPAWN_PROTECTION_TUNING.switchGraceMs);
   }
 
   private queueTurnSwitch(nextIndex: number) {
     this.isSwitching = true;
     this.ufo.setCombatTarget(null);
+    this.spawnProtectionTimerMs = 0;
+    this.stopSpawnProtectionVisuals();
     this.physics.world.pause();
     if (this.player.body) this.player.body.enable = false;
     this.player.setActive(false).setVisible(false);
@@ -1476,6 +1774,10 @@ export default class MainScene extends Phaser.Scene {
         this.player.setBlackHoleVisual(true);
         this.spawnBlackHole();
         break;
+      case PowerUpType.SHIELD_BUNKER:
+        this.stopShieldBunkerWarning(true);
+        this.spawnShieldBunkers();
+        break;
     }
   }
 
@@ -1503,6 +1805,9 @@ export default class MainScene extends Phaser.Scene {
       case PowerUpType.BLACK_HOLE:
         this.player.setBlackHoleVisual(false);
         this.removeBlackHole();
+        break;
+      case PowerUpType.SHIELD_BUNKER:
+        this.removeShieldBunkers();
         break;
     }
     if (this.playerStates[this.activePlayerIndex]) {
@@ -1562,6 +1867,11 @@ export default class MainScene extends Phaser.Scene {
 
   private applyGhost(active: boolean, silent: boolean = false) {
     if (active && !silent) this.audio.playGhost();
+    if (this.spawnProtectionTimerMs > 0) {
+      this.player.body!.enable = false;
+      if (active) this.player.setAlpha(0.5);
+      return;
+    }
     this.player.setAlpha(active ? 0.5 : 1.0);
     this.player.body!.enable = !active;
     if (active)
@@ -1662,6 +1972,124 @@ export default class MainScene extends Phaser.Scene {
     this.blackHole?.graphics.destroy();
     this.blackHole = null;
     this.audio.stopBlackHoleLoop();
+  }
+
+  private spawnShieldBunkers() {
+    if (!this.shieldBunkers || this.shieldBunkers.countActive(true) > 0) return;
+    this.stopShieldBunkerWarning(false);
+    const y = Math.round(this.scale.height * SHIELD_BUNKER_TUNING.spawnYRatio);
+    const layoutRatios =
+      this.scale.width <= SHIELD_BUNKER_TUNING.compactLayoutMaxWidth
+        ? SHIELD_BUNKER_TUNING.compactLayoutRatios
+        : SHIELD_BUNKER_TUNING.layoutRatios;
+    const positions = layoutRatios.map((ratio) => Math.round(this.scale.width * ratio));
+
+    for (const x of positions) {
+      const bunker = this.shieldBunkers.create(
+        x,
+        y,
+        'shield_bunker',
+      ) as Phaser.Physics.Arcade.Image;
+      bunker.setDepth(66);
+      bunker.setAlpha(SHIELD_BUNKER_TUNING.idleAlpha);
+      bunker.refreshBody();
+      this.tweens.add({
+        targets: bunker,
+        alpha: SHIELD_BUNKER_TUNING.spawnPulseAlpha,
+        duration: SHIELD_BUNKER_TUNING.spawnPulseDurationMs,
+        yoyo: true,
+        ease: 'Sine.easeOut',
+      });
+    }
+  }
+
+  private getActiveShieldBunkers() {
+    if (!this.shieldBunkers) return [] as Phaser.Physics.Arcade.Image[];
+    return (this.shieldBunkers.getChildren() as Phaser.Physics.Arcade.Image[]).filter(
+      (bunker) => bunker.active,
+    );
+  }
+
+  private maybeStartShieldBunkerExpiryWarning(timeLeftMs: number) {
+    if (this.shieldBunkerWarningStarted) return;
+    if (timeLeftMs > SHIELD_BUNKER_TUNING.warningLeadMs) return;
+    const bunkers = this.getActiveShieldBunkers();
+    if (bunkers.length === 0) return;
+
+    this.shieldBunkerWarningStarted = true;
+    this.tweens.killTweensOf(bunkers);
+    for (const bunker of bunkers) {
+      bunker.setAlpha(SHIELD_BUNKER_TUNING.idleAlpha);
+    }
+
+    this.shieldBunkerWarningTween = this.tweens.add({
+      targets: bunkers,
+      alpha: SHIELD_BUNKER_TUNING.spawnPulseAlpha,
+      duration: SHIELD_BUNKER_TUNING.warningBlinkHalfPeriodMs,
+      yoyo: true,
+      repeat: Math.max(0, SHIELD_BUNKER_TUNING.warningBlinkCount - 1),
+      ease: 'Sine.easeInOut',
+      onComplete: () => {
+        this.shieldBunkerWarningTween = undefined;
+        if (!this.activePowerUps.has(PowerUpType.SHIELD_BUNKER)) return;
+        for (const bunker of this.getActiveShieldBunkers()) {
+          bunker.setAlpha(SHIELD_BUNKER_TUNING.idleAlpha);
+        }
+      },
+    });
+  }
+
+  private stopShieldBunkerWarning(restoreAlpha: boolean) {
+    if (this.shieldBunkerWarningTween) {
+      this.shieldBunkerWarningTween.stop();
+      this.shieldBunkerWarningTween = undefined;
+    }
+    this.shieldBunkerWarningStarted = false;
+    if (!restoreAlpha) return;
+    for (const bunker of this.getActiveShieldBunkers()) {
+      bunker.setAlpha(SHIELD_BUNKER_TUNING.idleAlpha);
+    }
+  }
+
+  private removeShieldBunkers() {
+    const bunkers = this.getActiveShieldBunkers();
+    if (bunkers.length > 0) {
+      this.tweens.killTweensOf(bunkers);
+    }
+    this.stopShieldBunkerWarning(false);
+    const bunkerGroup = this.shieldBunkers as any;
+    if (!bunkerGroup?.children || typeof bunkerGroup.clear !== 'function') return;
+    bunkerGroup.clear(true, true);
+  }
+
+  private handleBulletHitShieldBunker(obj1: any, obj2: any) {
+    const bullet = (this.bullets.contains(obj1) ? obj1 : obj2) as Bullet;
+    if (!bullet?.active) return;
+    bullet.disableBody(true, true);
+  }
+
+  private handleUFOProjectileHitShieldBunker(obj1: any, obj2: any) {
+    const projectiles = this.ufo.getProjectiles();
+    if (!projectiles) return;
+    const shot = (projectiles.contains(obj1) ? obj1 : obj2) as UFOProjectile;
+    if (!shot?.active) return;
+    shot.disableBody(true, true);
+  }
+
+  private handleAsteroidHitShieldBunker(obj1: any, obj2: any) {
+    const enemy = (this.enemyManager.enemies.contains(obj1) ? obj1 : obj2) as Enemy;
+    if (!enemy?.active) return;
+    const x = enemy.x;
+    const y = enemy.y;
+    enemy.disableBody(true, true);
+    this.explosionManager.triggerExplosion(x, y);
+    this.audio.playExplosion();
+  }
+
+  private triggerShieldBunkerTest() {
+    if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
+    this.audio.playPickup();
+    this.activatePowerUp(PowerUpType.SHIELD_BUNKER);
   }
 
   private handlePlayerHitPowerUp(_player: any, obj2: any) {
@@ -2059,19 +2487,10 @@ export default class MainScene extends Phaser.Scene {
       if (this.lives <= 0) {
         this.endGame();
       } else {
-        this.player.setAlpha(0.5);
-        this.player.body!.enable = false;
-        this.tweens.add({
-          targets: this.player,
-          alpha: 0,
-          duration: 100,
-          yoyo: true,
-          repeat: 10,
-          onComplete: () => {
-            this.player.setAlpha(1);
-            this.player.body!.enable = true;
-          },
-        });
+        this.respawnPlayerSafely(SPAWN_PROTECTION_TUNING.respawnGraceMs);
+        if (!this.earlySupportDropGranted && this.levelElapsedMs < 28000) {
+          this.earlySupportDropTimerMs = Math.min(this.earlySupportDropTimerMs, 500);
+        }
       }
       return;
     }
@@ -2100,10 +2519,13 @@ export default class MainScene extends Phaser.Scene {
 
   private endGame() {
     this.isGameOver = true;
+    this.spawnProtectionTimerMs = 0;
+    this.stopSpawnProtectionVisuals();
     this.finishLevelTransitionCountdown(false);
     this.ufo.setCombatTarget(null);
     this.ufo.deactivate();
     this.clearWorldEvents('reset');
+    this.removeShieldBunkers();
     this.player.setActive(false).setVisible(false);
     this.saveActivePlayerState();
     this.switchTimer?.remove(false);
@@ -2118,75 +2540,114 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private createHUD() {
+    const isCompactHud = GAME_WIDTH <= 720;
+    const hudMarginX = isCompactHud ? 18 : 30;
+    const topRowY = isCompactHud ? 16 : 30;
+    const rowGap = isCompactHud ? 24 : 30;
+    const levelRowY =
+      this.playerCount === 2
+        ? isCompactHud
+          ? topRowY + rowGap * 2
+          : topRowY
+        : isCompactHud
+          ? topRowY + rowGap
+          : topRowY;
+    const pauseButtonY = isCompactHud ? topRowY + rowGap * 2 + 4 : 80;
+    const helpButtonY = isCompactHud ? pauseButtonY + 42 : 130;
     const style = {
       fontFamily: '"Press Start 2P"',
-      fontSize: '20px',
+      fontSize: isCompactHud ? '16px' : '20px',
       color: '#ffffff',
       stroke: '#000000',
       strokeThickness: 4,
     };
     const smallStyle = {
       fontFamily: '"Press Start 2P"',
-      fontSize: '14px',
+      fontSize: isCompactHud ? '12px' : '14px',
       color: '#ffffff',
       stroke: '#000000',
       strokeThickness: 3,
     };
     if (this.playerCount === 2) {
-      this.p1ScoreText = this.add.text(30, 30, 'P1 SCORE: 0', style).setDepth(100);
+      this.p1ScoreText = this.add.text(hudMarginX, topRowY, 'P1 SCORE: 0', style).setDepth(100);
       this.p2ScoreText = this.add
-        .text(GAME_WIDTH - 30, 30, 'P2 SCORE: 0', style)
+        .text(GAME_WIDTH - hudMarginX, topRowY, 'P2 SCORE: 0', style)
         .setOrigin(1, 0)
         .setDepth(100);
-      this.p1LivesText = this.add.text(30, 60, 'P1 LIVES: 3', smallStyle).setDepth(100);
+      this.p1LivesText = this.add
+        .text(hudMarginX, topRowY + rowGap, 'P1 LIVES: 3', smallStyle)
+        .setDepth(100);
       this.p2LivesText = this.add
-        .text(GAME_WIDTH - 30, 60, 'P2 LIVES: 3', smallStyle)
+        .text(GAME_WIDTH - hudMarginX, topRowY + rowGap, 'P2 LIVES: 3', smallStyle)
         .setOrigin(1, 0)
         .setDepth(100);
-      this.activeMarkerLeft = this.add.text(8, 30, '>', style).setDepth(101);
+      this.activeMarkerLeft = this.add.text(8, topRowY, '>', style).setDepth(101);
       this.activeMarkerRight = this.add
-        .text(GAME_WIDTH - 8, 30, '<', style)
+        .text(GAME_WIDTH - 8, topRowY, '<', style)
         .setOrigin(1, 0)
         .setDepth(101);
     } else {
-      this.p1ScoreText = this.add.text(30, 30, 'SCORE: 0', style).setDepth(100);
+      this.p1ScoreText = this.add.text(hudMarginX, topRowY, 'SCORE: 0', style).setDepth(100);
       this.p1LivesText = this.add
-        .text(GAME_WIDTH - 30, 30, 'LIVES: 3', style)
+        .text(GAME_WIDTH - hudMarginX, topRowY, 'LIVES: 3', style)
         .setOrigin(1, 0)
         .setDepth(100);
     }
     this.levelText = this.add
-      .text(GAME_WIDTH / 2, 30, 'LEVEL 1', {
+      .text(GAME_WIDTH / 2, levelRowY, 'LEVEL 1', {
         fontFamily: '"Press Start 2P"',
-        fontSize: '16px',
+        fontSize: isCompactHud ? '13px' : '16px',
         color: '#ffd966',
         stroke: '#000000',
         strokeThickness: 3,
       })
       .setOrigin(0.5, 0)
       .setDepth(100);
-    const debugY = this.playerCount === 2 ? 90 : 78;
-    const powerY = this.playerCount === 2 ? 130 : 118;
+    const debugY =
+      this.playerCount === 2
+        ? isCompactHud
+          ? topRowY + rowGap * 3 + 6
+          : 90
+        : isCompactHud
+          ? topRowY + rowGap * 2 + 6
+          : 78;
+    const powerY = isCompactHud ? debugY + 40 : this.playerCount === 2 ? 130 : 118;
     this.debugText = this.add
-      .text(30, debugY, '', { fontFamily: '"Press Start 2P"', fontSize: '12px', color: '#00ff00' })
+      .text(hudMarginX, debugY, '', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: isCompactHud ? '10px' : '12px',
+        color: '#00ff00',
+      })
+      .setDepth(100);
+    this.debugStatsText = this.add
+      .text(hudMarginX, debugY + (isCompactHud ? 14 : 18), '', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: isCompactHud ? '9px' : '11px',
+        color: '#8cffb8',
+      })
       .setDepth(100);
     this.powerUpListText = this.add
-      .text(30, powerY, '', { fontFamily: '"Press Start 2P"', fontSize: '14px', color: '#00ffff' })
+      .text(hudMarginX, powerY, '', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: isCompactHud ? '12px' : '14px',
+        color: '#00ffff',
+      })
       .setDepth(100);
     this.perkText = this.add
-      .text(30, powerY + 58, 'PERKS L+0 C+0 M+0', {
+      .text(hudMarginX, powerY + (isCompactHud ? 46 : 58), 'PERKS L+0 C+0 M+0', {
         fontFamily: '"Press Start 2P"',
-        fontSize: '11px',
+        fontSize: isCompactHud ? '10px' : '11px',
         color: '#9effd0',
       })
       .setDepth(100);
+    this.setDebugOverlayVisible(false);
     const pauseBtn = this.add
-      .text(GAME_WIDTH - 30, 80, '|| PAUSE', {
+      .text(GAME_WIDTH - hudMarginX, pauseButtonY, '|| PAUSE (P)', {
         fontFamily: '"Press Start 2P"',
-        fontSize: '16px',
+        fontSize: isCompactHud ? '13px' : '16px',
         color: '#ffffff',
         backgroundColor: '#333333',
-        padding: { x: 10, y: 10 },
+        padding: isCompactHud ? { x: 8, y: 8 } : { x: 10, y: 10 },
       })
       .setOrigin(1, 0)
       .setInteractive({ useHandCursor: true })
@@ -2194,12 +2655,12 @@ export default class MainScene extends Phaser.Scene {
     pauseBtn.on('pointerdown', () => this.requestPause());
 
     const helpBtn = this.add
-      .text(GAME_WIDTH - 30, 130, 'H', {
+      .text(GAME_WIDTH - hudMarginX, helpButtonY, 'HELP (H)', {
         fontFamily: '"Press Start 2P"',
-        fontSize: '16px',
+        fontSize: isCompactHud ? '13px' : '16px',
         color: '#ffffff',
         backgroundColor: '#333333',
-        padding: { x: 10, y: 10 },
+        padding: isCompactHud ? { x: 8, y: 8 } : { x: 10, y: 10 },
       })
       .setOrigin(1, 0)
       .setInteractive({ useHandCursor: true })
@@ -2208,6 +2669,8 @@ export default class MainScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-P', () => this.requestPause());
     this.input.keyboard?.on('keydown-ESC', () => this.requestPause());
     this.input.keyboard?.on('keydown-H', () => this.openHelp());
+    this.input.keyboard?.on('keydown-D', () => this.toggleDebugOverlay());
+    this.input.keyboard?.on('keydown-B', () => this.triggerShieldBunkerTest());
 
     this.onBlur = () => this.requestPause();
     this.onVisibilityChange = () => {
@@ -2215,6 +2678,30 @@ export default class MainScene extends Phaser.Scene {
     };
     this.game.events.on('blur', this.onBlur);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
+  }
+
+  private setDebugOverlayVisible(visible: boolean) {
+    this.debugText.setVisible(visible);
+    this.debugStatsText.setVisible(visible);
+    this.powerUpListText.setVisible(visible);
+    this.perkText.setVisible(visible);
+  }
+
+  private toggleDebugOverlay() {
+    this.debugOverlayEnabled = !this.debugOverlayEnabled;
+    this.setDebugOverlayVisible(this.debugOverlayEnabled);
+    if (this.debugOverlayEnabled) {
+      this.debugRefreshMs = 0;
+      this.powerUpTextRefreshMs = 0;
+      this.updatePerkHUD();
+      return;
+    }
+    this.lastDebugLine = '';
+    this.lastDebugStatsLine = '';
+    this.lastPowerUpList = '';
+    this.debugText.setText('');
+    this.debugStatsText.setText('');
+    this.powerUpListText.setText('');
   }
 
   private requestPause() {
@@ -2292,6 +2779,238 @@ export default class MainScene extends Phaser.Scene {
       droneG.generateTexture('elite_drone', 32, 28);
       droneG.destroy();
     }
+
+    if (!this.textures.exists('shield_bunker')) {
+      const bunkerG = this.add.graphics();
+      bunkerG.fillStyle(0x103026, 0.95);
+      bunkerG.lineStyle(3, 0x98ffd0, 1);
+      bunkerG.fillRoundedRect(0, 0, 140, 52, 9);
+      bunkerG.strokeRoundedRect(0, 0, 140, 52, 9);
+      bunkerG.fillStyle(0x050a08, 1);
+      bunkerG.fillRect(24, 24, 18, 28);
+      bunkerG.fillRect(61, 24, 18, 28);
+      bunkerG.fillRect(98, 24, 18, 28);
+      bunkerG.lineStyle(1, 0xb6ffe2, 0.55);
+      bunkerG.strokeLineShape(new Phaser.Geom.Line(10, 14, 130, 14));
+      bunkerG.generateTexture('shield_bunker', 140, 52);
+      bunkerG.destroy();
+    }
+  }
+
+  private rollFloatRange(range: readonly [number, number]) {
+    return Phaser.Math.FloatBetween(range[0], range[1]);
+  }
+
+  private isBackgroundDecorTierActive(
+    tier: BackgroundDecorTier,
+  ): tier is Exclude<BackgroundDecorTier, 'off'> {
+    return tier !== 'off';
+  }
+
+  private resolveBackgroundDecorTier(): BackgroundDecorTier {
+    if (this.game.renderer.type !== Phaser.WEBGL) return 'off';
+    if (performanceMonitor.reducedParticles) return 'low';
+
+    const gpu = this.gpuName.toUpperCase();
+    if (!gpu) {
+      return performanceMonitor.smokeEnabled ? 'medium' : 'low';
+    }
+
+    const highGpuPattern = /(NVIDIA|RTX|GTX|RADEON|\\bRX\\b|ARC|APPLE M|M1|M2|M3|M4)/;
+    if (highGpuPattern.test(gpu)) return 'high';
+
+    const lowGpuPattern = /(INTEL\\(R\\).*HD|INTEL\\(R\\).*UHD|IRIS|MESA|VEGA 3|VEGA 6|VEGA 8)/;
+    if (lowGpuPattern.test(gpu)) return 'low';
+
+    return performanceMonitor.smokeEnabled ? 'medium' : 'low';
+  }
+
+  private configureBackgroundDecor(force: boolean = false) {
+    const nextTier = this.resolveBackgroundDecorTier();
+    if (!force && nextTier === this.backgroundDecorTier) return;
+
+    this.backgroundDecorTier = nextTier;
+    if (!this.isBackgroundDecorTierActive(nextTier)) {
+      this.backgroundDecorSpawnTimerMs = 0;
+      this.clearBackgroundDecor();
+      return;
+    }
+
+    this.createBackgroundDecorTextures();
+    const maxActive = BACKGROUND_DECOR_TUNING.maxActive[nextTier];
+    while (this.backgroundDecor.length > maxActive) {
+      const removed = this.backgroundDecor.shift();
+      removed?.sprite.destroy();
+    }
+    this.scheduleNextBackgroundDecorSpawn(true);
+  }
+
+  private scheduleNextBackgroundDecorSpawn(initial: boolean) {
+    if (!this.isBackgroundDecorTierActive(this.backgroundDecorTier)) {
+      this.backgroundDecorSpawnTimerMs = 0;
+      return;
+    }
+    const range = initial
+      ? BACKGROUND_DECOR_TUNING.initialSpawnDelayMs[this.backgroundDecorTier]
+      : BACKGROUND_DECOR_TUNING.respawnDelayMs[this.backgroundDecorTier];
+    this.backgroundDecorSpawnTimerMs = this.rollRange(range);
+  }
+
+  private createBackgroundDecorTextures() {
+    this.createPlanetDecorTexture('bg_planet_cyan', 220, 0x2a6db7, 0x89d8ff);
+    this.createPlanetDecorTexture('bg_planet_amber', 200, 0x8d5b2a, 0xf9c170);
+    this.createPlanetDecorTexture('bg_planet_lilac', 210, 0x5b3f90, 0xd3b8ff);
+    this.createGalaxyClusterTexture('bg_cluster_blue', 240, 0x74d0ff, 0x8c76ff);
+    this.createGalaxyClusterTexture('bg_cluster_rose', 240, 0xffa4d6, 0xb58aff);
+  }
+
+  private createPlanetDecorTexture(
+    key: string,
+    size: number,
+    baseColor: number,
+    accentColor: number,
+  ) {
+    if (this.textures.exists(key)) return;
+    const center = size / 2;
+    const radius = size * 0.42;
+    const g = this.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(baseColor, 0.95);
+    g.fillCircle(center, center, radius);
+    g.fillStyle(accentColor, 0.16);
+    g.fillCircle(center - radius * 0.24, center - radius * 0.25, radius * 0.72);
+    g.fillStyle(0x000000, 0.13);
+    g.fillCircle(center + radius * 0.2, center + radius * 0.18, radius * 0.55);
+    g.lineStyle(3, accentColor, 0.32);
+    g.strokeCircle(center, center, radius * 1.02);
+    g.lineStyle(2, accentColor, 0.15);
+    g.strokeCircle(center, center, radius * 0.86);
+    g.generateTexture(key, size, size);
+    g.destroy();
+  }
+
+  private createGalaxyClusterTexture(
+    key: string,
+    size: number,
+    coreColor: number,
+    cloudColor: number,
+  ) {
+    if (this.textures.exists(key)) return;
+    const center = size / 2;
+    const g = this.make.graphics({ x: 0, y: 0 });
+
+    for (let i = 0; i < 5; i++) {
+      const rx = Phaser.Math.FloatBetween(size * 0.18, size * 0.34);
+      const ry = Phaser.Math.FloatBetween(size * 0.1, size * 0.2);
+      const cx = center + Phaser.Math.FloatBetween(-size * 0.12, size * 0.12);
+      const cy = center + Phaser.Math.FloatBetween(-size * 0.1, size * 0.1);
+      g.fillStyle(cloudColor, Phaser.Math.FloatBetween(0.08, 0.18));
+      g.fillEllipse(cx, cy, rx * 2, ry * 2);
+    }
+
+    for (let i = 0; i < 54; i++) {
+      const dist = Phaser.Math.FloatBetween(0, size * 0.46);
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const x = center + Math.cos(angle) * dist;
+      const y = center + Math.sin(angle) * dist * Phaser.Math.FloatBetween(0.46, 1);
+      const r = Phaser.Math.FloatBetween(0.7, 2.1);
+      const alpha = Phaser.Math.FloatBetween(0.4, 0.95);
+      g.fillStyle(i % 4 === 0 ? cloudColor : coreColor, alpha);
+      g.fillCircle(x, y, r);
+    }
+
+    g.generateTexture(key, size, size);
+    g.destroy();
+  }
+
+  private spawnBackgroundDecor() {
+    if (!this.isBackgroundDecorTierActive(this.backgroundDecorTier)) return;
+    if (this.backgroundDecor.length >= BACKGROUND_DECOR_TUNING.maxActive[this.backgroundDecorTier])
+      return;
+
+    const planetChance = BACKGROUND_DECOR_TUNING.planetChancePercent[this.backgroundDecorTier];
+    const isPlanet = Phaser.Math.Between(0, 99) < planetChance;
+    const texturePool = isPlanet
+      ? ['bg_planet_cyan', 'bg_planet_amber', 'bg_planet_lilac']
+      : ['bg_cluster_blue', 'bg_cluster_rose'];
+    const texture = Phaser.Utils.Array.GetRandom(texturePool);
+    const fromSide = Phaser.Math.Between(0, 99) < 36;
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const cullPadding = BACKGROUND_DECOR_TUNING.cullPadding;
+
+    let x = Phaser.Math.Between(-100, width + 100);
+    let y = -cullPadding;
+    let vx = this.rollFloatRange(BACKGROUND_DECOR_TUNING.driftSpeedRange);
+    let vy = this.rollFloatRange(BACKGROUND_DECOR_TUNING.verticalSpeedRange);
+
+    if (fromSide) {
+      const fromLeft = Phaser.Math.Between(0, 1) === 0;
+      x = fromLeft ? -cullPadding : width + cullPadding;
+      y = Phaser.Math.Between(90, Math.round(height * 0.76));
+      vx = fromLeft ? Phaser.Math.FloatBetween(12, 26) : Phaser.Math.FloatBetween(-26, -12);
+      vy = this.rollFloatRange(BACKGROUND_DECOR_TUNING.verticalSpeedRange) * 0.45;
+    }
+
+    const scale = isPlanet
+      ? this.rollFloatRange(BACKGROUND_DECOR_TUNING.planetScaleRange)
+      : this.rollFloatRange(BACKGROUND_DECOR_TUNING.clusterScaleRange);
+    const alpha = this.rollFloatRange(BACKGROUND_DECOR_TUNING.alphaRange);
+    const sprite = this.add
+      .image(x, y, texture)
+      .setScale(scale)
+      .setAlpha(alpha)
+      .setDepth(BACKGROUND_DECOR_TUNING.depth);
+
+    if (!isPlanet) {
+      sprite.setBlendMode(Phaser.BlendModes.ADD);
+    } else if (Phaser.Math.Between(0, 99) < 35) {
+      sprite.setTint(0xd6edff);
+    }
+
+    this.backgroundDecor.push({
+      sprite,
+      vx,
+      vy,
+      spin: this.rollFloatRange(BACKGROUND_DECOR_TUNING.spinRange),
+    });
+  }
+
+  private updateBackgroundDecor(delta: number) {
+    if (!this.isBackgroundDecorTierActive(this.backgroundDecorTier)) return;
+
+    this.backgroundDecorSpawnTimerMs -= delta;
+    if (this.backgroundDecorSpawnTimerMs <= 0) {
+      this.spawnBackgroundDecor();
+      this.scheduleNextBackgroundDecorSpawn(false);
+    }
+
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const cullPadding = BACKGROUND_DECOR_TUNING.cullPadding;
+
+    for (let i = this.backgroundDecor.length - 1; i >= 0; i--) {
+      const item = this.backgroundDecor[i];
+      item.sprite.x += (item.vx * delta) / 1000;
+      item.sprite.y += (item.vy * delta) / 1000;
+      item.sprite.rotation += item.spin * delta;
+
+      if (
+        item.sprite.x < -cullPadding ||
+        item.sprite.x > width + cullPadding ||
+        item.sprite.y < -cullPadding ||
+        item.sprite.y > height + cullPadding
+      ) {
+        item.sprite.destroy();
+        this.backgroundDecor.splice(i, 1);
+      }
+    }
+  }
+
+  private clearBackgroundDecor() {
+    for (const item of this.backgroundDecor) {
+      item.sprite.destroy();
+    }
+    this.backgroundDecor.length = 0;
   }
 
   private createStarfield() {
@@ -2334,6 +3053,17 @@ export default class MainScene extends Phaser.Scene {
       worldEvents: {
         wormholeActive: Boolean(this.wormhole?.active),
         eliteDroneActive: Boolean(this.eliteDrone?.active),
+        shieldBunkerActive: this.activePowerUps.has(PowerUpType.SHIELD_BUNKER),
+        shieldBunkerCount: this.shieldBunkers?.countActive(true) ?? 0,
+        backgroundDecorTier: this.backgroundDecorTier,
+        backgroundDecorCount: this.backgroundDecor.length,
+      },
+      spawnProtectionMs: Math.max(0, Math.round(this.spawnProtectionTimerMs)),
+      levelOpening: {
+        elapsedMs: Math.max(0, Math.round(this.levelElapsedMs)),
+        startScore: this.levelStartScore,
+        supportDropGranted: this.earlySupportDropGranted,
+        supportDropInMs: Math.max(0, Math.round(this.earlySupportDropTimerMs)),
       },
     };
   }
@@ -2361,7 +3091,12 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private getPowerUpDuration(type: PowerUpType) {
-    const base = type === PowerUpType.CANNON_COOLING ? 9000 : 7000;
+    const base =
+      type === PowerUpType.CANNON_COOLING
+        ? 9000
+        : type === PowerUpType.SHIELD_BUNKER
+          ? SHIELD_BUNKER_TUNING.baseDurationMs
+          : 7000;
     const durationScale = Phaser.Math.Clamp(1 - (this.level - 1) * 0.04, 0.64, 1);
     return Math.round(base * durationScale * this.difficultyPreset.powerUpDurationScale);
   }

@@ -37,6 +37,48 @@ type AttractBlackHoleState = {
   graphics: Phaser.GameObjects.Graphics;
 };
 
+type AttractDecorTier = 'off' | 'low' | 'medium' | 'high';
+
+type AttractBackgroundDecor = {
+  sprite: Phaser.GameObjects.Image;
+  vx: number;
+  vy: number;
+  spin: number;
+  baseAlpha: number;
+  pulseOffset: number;
+};
+
+const ATTRACT_DECOR_TUNING = {
+  initialSpawnDelayMs: {
+    low: [2600, 4200] as const,
+    medium: [2000, 3400] as const,
+    high: [1600, 2800] as const,
+  },
+  respawnDelayMs: {
+    low: [14000, 22000] as const,
+    medium: [9500, 16500] as const,
+    high: [7000, 13000] as const,
+  },
+  maxActive: {
+    low: 1,
+    medium: 2,
+    high: 3,
+  },
+  planetChancePercent: {
+    low: 100,
+    medium: 78,
+    high: 62,
+  },
+  depth: 3,
+  cullPadding: 320,
+  alphaRange: [0.18, 0.34] as const,
+  planetScaleRange: [0.9, 1.7] as const,
+  clusterScaleRange: [1.05, 1.95] as const,
+  verticalSpeedRange: [5, 18] as const,
+  driftSpeedRange: [-10, 10] as const,
+  spinRange: [-0.0016, 0.0016] as const,
+} as const;
+
 export default class AttractScene extends Phaser.Scene {
   private audio!: AudioManager;
   private coinText!: Phaser.GameObjects.Text;
@@ -65,6 +107,10 @@ export default class AttractScene extends Phaser.Scene {
   private difficultyText!: Phaser.GameObjects.Text;
   private creditListener?: (credits: number) => void;
   private soundListener?: (muted: boolean) => void;
+  private gpuName: string = '';
+  private backgroundDecorTier: AttractDecorTier = 'off';
+  private backgroundDecorSpawnTimerMs: number = 0;
+  private backgroundDecor: AttractBackgroundDecor[] = [];
 
   constructor() {
     super('AttractScene');
@@ -87,6 +133,19 @@ export default class AttractScene extends Phaser.Scene {
       this.scene.launch('BezelScene');
     }
     this.scene.bringToTop('BezelScene');
+    performanceMonitor.init(this.game);
+    if (this.game.renderer.type === Phaser.WEBGL) {
+      const gl = (this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl;
+      const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+      if (debugInfo) {
+        this.gpuName = gl
+          .getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+          .replace(/Direct3D.*/, '')
+          .replace(/vs_.*ps_.*/, '')
+          .trim();
+      }
+    }
+    this.configureBackgroundDecor(true);
 
     if (
       performanceMonitor.crtEnabled &&
@@ -229,6 +288,7 @@ export default class AttractScene extends Phaser.Scene {
       this.ufo.deactivate();
       this.removeAttractBlackHole();
       this.clearDemoPowerUps();
+      this.clearBackgroundDecor();
       this.eventBannerTween?.stop();
       this.eventBannerTween = null;
       this.ambientEmitter.destroy();
@@ -239,14 +299,18 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
-    performanceMonitor.update(this.game);
+    const qualityChanged = performanceMonitor.update(this.game);
     if (
       !performanceMonitor.crtEnabled &&
       this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
     ) {
       this.cameras.main.removePostPipeline('CRTPipeline');
     }
+    if (qualityChanged) {
+      this.configureBackgroundDecor();
+    }
     this.enemyManager.update(time, delta);
+    this.updateBackgroundDecor(delta);
     this.enemyDepthRefreshMs -= delta;
     if (this.enemyDepthRefreshMs <= 0) {
       this.applyEnemyDepth(5);
@@ -371,6 +435,228 @@ export default class AttractScene extends Phaser.Scene {
     g.destroy();
   }
 
+  private rollRange(range: readonly [number, number]) {
+    return Phaser.Math.Between(range[0], range[1]);
+  }
+
+  private rollFloatRange(range: readonly [number, number]) {
+    return Phaser.Math.FloatBetween(range[0], range[1]);
+  }
+
+  private isDecorTierActive(tier: AttractDecorTier): tier is Exclude<AttractDecorTier, 'off'> {
+    return tier !== 'off';
+  }
+
+  private resolveBackgroundDecorTier(): AttractDecorTier {
+    if (performanceMonitor.reducedParticles) {
+      const fps = this.game.loop.actualFps;
+      return fps > 0 && fps < 22 ? 'off' : 'low';
+    }
+
+    if (this.game.renderer.type !== Phaser.WEBGL) return 'low';
+
+    const gpu = this.gpuName.toUpperCase();
+    if (!gpu) return performanceMonitor.smokeEnabled ? 'medium' : 'low';
+
+    const highGpuPattern = /(NVIDIA|RTX|GTX|RADEON|\bRX\b|ARC|APPLE M|M1|M2|M3|M4)/;
+    if (highGpuPattern.test(gpu)) return 'high';
+
+    const lowGpuPattern = /(INTEL\(R\).*HD|INTEL\(R\).*UHD|IRIS|MESA|VEGA 3|VEGA 6|VEGA 8)/;
+    if (lowGpuPattern.test(gpu)) return 'low';
+
+    return performanceMonitor.smokeEnabled ? 'medium' : 'low';
+  }
+
+  private configureBackgroundDecor(force: boolean = false) {
+    const nextTier = this.resolveBackgroundDecorTier();
+    if (!force && nextTier === this.backgroundDecorTier) return;
+
+    this.backgroundDecorTier = nextTier;
+    if (!this.isDecorTierActive(nextTier)) {
+      this.backgroundDecorSpawnTimerMs = 0;
+      this.clearBackgroundDecor();
+      return;
+    }
+
+    this.createBackgroundDecorTextures();
+    const maxActive = ATTRACT_DECOR_TUNING.maxActive[nextTier];
+    while (this.backgroundDecor.length > maxActive) {
+      const removed = this.backgroundDecor.shift();
+      removed?.sprite.destroy();
+    }
+    this.scheduleNextBackgroundDecorSpawn(true);
+  }
+
+  private scheduleNextBackgroundDecorSpawn(initial: boolean) {
+    if (!this.isDecorTierActive(this.backgroundDecorTier)) {
+      this.backgroundDecorSpawnTimerMs = 0;
+      return;
+    }
+    const range = initial
+      ? ATTRACT_DECOR_TUNING.initialSpawnDelayMs[this.backgroundDecorTier]
+      : ATTRACT_DECOR_TUNING.respawnDelayMs[this.backgroundDecorTier];
+    this.backgroundDecorSpawnTimerMs = this.rollRange(range);
+  }
+
+  private createBackgroundDecorTextures() {
+    this.createPlanetDecorTexture('attract_planet_azure', 300, 0x1a5f95, 0x88dfff);
+    this.createPlanetDecorTexture('attract_planet_ember', 280, 0x824f26, 0xffc682);
+    this.createPlanetDecorTexture('attract_planet_violet', 290, 0x55327f, 0xd5b8ff);
+    this.createGalaxyClusterTexture('attract_cluster_blue', 360, 0x74d0ff, 0x7c6cff);
+    this.createGalaxyClusterTexture('attract_cluster_rose', 360, 0xffa6dd, 0xad8bff);
+  }
+
+  private createPlanetDecorTexture(
+    key: string,
+    size: number,
+    baseColor: number,
+    accentColor: number,
+  ) {
+    if (this.textures.exists(key)) return;
+    const center = size / 2;
+    const radius = size * 0.42;
+    const g = this.make.graphics({ x: 0, y: 0 });
+    g.fillStyle(baseColor, 0.92);
+    g.fillCircle(center, center, radius);
+    g.fillStyle(accentColor, 0.17);
+    g.fillCircle(center - radius * 0.2, center - radius * 0.22, radius * 0.7);
+    g.fillStyle(0x000000, 0.15);
+    g.fillCircle(center + radius * 0.2, center + radius * 0.2, radius * 0.54);
+    g.lineStyle(4, accentColor, 0.22);
+    g.strokeCircle(center, center, radius * 1.03);
+    g.generateTexture(key, size, size);
+    g.destroy();
+  }
+
+  private createGalaxyClusterTexture(
+    key: string,
+    size: number,
+    coreColor: number,
+    cloudColor: number,
+  ) {
+    if (this.textures.exists(key)) return;
+    const center = size / 2;
+    const g = this.make.graphics({ x: 0, y: 0 });
+
+    for (let i = 0; i < 8; i++) {
+      const rx = Phaser.Math.FloatBetween(size * 0.17, size * 0.35);
+      const ry = Phaser.Math.FloatBetween(size * 0.08, size * 0.19);
+      const cx = center + Phaser.Math.FloatBetween(-size * 0.17, size * 0.17);
+      const cy = center + Phaser.Math.FloatBetween(-size * 0.12, size * 0.12);
+      g.fillStyle(cloudColor, Phaser.Math.FloatBetween(0.06, 0.14));
+      g.fillEllipse(cx, cy, rx * 2, ry * 2);
+    }
+
+    for (let i = 0; i < 90; i++) {
+      const dist = Phaser.Math.FloatBetween(0, size * 0.46);
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const x = center + Math.cos(angle) * dist;
+      const y = center + Math.sin(angle) * dist * Phaser.Math.FloatBetween(0.42, 1);
+      const radius = Phaser.Math.FloatBetween(0.8, 2.6);
+      g.fillStyle(i % 4 === 0 ? cloudColor : coreColor, Phaser.Math.FloatBetween(0.35, 0.95));
+      g.fillCircle(x, y, radius);
+    }
+
+    g.generateTexture(key, size, size);
+    g.destroy();
+  }
+
+  private spawnBackgroundDecor() {
+    if (!this.isDecorTierActive(this.backgroundDecorTier)) return;
+    if (this.backgroundDecor.length >= ATTRACT_DECOR_TUNING.maxActive[this.backgroundDecorTier])
+      return;
+
+    const planetChance = ATTRACT_DECOR_TUNING.planetChancePercent[this.backgroundDecorTier];
+    const isPlanet = Phaser.Math.Between(0, 99) < planetChance;
+    const texturePool = isPlanet
+      ? ['attract_planet_azure', 'attract_planet_ember', 'attract_planet_violet']
+      : ['attract_cluster_blue', 'attract_cluster_rose'];
+    const texture = Phaser.Utils.Array.GetRandom(texturePool);
+    const fromSide = Phaser.Math.Between(0, 99) < 30;
+
+    let x = Phaser.Math.Between(-140, GAME_WIDTH + 140);
+    let y = -ATTRACT_DECOR_TUNING.cullPadding;
+    let vx = this.rollFloatRange(ATTRACT_DECOR_TUNING.driftSpeedRange);
+    let vy = this.rollFloatRange(ATTRACT_DECOR_TUNING.verticalSpeedRange);
+    if (fromSide) {
+      const fromLeft = Phaser.Math.Between(0, 1) === 0;
+      x = fromLeft
+        ? -ATTRACT_DECOR_TUNING.cullPadding
+        : GAME_WIDTH + ATTRACT_DECOR_TUNING.cullPadding;
+      y = Phaser.Math.Between(90, Math.round(GAME_HEIGHT * 0.74));
+      vx = fromLeft ? Phaser.Math.FloatBetween(8, 18) : Phaser.Math.FloatBetween(-18, -8);
+      vy = this.rollFloatRange(ATTRACT_DECOR_TUNING.verticalSpeedRange) * 0.36;
+    }
+
+    const scale = isPlanet
+      ? this.rollFloatRange(ATTRACT_DECOR_TUNING.planetScaleRange)
+      : this.rollFloatRange(ATTRACT_DECOR_TUNING.clusterScaleRange);
+    const alpha = this.rollFloatRange(ATTRACT_DECOR_TUNING.alphaRange);
+    const sprite = this.add
+      .image(x, y, texture)
+      .setScale(scale)
+      .setAlpha(alpha)
+      .setDepth(ATTRACT_DECOR_TUNING.depth);
+    if (!isPlanet) {
+      sprite.setBlendMode(Phaser.BlendModes.ADD);
+    } else if (Phaser.Math.Between(0, 99) < 40) {
+      sprite.setTint(0xdaf0ff);
+    }
+
+    this.backgroundDecor.push({
+      sprite,
+      vx,
+      vy,
+      spin: this.rollFloatRange(ATTRACT_DECOR_TUNING.spinRange),
+      baseAlpha: alpha,
+      pulseOffset: Phaser.Math.FloatBetween(0, Math.PI * 2),
+    });
+  }
+
+  private updateBackgroundDecor(delta: number) {
+    if (!this.isDecorTierActive(this.backgroundDecorTier)) return;
+
+    this.backgroundDecorSpawnTimerMs -= delta;
+    if (this.backgroundDecorSpawnTimerMs <= 0) {
+      this.spawnBackgroundDecor();
+      this.scheduleNextBackgroundDecorSpawn(false);
+    }
+
+    for (let i = this.backgroundDecor.length - 1; i >= 0; i--) {
+      const item = this.backgroundDecor[i];
+      item.sprite.x += (item.vx * delta) / 1000;
+      item.sprite.y += (item.vy * delta) / 1000;
+      item.sprite.rotation += item.spin * delta;
+      const pulse = 0.9 + Math.sin(this.time.now * 0.0007 + item.pulseOffset) * 0.1;
+      item.sprite.setAlpha(item.baseAlpha * pulse);
+
+      if (
+        item.sprite.x < -ATTRACT_DECOR_TUNING.cullPadding ||
+        item.sprite.x > GAME_WIDTH + ATTRACT_DECOR_TUNING.cullPadding ||
+        item.sprite.y < -ATTRACT_DECOR_TUNING.cullPadding ||
+        item.sprite.y > GAME_HEIGHT + ATTRACT_DECOR_TUNING.cullPadding
+      ) {
+        item.sprite.destroy();
+        this.backgroundDecor.splice(i, 1);
+      }
+    }
+  }
+
+  private clearBackgroundDecor() {
+    for (const item of this.backgroundDecor) {
+      item.sprite.destroy();
+    }
+    this.backgroundDecor.length = 0;
+  }
+
+  public getAmbientVisualState() {
+    return {
+      backgroundDecorTier: this.backgroundDecorTier,
+      backgroundDecorCount: this.backgroundDecor.length,
+      gpu: this.gpuName,
+    };
+  }
+
   private applyEnemyDepth(depth: number) {
     const children = (this.enemyManager?.enemies as any)?.children;
     if (!children || typeof children.each !== 'function') return;
@@ -436,6 +722,7 @@ export default class AttractScene extends Phaser.Scene {
       PowerUpType.GHOST_PHASE,
       PowerUpType.WINGMAN_DRONES,
       PowerUpType.CANNON_COOLING,
+      PowerUpType.SHIELD_BUNKER,
       PowerUpType.TRIPLE_SHOT,
       PowerUpType.SHIELD,
     ];
@@ -605,6 +892,8 @@ export default class AttractScene extends Phaser.Scene {
         return 'CLG';
       case PowerUpType.BLACK_HOLE:
         return 'BLK';
+      case PowerUpType.SHIELD_BUNKER:
+        return 'BNK';
       default:
         return 'PWR';
     }
@@ -691,6 +980,7 @@ export default class AttractScene extends Phaser.Scene {
       PowerUpType.WINGMAN_DRONES,
       PowerUpType.CANNON_COOLING,
       PowerUpType.BLACK_HOLE,
+      PowerUpType.SHIELD_BUNKER,
     ];
     const spacing = 50;
     const totalWidth = (types.length - 1) * spacing;
@@ -755,9 +1045,9 @@ export default class AttractScene extends Phaser.Scene {
 
   private createTitleLogo(centerX: number, y: number, depth: number) {
     const container = this.add.container(centerX, y).setDepth(depth);
-    const topLine = this.createLogoLine('MEUSE24', 32, 2, 14, 0.8);
-    const midLine = this.createLogoLine('KINETIC', 96, 4, 8, 1);
-    const bottomLine = this.createLogoLine('SCAN', 96, 4, 8, 1);
+    const topLine = this.createLogoLine('MEUSE24', 32, 2, 14);
+    const midLine = this.createLogoLine('KINETIC', 96, 4, 8);
+    const bottomLine = this.createLogoLine('SCAN', 96, 4, 8);
     topLine.y = 0;
     midLine.y = 100;
     bottomLine.y = 220;
@@ -778,21 +1068,16 @@ export default class AttractScene extends Phaser.Scene {
     fontSize: number,
     strokeThickness: number,
     letterSpacing: number,
-    glowStrength: number,
   ) {
     const textObj = this.add.text(0, 0, text, {
       fontFamily: '"Chakra Petch"',
       fontSize: `${fontSize}px`,
-      color: 'rgba(0,0,0,0)',
+      color: '#f4f8ff',
       stroke: '#ffffff',
       strokeThickness,
       letterSpacing,
     });
     textObj.setOrigin(0.5);
-    if (performanceMonitor.crtEnabled) {
-      textObj.initPostPipeline(true);
-      textObj.preFX?.addGlow(0xffffff, glowStrength, 0, false);
-    }
     return textObj;
   }
 }

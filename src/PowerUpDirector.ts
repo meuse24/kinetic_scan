@@ -19,6 +19,7 @@ export class PowerUpDirector {
     PowerUpType.WINGMAN_DRONES,
     PowerUpType.CANNON_COOLING,
     PowerUpType.CANNON_COOLING,
+    PowerUpType.SHIELD_BUNKER,
   ];
 
   // Combo Logic
@@ -157,17 +158,47 @@ export class PowerUpDirector {
     }
   }
 
+  public spawnGuaranteedSupportDrop(preferredX?: number, y: number = -50): PowerUpType | null {
+    const width = this.scene.scale.width;
+    const margin = Math.round(width * 0.1);
+    const fallbackX = Phaser.Math.Between(margin, width - margin);
+    const x = Phaser.Math.Clamp(Math.round(preferredX ?? fallbackX), margin, width - margin);
+    const supportPool: PowerUpType[] = [
+      PowerUpType.SHIELD,
+      PowerUpType.CANNON_COOLING,
+      PowerUpType.CANNON_COOLING,
+      PowerUpType.WINGMAN_DRONES,
+    ];
+
+    for (let attempt = 0; attempt < supportPool.length; attempt++) {
+      const type = Phaser.Utils.Array.GetRandom(supportPool);
+      if (this.spawnPowerUp(x, y, type)) {
+        return type;
+      }
+    }
+    return null;
+  }
+
   private spawnPowerUp(x: number, y: number, forcedType?: PowerUpType) {
     if (!forcedType && Phaser.Math.FloatBetween(0, 1) > this.spawnRollChance) {
       this.lastPowerUpTime = this.scene.time.now;
-      return;
+      return false;
     }
-    const type = forcedType || Phaser.Utils.Array.GetRandom(this.getSpawnPool());
+    const spawnPool = this.getSpawnPool();
+    let type = forcedType || Phaser.Utils.Array.GetRandom(spawnPool);
+    if (!forcedType && type === PowerUpType.SHIELD_BUNKER && Phaser.Math.Between(0, 99) < 70) {
+      const fallbackPool = spawnPool.filter((entry) => entry !== PowerUpType.SHIELD_BUNKER);
+      if (fallbackPool.length > 0) {
+        type = Phaser.Utils.Array.GetRandom(fallbackPool);
+      }
+    }
     const powerUp = this.powerUps.get(x, y) as PowerUp;
     if (powerUp) {
       powerUp.spawn(x, y, type);
       this.lastPowerUpTime = this.scene.time.now;
+      return true;
     }
+    return false;
   }
 
   private getSpawnPool() {
@@ -181,6 +212,7 @@ export class PowerUpDirector {
         PowerUpType.BLACK_HOLE,
         PowerUpType.WINGMAN_DRONES,
         PowerUpType.CANNON_COOLING,
+        PowerUpType.SHIELD_BUNKER,
       ];
     }
     if (this.difficultyLevel >= 4) {
@@ -194,6 +226,7 @@ export class PowerUpDirector {
         PowerUpType.BLACK_HOLE,
         PowerUpType.WINGMAN_DRONES,
         PowerUpType.CANNON_COOLING,
+        PowerUpType.SHIELD_BUNKER,
       ];
     }
     return this.randomSpawnPool;

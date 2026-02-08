@@ -126,6 +126,19 @@ if (typeof window.render_game_to_text !== 'function') {
           y: Math.round(powerUp.y),
           type: powerUp.type,
         }));
+      const shieldBunkers = main.shieldBunkers?.getChildren?.() ?? [];
+      payload.shieldBunkers = shieldBunkers
+        .filter((bunker: any) => bunker.active)
+        .slice(0, 4)
+        .map((bunker: any) => ({
+          x: Math.round(bunker.x),
+          y: Math.round(bunker.y),
+        }));
+    }
+
+    const attract = game.scene.getScene('AttractScene') as any;
+    if (attract?.scene?.isActive() && typeof attract.getAmbientVisualState === 'function') {
+      payload.attract = attract.getAmbientVisualState();
     }
 
     return JSON.stringify(payload);

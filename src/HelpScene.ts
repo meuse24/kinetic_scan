@@ -8,6 +8,7 @@ type HelpSceneData = {
 
 export default class HelpScene extends Phaser.Scene {
   private returnScene: string | null = null;
+  private returnSceneInputWasEnabled: boolean = true;
   private content!: Phaser.GameObjects.Container;
   private scrollGraphics!: Phaser.GameObjects.Graphics;
   private scrollHint!: Phaser.GameObjects.Text;
@@ -42,6 +43,14 @@ export default class HelpScene extends Phaser.Scene {
     const centerX = GAME_WIDTH / 2;
     const titleY = 80;
 
+    if (this.returnScene) {
+      const targetScene = this.scene.get(this.returnScene);
+      if (targetScene?.input) {
+        this.returnSceneInputWasEnabled = targetScene.input.enabled;
+        targetScene.input.enabled = false;
+      }
+    }
+
     if (
       performanceMonitor.crtEnabled &&
       this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
@@ -62,15 +71,24 @@ export default class HelpScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    const backX = GAME_WIDTH - 120;
+    const backHitArea = this.add
+      .rectangle(backX, titleY, 248, 52, 0x000000, 0.001)
+      .setDepth(40)
+      .setInteractive({ useHandCursor: true });
     const backBtn = this.add
-      .text(GAME_WIDTH - 80, titleY, 'BACK', {
+      .text(backX, titleY, 'BACK (ESC/H)', {
         fontFamily: '"Press Start 2P"',
         fontSize: '14px',
         color: '#ffffff',
       })
       .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
+      .setDepth(41);
+    backHitArea.on('pointerdown', () => this.close());
+    backBtn.setInteractive({ useHandCursor: true });
     backBtn.on('pointerdown', () => this.close());
+    backHitArea.on('pointerover', () => backBtn.setColor('#9be7ff'));
+    backHitArea.on('pointerout', () => backBtn.setColor('#ffffff'));
 
     const margin = Math.max(40, GAME_WIDTH * 0.12);
     const viewWidth = GAME_WIDTH - margin * 2;
@@ -186,6 +204,12 @@ export default class HelpScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown', this.keyHandler);
 
     this.events.once('shutdown', () => {
+      if (this.returnScene) {
+        const targetScene = this.scene.get(this.returnScene);
+        if (targetScene?.input) {
+          targetScene.input.enabled = this.returnSceneInputWasEnabled;
+        }
+      }
       if (this.wheelHandler) this.input.off('wheel', this.wheelHandler);
       if (this.keyHandler) this.input.keyboard?.off('keydown', this.keyHandler);
       if (this.pointerUpHandler) this.input.off('pointerup', this.pointerUpHandler);
@@ -240,10 +264,14 @@ export default class HelpScene extends Phaser.Scene {
     addParagraph(
       'Mobile: Touch-drag anywhere to move the ship relatively (offset-based control). This prevents your finger from obstructing the view. Auto-fire is enabled by default while touching. Manage heat to avoid overheat lockouts.',
     );
+    addParagraph(
+      'Debug overlay is off by default. Press D to toggle renderer/FPS/object counters and graphics diagnostics.',
+    );
+    addParagraph('Debug/Test: Press B to spawn temporary shield bunkers instantly.');
 
     addHeader('LEVEL FLOW');
     addParagraph(
-      'Fill the LEVEL NEXT score target to trigger an end-of-level BOSS FIGHT. The boss UFO appears only in this end phase.',
+      'Fill the LEVEL SURVIVE score target to trigger an end-of-level BOSS FIGHT. The boss UFO appears only in this end phase.',
     );
     addParagraph(
       'After boss destruction, gameplay pauses and a short LEVEL countdown starts. Use this moment to reset position and prepare for faster asteroid waves.',
@@ -258,6 +286,10 @@ export default class HelpScene extends Phaser.Scene {
     addPowerUp('WINGMAN', 'Two drones flank you and add extra fire.');
     addPowerUp('COOLING', 'Cannon cooling field: blocks overheat buildup while active.');
     addPowerUp('BLACK HOLE', 'Creates a local gravity well that pulls asteroids in.');
+    addPowerUp(
+      'BUNKER',
+      'Deploys temporary shield bunkers that block your ship, stop shots, and shatter asteroids.',
+    );
     addPowerUp('MAGNETIC', 'Bullets home toward the nearest asteroid for a short time.');
 
     addHeader('WORLD EVENTS');
