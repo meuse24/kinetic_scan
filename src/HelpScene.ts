@@ -9,13 +9,26 @@ type HelpSceneData = {
 export default class HelpScene extends Phaser.Scene {
   private returnScene: string | null = null;
   private content!: Phaser.GameObjects.Container;
+  private scrollGraphics!: Phaser.GameObjects.Graphics;
+  private scrollHint!: Phaser.GameObjects.Text;
   private maskGraphics!: Phaser.GameObjects.Graphics;
+  private inputZone!: Phaser.GameObjects.Zone;
   private viewRect!: Phaser.Geom.Rectangle;
   private scrollY: number = 0;
   private maxScroll: number = 0;
+  private visibleHeight: number = 0;
+  private isPointerOverView: boolean = false;
   private dragging: boolean = false;
   private dragStartY: number = 0;
   private dragStartScroll: number = 0;
+  private wheelHandler?: (
+    pointer: Phaser.Input.Pointer,
+    currentlyOver: Phaser.GameObjects.GameObject[],
+    deltaX: number,
+    deltaY: number,
+  ) => void;
+  private keyHandler?: (event: KeyboardEvent) => void;
+  private pointerUpHandler?: () => void;
 
   constructor() {
     super('HelpScene');
@@ -63,13 +76,22 @@ export default class HelpScene extends Phaser.Scene {
     const viewWidth = GAME_WIDTH - margin * 2;
     const viewHeight = GAME_HEIGHT - 200;
     this.viewRect = new Phaser.Geom.Rectangle(margin, 140, viewWidth, viewHeight);
+    this.visibleHeight = this.viewRect.height - 40;
 
     const frame = this.add.graphics();
     frame.lineStyle(2, 0xffffff, 1);
     frame.strokeRect(this.viewRect.x, this.viewRect.y, this.viewRect.width, this.viewRect.height);
 
     this.content = this.add.container(this.viewRect.x + 20, this.viewRect.y + 20);
-    this.buildContent(viewWidth - 40);
+    this.buildContent(viewWidth - 74);
+    this.scrollGraphics = this.add.graphics().setDepth(20);
+    this.scrollHint = this.add
+      .text(this.viewRect.right - 12, this.viewRect.bottom + 18, 'SCROLL: WHEEL / DRAG / ARROWS', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '10px',
+        color: '#7dd3fc',
+      })
+      .setOrigin(1, 0.5);
 
     this.maskGraphics = this.make.graphics({ x: 0, y: 0 });
     this.maskGraphics.fillStyle(0xffffff, 1);
@@ -83,31 +105,91 @@ export default class HelpScene extends Phaser.Scene {
     this.content.setMask(mask);
 
     const contentHeight = this.getContentHeight();
-    const visibleHeight = this.viewRect.height - 40;
-    this.maxScroll = Math.max(0, contentHeight - visibleHeight);
+    this.maxScroll = Math.max(0, contentHeight - this.visibleHeight);
     this.scrollTo(0);
 
-    const zone = this.add
+    this.inputZone = this.add
       .zone(this.viewRect.x, this.viewRect.y, this.viewRect.width, this.viewRect.height)
       .setOrigin(0);
-    zone.setInteractive({ useHandCursor: true });
-    zone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+    this.inputZone.setInteractive({ useHandCursor: true });
+    this.inputZone.on('pointerover', () => {
+      this.isPointerOverView = true;
+    });
+    this.inputZone.on('pointerout', () => {
+      this.isPointerOverView = false;
+      this.dragging = false;
+    });
+    this.inputZone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.maxScroll <= 0) return;
       this.dragging = true;
       this.dragStartY = pointer.y;
       this.dragStartScroll = this.scrollY;
     });
-    zone.on('pointerup', () => (this.dragging = false));
-    zone.on('pointerout', () => (this.dragging = false));
-    zone.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+    this.inputZone.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       if (!this.dragging) return;
       const delta = pointer.y - this.dragStartY;
       this.scrollTo(this.dragStartScroll - delta);
     });
 
-    this.input.on('wheel', (_pointer: any, _dx: number, dy: number) => {
+    this.pointerUpHandler = () => {
+      this.dragging = false;
+    };
+    this.input.on('pointerup', this.pointerUpHandler);
+
+    this.wheelHandler = (
+      pointer: Phaser.Input.Pointer,
+      _currentlyOver: Phaser.GameObjects.GameObject[],
+      _dx: number,
+      dy: number,
+    ) => {
+      if (!this.isPointerOverView && !this.viewRect.contains(pointer.x, pointer.y)) return;
       this.scrollTo(this.scrollY + dy);
+    };
+    this.input.on('wheel', this.wheelHandler);
+
+    this.keyHandler = (event: KeyboardEvent) => {
+      const pageStep = Math.max(120, this.visibleHeight * 0.85);
+      switch (event.code) {
+        case 'ArrowDown':
+        case 'KeyS':
+          this.scrollTo(this.scrollY + 46);
+          event.preventDefault();
+          return;
+        case 'ArrowUp':
+        case 'KeyW':
+          this.scrollTo(this.scrollY - 46);
+          event.preventDefault();
+          return;
+        case 'PageDown':
+          this.scrollTo(this.scrollY + pageStep);
+          event.preventDefault();
+          return;
+        case 'PageUp':
+          this.scrollTo(this.scrollY - pageStep);
+          event.preventDefault();
+          return;
+        case 'Home':
+          this.scrollTo(0);
+          event.preventDefault();
+          return;
+        case 'End':
+          this.scrollTo(this.maxScroll);
+          event.preventDefault();
+          return;
+        case 'KeyH':
+        case 'Escape':
+          this.close();
+          event.preventDefault();
+          return;
+      }
+    };
+    this.input.keyboard?.on('keydown', this.keyHandler);
+
+    this.events.once('shutdown', () => {
+      if (this.wheelHandler) this.input.off('wheel', this.wheelHandler);
+      if (this.keyHandler) this.input.keyboard?.off('keydown', this.keyHandler);
+      if (this.pointerUpHandler) this.input.off('pointerup', this.pointerUpHandler);
     });
-    this.input.keyboard?.on('keydown-H', () => this.close());
   }
 
   private buildContent(wrapWidth: number) {
@@ -159,6 +241,14 @@ export default class HelpScene extends Phaser.Scene {
       'Mobile: Touch-drag anywhere to move the ship relatively (offset-based control). This prevents your finger from obstructing the view. Auto-fire is enabled by default while touching. Manage heat to avoid overheat lockouts.',
     );
 
+    addHeader('LEVEL FLOW');
+    addParagraph(
+      'Fill the LEVEL NEXT score target to trigger an end-of-level BOSS FIGHT. The boss UFO appears only in this end phase.',
+    );
+    addParagraph(
+      'After boss destruction, gameplay pauses and a short LEVEL countdown starts. Use this moment to reset position and prepare for faster asteroid waves.',
+    );
+
     addHeader('POWER-UPS');
     addPowerUp('TRIPLE SHOT', 'Fires a three-shot spread for a short duration.');
     addPowerUp('SLOW-MO', 'Slows time briefly to help dodge dense patterns.');
@@ -170,11 +260,21 @@ export default class HelpScene extends Phaser.Scene {
     addPowerUp('BLACK HOLE', 'Creates a local gravity well that pulls asteroids in.');
     addPowerUp('MAGNETIC', 'Bullets home toward the nearest asteroid for a short time.');
 
+    addHeader('WORLD EVENTS');
+    addParagraph(
+      'WORMHOLE ANOMALY: A drifting anomaly can appear and bend both asteroid movement and bullet trajectories nearby.',
+    );
+    addParagraph(
+      'ELITE DRONE: Rare rescue/salvage target. Touch or shoot it to earn a permanent run perk (extra life, better cooling, or longer magnetic effect).',
+    );
+
     addHeader('SCORING');
     addParagraph(
       'Large asteroids split into smaller fragments. Smaller targets score more points, so clean-up pays.',
     );
-    addParagraph('High scores allow 3-letter initials entry via arcade-style controls.');
+    addParagraph(
+      'High scores allow 3-letter initials entry via arcade-style controls. Difficulty and survival time both strongly affect final score potential.',
+    );
   }
 
   private getContentHeight() {
@@ -189,6 +289,47 @@ export default class HelpScene extends Phaser.Scene {
   private scrollTo(value: number) {
     this.scrollY = Phaser.Math.Clamp(value, 0, this.maxScroll);
     this.content.y = this.viewRect.y + 20 - this.scrollY;
+    this.drawScrollBar();
+  }
+
+  private drawScrollBar() {
+    this.scrollGraphics.clear();
+    const needsScroll = this.maxScroll > 0;
+    this.scrollHint.setVisible(needsScroll);
+    if (!needsScroll) return;
+
+    const trackWidth = 8;
+    const trackX = this.viewRect.right - 12;
+    const trackTop = this.viewRect.y + 8;
+    const trackHeight = this.viewRect.height - 16;
+
+    this.scrollGraphics.fillStyle(0x1d2732, 0.85);
+    this.scrollGraphics.fillRoundedRect(
+      trackX - trackWidth / 2,
+      trackTop,
+      trackWidth,
+      trackHeight,
+      4,
+    );
+
+    const contentHeight = this.getContentHeight();
+    const thumbHeight = Phaser.Math.Clamp(
+      (this.visibleHeight / contentHeight) * trackHeight,
+      24,
+      trackHeight,
+    );
+    const travel = Math.max(0, trackHeight - thumbHeight);
+    const ratio = this.maxScroll <= 0 ? 0 : this.scrollY / this.maxScroll;
+    const thumbTop = trackTop + travel * ratio;
+
+    this.scrollGraphics.fillStyle(0x9be7ff, 0.95);
+    this.scrollGraphics.fillRoundedRect(
+      trackX - trackWidth / 2,
+      thumbTop,
+      trackWidth,
+      thumbHeight,
+      4,
+    );
   }
 
   private close() {

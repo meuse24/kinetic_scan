@@ -494,3 +494,74 @@ TODOs for next agent (optional deeper perf pass)
 - Validation after refactor:
   - `npm run lint` pass.
   - `npm run build` pass (existing chunk-size warning unchanged).
+- Help screen UX update (requested):
+  - `src/HelpScene.ts` now supports robust scrolling when content exceeds viewport:
+    - mouse wheel scroll inside the content area,
+    - drag-to-scroll with pointer capture release on global pointer-up,
+    - keyboard scrolling (`Arrow Up/Down`, `W/S`, `Page Up/Down`, `Home/End`).
+  - Added a visible scrollbar track + thumb and a small scroll hint label.
+  - Help content was refreshed to include current systems:
+    - level flow with end-of-level boss fight,
+    - world events (wormhole anomaly, elite drone perks),
+    - updated scoring guidance.
+- Validation:
+  - `npm run lint` pass.
+  - `npm run build` pass.
+  - Playwright client runs executed for smoke capture, but automated interaction stayed on `BootScene` in this environment, so scene-target verification relied on code-path validation + compile/lint checks.
+- AttractScene polish pass (requested):
+  - Added live showcase elements to `src/AttractScene.ts`:
+    - ambient falling demo power-up drops (includes `BLACK_HOLE` + labels),
+    - periodic Black-Hole event with animated ring visuals,
+    - gravity pull from attract black hole applied to asteroids and demo power-up drops,
+    - small event banner text for showcase moments (`BLACK HOLE FIELD`, `UFO CONTACT`).
+  - Updated bottom power-up preview row to include `BLACK_HOLE` icon.
+  - Added proper cleanup for new attract-only objects on scene shutdown.
+- Validation:
+  - `npm run lint` pass.
+  - `npm run build` pass.
+  - Playwright capture run:
+    - `output/web-game/attract-pimp-pass` and `output/web-game/attract-pimp-pass-4`
+    - state snapshots include `AttractScene` active, no `errors-*.json`
+    - screenshots show richer attract background and visible demo power-up elements (including `BLK`).
+- Gameplay audio enhancement pass (requested, Phaser 3 + web-game skill):
+  - `src/AudioManager.ts` expanded with higher-quality procedural SFX routing:
+    - added master limiter/compressor stage to reduce clipping under dense action,
+    - added reusable noise-buffer cache to avoid repeated allocation spikes,
+    - added stereo panning helper (with graceful fallback when StereoPanner is unavailable).
+  - UFO shooting audio upgraded:
+    - `playUFOShoot(variant, pan)` now supports separate `scout` vs `boss` timbres/envelopes,
+    - randomized detune/variance for less repetitive arcade feel,
+    - per-shot pan based on on-screen UFO muzzle position,
+    - short rate-limit guard to prevent excessive stacking under boss volleys.
+  - Black hole audio upgraded:
+    - `playBlackHole()` replaced with richer layered one-shot (oscillator + filtered noise sweep),
+    - new `startBlackHoleLoop()` / `stopBlackHoleLoop()` for sustained low-end hum while active,
+    - trigger spam guard added for black-hole one-shot.
+  - Integration wiring:
+    - `src/UFO.ts` now calls variant/panned UFO shot SFX,
+    - `src/MainScene.ts` starts black-hole loop on spawn and stops it on removal,
+    - `src/AttractScene.ts` now also plays black-hole one-shot when attract black hole appears,
+    - added `audio.destroy()` cleanup calls on scene shutdown in Main/Attract.
+- Validation:
+  - `npm run lint` pass.
+  - `npm run build` pass.
+  - Playwright run `output/web-game/audio-pass-1`:
+    - no `errors-*.json`,
+    - captured gameplay frames with active UFO and black-hole event visuals,
+    - scene flow remained stable (gameplay + attract snapshots).
+- Audio balance mini-pass (follow-up requested):
+  - Added difficulty-aware audio mix profiles in `src/AudioManager.ts` (`easy`, `normal`, `hard`):
+    - UFO shot gain scaling (scout/boss),
+    - UFO shot rate scaling (density guard),
+    - black-hole one-shot and loop gain scaling,
+    - black-hole retrigger pacing scaling.
+  - New API `audio.setDifficultyMix(...)` used to keep SFX intensity balanced under higher action density.
+  - Wiring:
+    - `src/MainScene.ts`: apply audio mix on difficulty profile updates.
+    - `src/AttractScene.ts`: apply audio mix on scene create and on difficulty cycling.
+- Validation:
+  - `npm run lint` pass.
+  - `npm run build` pass.
+  - Playwright run `output/web-game/audio-balance-pass` (hard preset URL):
+    - no `errors-*.json`
+    - stable gameplay/state capture with `difficulty.preset = "hard"`.

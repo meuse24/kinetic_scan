@@ -896,7 +896,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     const cooldown = Phaser.Math.Between(minCooldown, maxCooldown) * levelFactor * presetFactor;
     const cooldownFloor = phase === 3 ? 520 : phase === 2 ? 640 : 760;
     this.nextShotAt = time + Phaser.Math.Clamp(cooldown, cooldownFloor, 1900);
-    this.audioManager.playUFOShoot();
+    const pan = Phaser.Math.Clamp((this.x / this.scene.scale.width) * 2 - 1, -0.9, 0.9);
+    this.audioManager.playUFOShoot('boss', pan);
   }
 
   private fireProjectile(
@@ -911,7 +912,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     if (!shot) return;
     shot.fire(muzzleX, muzzleY, angle, speed, variant);
     if (variant === 'scout') {
-      this.audioManager.playUFOShoot();
+      const pan = Phaser.Math.Clamp((muzzleX / this.scene.scale.width) * 2 - 1, -0.95, 0.95);
+      this.audioManager.playUFOShoot('scout', pan);
     }
   }
 }

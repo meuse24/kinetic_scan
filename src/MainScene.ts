@@ -395,6 +395,7 @@ export default class MainScene extends Phaser.Scene {
       this.ufo.deactivate();
       this.removeDrones();
       this.removeBlackHole();
+      this.audio.destroy();
       this.clearWorldEvents('reset');
       this.pendingEnemyHits.length = 0;
       this.powerUpBar.destroy();
@@ -652,6 +653,7 @@ export default class MainScene extends Phaser.Scene {
 
   private applyDifficultyProfile(silent: boolean = false) {
     this.difficultyPreset = getDifficultyPreset(this.difficultyKey);
+    this.audio.setDifficultyMix(this.difficultyKey);
     this.enemyManager.setDifficultyPreset(this.difficultyPreset);
     this.enemyManager.setDifficultyLevel(this.level);
     this.powerUpDirector.setDifficultyPreset(this.difficultyPreset);
@@ -1624,7 +1626,9 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private spawnBlackHole() {
+    if (this.blackHole?.active) return;
     this.audio.playBlackHole();
+    this.audio.startBlackHoleLoop();
     const x = Phaser.Math.Between(Math.round(GAME_WIDTH * 0.2), Math.round(GAME_WIDTH * 0.8));
     const y = Phaser.Math.Between(Math.round(GAME_HEIGHT * 0.2), Math.round(GAME_HEIGHT * 0.5));
     const g = this.add.graphics().setDepth(5);
@@ -1657,6 +1661,7 @@ export default class MainScene extends Phaser.Scene {
   private removeBlackHole() {
     this.blackHole?.graphics.destroy();
     this.blackHole = null;
+    this.audio.stopBlackHoleLoop();
   }
 
   private handlePlayerHitPowerUp(_player: any, obj2: any) {

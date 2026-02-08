@@ -9,7 +9,7 @@ import {
   setCurrentDifficultyKey,
 } from './Difficulty';
 import type { DifficultyPresetKey } from './Difficulty';
-import { EnemyManager } from './EnemyManager';
+import { Enemy, EnemyManager } from './EnemyManager';
 import { soundManager } from './SoundManager';
 import { UFO } from './UFO';
 import { PowerUp, PowerUpType } from './PowerUp';
@@ -20,6 +20,21 @@ type PlayerButton = {
   requiredCredits: number;
   bg: Phaser.GameObjects.Rectangle;
   label: Phaser.GameObjects.Text;
+};
+
+type DemoPowerUpDrift = {
+  icon: Phaser.GameObjects.Image;
+  label: Phaser.GameObjects.Text;
+  vx: number;
+  vy: number;
+  spin: number;
+};
+
+type AttractBlackHoleState = {
+  x: number;
+  y: number;
+  ttlMs: number;
+  graphics: Phaser.GameObjects.Graphics;
 };
 
 export default class AttractScene extends Phaser.Scene {
@@ -39,6 +54,13 @@ export default class AttractScene extends Phaser.Scene {
   private heartbeatActive: boolean = false;
   private heartbeatTimer: Phaser.Time.TimerEvent | null = null;
   private playerButtons: PlayerButton[] = [];
+  private attractBlackHole: AttractBlackHoleState | null = null;
+  private attractBlackHoleSpawnTimer: number = 0;
+  private attractBlackHoleForceAccumulatorMs: number = 0;
+  private demoPowerUps: DemoPowerUpDrift[] = [];
+  private demoPowerUpSpawnTimer: number = 0;
+  private eventBanner!: Phaser.GameObjects.Text;
+  private eventBannerTween: Phaser.Tweens.Tween | null = null;
   private difficultyKey: DifficultyPresetKey = getCurrentDifficultyKey();
   private difficultyText!: Phaser.GameObjects.Text;
   private creditListener?: (credits: number) => void;
@@ -92,6 +114,7 @@ export default class AttractScene extends Phaser.Scene {
     this.ufo = new UFO(this, this.audio);
     this.ufo.setDepth(6);
     const preset = getDifficultyPreset(this.difficultyKey);
+    this.audio.setDifficultyMix(this.difficultyKey);
     this.enemyManager.setDifficultyPreset(preset);
     this.ufo.setDifficultyPreset(preset);
     this.ufoSpawnTimer = Phaser.Math.Between(20000, 45000);
@@ -166,6 +189,9 @@ export default class AttractScene extends Phaser.Scene {
     this.createPlayerButtons(centerX, centerY + 210, uiDepth);
 
     this.createPowerUpPreview(centerX, GAME_HEIGHT - 130, uiDepth);
+    this.createEventBanner(centerX, centerY + 164, uiDepth);
+    this.attractBlackHoleSpawnTimer = Phaser.Math.Between(4800, 8500);
+    this.demoPowerUpSpawnTimer = Phaser.Math.Between(1200, 2400);
 
     // Interaction
     this.input.keyboard?.on('keydown-I', () => this.insertCoin());
@@ -201,7 +227,12 @@ export default class AttractScene extends Phaser.Scene {
       this.heartbeatTimer = null;
       this.enemyManager.enemies.destroy(true);
       this.ufo.deactivate();
+      this.removeAttractBlackHole();
+      this.clearDemoPowerUps();
+      this.eventBannerTween?.stop();
+      this.eventBannerTween = null;
       this.ambientEmitter.destroy();
+      this.audio.destroy();
       if (this.creditListener) creditManager.offChange(this.creditListener, this);
       if (this.soundListener) soundManager.offChange(this.soundListener, this);
     });
@@ -226,10 +257,13 @@ export default class AttractScene extends Phaser.Scene {
       this.demoSplitTimer = 0;
       this.triggerDemoSplit();
     }
+    this.updateDemoPowerUps(delta);
+    this.updateAttractBlackHole(delta);
     if (!this.ufo.active) {
       this.ufoSpawnTimer -= delta;
       if (this.ufoSpawnTimer <= 0) {
         this.ufo.spawn();
+        this.announceEvent('UFO CONTACT');
         this.ufoSpawnTimer = Phaser.Math.Between(20000, 45000);
       }
     }
@@ -258,6 +292,7 @@ export default class AttractScene extends Phaser.Scene {
     this.difficultyKey = cycleDifficulty(direction);
     this.difficultyText.setText(this.getDifficultyLabel());
     const preset = getDifficultyPreset(this.difficultyKey);
+    this.audio.setDifficultyMix(this.difficultyKey);
     this.enemyManager.setDifficultyPreset(preset);
     this.ufo.setDifficultyPreset(preset);
   }
@@ -359,6 +394,222 @@ export default class AttractScene extends Phaser.Scene {
     target.disableBody(true, true);
   }
 
+  private createEventBanner(centerX: number, y: number, depth: number) {
+    this.eventBanner = this.add
+      .text(centerX, y, '', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '12px',
+        color: '#9be7ff',
+        stroke: '#00131d',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(depth)
+      .setAlpha(0);
+  }
+
+  private announceEvent(label: string) {
+    if (!this.eventBanner) return;
+    this.eventBannerTween?.stop();
+    this.eventBanner.setText(label);
+    this.eventBanner.setAlpha(0);
+    this.eventBanner.setScale(0.92);
+    this.eventBannerTween = this.tweens.add({
+      targets: this.eventBanner,
+      alpha: 1,
+      scaleX: 1.02,
+      scaleY: 1.02,
+      duration: 180,
+      ease: 'Sine.easeOut',
+      yoyo: true,
+      hold: 800,
+      onComplete: () => {
+        this.eventBannerTween = null;
+      },
+    });
+  }
+
+  private spawnDemoPowerUp() {
+    const typePool: PowerUpType[] = [
+      PowerUpType.BLACK_HOLE,
+      PowerUpType.EMP_WAVE,
+      PowerUpType.GHOST_PHASE,
+      PowerUpType.WINGMAN_DRONES,
+      PowerUpType.CANNON_COOLING,
+      PowerUpType.TRIPLE_SHOT,
+      PowerUpType.SHIELD,
+    ];
+    const type = Phaser.Utils.Array.GetRandom(typePool);
+    const x = Phaser.Math.Between(80, GAME_WIDTH - 80);
+    const y = -40;
+    const icon = this.add.image(x, y, `powerup_${type}`).setDepth(8).setScale(0.95).setAlpha(0.9);
+    const label = this.add
+      .text(x, y - 24, this.getPowerUpAbbreviation(type), {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '11px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setDepth(8)
+      .setOrigin(0.5);
+
+    this.demoPowerUps.push({
+      icon,
+      label,
+      vx: Phaser.Math.Between(-36, 36),
+      vy: Phaser.Math.Between(58, 110),
+      spin: Phaser.Math.FloatBetween(-0.025, 0.025),
+    });
+  }
+
+  private updateDemoPowerUps(delta: number) {
+    this.demoPowerUpSpawnTimer -= delta;
+    if (this.demoPowerUpSpawnTimer <= 0 && this.demoPowerUps.length < 7) {
+      this.spawnDemoPowerUp();
+      this.demoPowerUpSpawnTimer = Phaser.Math.Between(1300, 2500);
+    }
+
+    for (let i = this.demoPowerUps.length - 1; i >= 0; i--) {
+      const item = this.demoPowerUps[i];
+      item.icon.x += (item.vx * delta) / 1000;
+      item.icon.y += (item.vy * delta) / 1000;
+      item.icon.rotation += item.spin * delta;
+      item.label.x = item.icon.x;
+      item.label.y = item.icon.y - 24;
+
+      if (item.icon.y > GAME_HEIGHT + 80 || item.icon.x < -100 || item.icon.x > GAME_WIDTH + 100) {
+        item.icon.destroy();
+        item.label.destroy();
+        this.demoPowerUps.splice(i, 1);
+      }
+    }
+  }
+
+  private spawnAttractBlackHole() {
+    this.removeAttractBlackHole();
+    this.audio.playBlackHole();
+    const x = Phaser.Math.Between(Math.round(GAME_WIDTH * 0.24), Math.round(GAME_WIDTH * 0.76));
+    const y = Phaser.Math.Between(Math.round(GAME_HEIGHT * 0.24), Math.round(GAME_HEIGHT * 0.68));
+    const graphics = this.add.graphics().setDepth(4);
+    this.attractBlackHole = {
+      x,
+      y,
+      ttlMs: Phaser.Math.Between(5000, 8200),
+      graphics,
+    };
+    this.attractBlackHoleForceAccumulatorMs = 0;
+    this.attractBlackHoleSpawnTimer = Phaser.Math.Between(11000, 17000);
+    this.announceEvent('BLACK HOLE FIELD');
+  }
+
+  private updateAttractBlackHole(delta: number) {
+    if (!this.attractBlackHole) {
+      this.attractBlackHoleSpawnTimer -= delta;
+      if (this.attractBlackHoleSpawnTimer <= 0) {
+        this.spawnAttractBlackHole();
+      }
+      return;
+    }
+
+    const state = this.attractBlackHole;
+    state.ttlMs -= delta;
+    if (state.ttlMs <= 0) {
+      this.removeAttractBlackHole();
+      return;
+    }
+
+    const phase = this.time.now * 0.006;
+    const outer = 46 + Math.sin(phase * 1.4) * 8;
+    const inner = 18 + Math.cos(phase * 2.2) * 4;
+    state.graphics
+      .clear()
+      .lineStyle(3, 0xaa00ff, 0.75)
+      .strokeCircle(state.x, state.y, outer)
+      .lineStyle(2, 0x65f5ff, 0.85)
+      .strokeCircle(state.x, state.y, inner);
+    for (let i = 0; i < 3; i++) {
+      const a = phase + i * ((Math.PI * 2) / 3);
+      state.graphics.fillStyle(0xd3b3ff, 0.8);
+      state.graphics.fillCircle(state.x + Math.cos(a) * 28, state.y + Math.sin(a) * 28, 2.5);
+    }
+
+    this.attractBlackHoleForceAccumulatorMs += delta;
+    if (this.attractBlackHoleForceAccumulatorMs < 33) return;
+    const forceScale = this.attractBlackHoleForceAccumulatorMs / (1000 / 60);
+    this.attractBlackHoleForceAccumulatorMs = 0;
+    const radius = 320;
+    const radiusSq = radius * radius;
+
+    const enemies = this.enemyManager.enemies.getChildren() as Enemy[];
+    for (const enemy of enemies) {
+      if (!enemy.active || !enemy.body) continue;
+      const dx = state.x - enemy.x;
+      const dy = state.y - enemy.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq <= 36 || distSq > radiusSq) continue;
+      const invDist = 1 / Math.sqrt(distSq);
+      const pull = (1 - distSq / radiusSq) * 14 * forceScale;
+      enemy.body.velocity.x += dx * invDist * pull;
+      enemy.body.velocity.y += dy * invDist * pull;
+    }
+
+    for (const item of this.demoPowerUps) {
+      const dx = state.x - item.icon.x;
+      const dy = state.y - item.icon.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq <= 36 || distSq > radiusSq) continue;
+      const invDist = 1 / Math.sqrt(distSq);
+      const pull = (1 - distSq / radiusSq) * 12 * forceScale;
+      item.vx += dx * invDist * pull;
+      item.vy += dy * invDist * pull;
+      const speed = Math.hypot(item.vx, item.vy);
+      if (speed > 190) {
+        const scale = 190 / speed;
+        item.vx *= scale;
+        item.vy *= scale;
+      }
+    }
+  }
+
+  private removeAttractBlackHole() {
+    if (!this.attractBlackHole) return;
+    this.attractBlackHole.graphics.destroy();
+    this.attractBlackHole = null;
+    this.attractBlackHoleForceAccumulatorMs = 0;
+  }
+
+  private clearDemoPowerUps() {
+    for (const item of this.demoPowerUps) {
+      item.icon.destroy();
+      item.label.destroy();
+    }
+    this.demoPowerUps.length = 0;
+  }
+
+  private getPowerUpAbbreviation(type: PowerUpType) {
+    switch (type) {
+      case PowerUpType.TRIPLE_SHOT:
+        return 'TRI';
+      case PowerUpType.SLOW_MOTION:
+        return 'SLO';
+      case PowerUpType.SHIELD:
+        return 'SHD';
+      case PowerUpType.EMP_WAVE:
+        return 'EMP';
+      case PowerUpType.GHOST_PHASE:
+        return 'GST';
+      case PowerUpType.WINGMAN_DRONES:
+        return 'DRN';
+      case PowerUpType.CANNON_COOLING:
+        return 'CLG';
+      case PowerUpType.BLACK_HOLE:
+        return 'BLK';
+      default:
+        return 'PWR';
+    }
+  }
+
   private createHighScoreTable(
     centerX: number,
     centerY: number,
@@ -439,6 +690,7 @@ export default class AttractScene extends Phaser.Scene {
       PowerUpType.GHOST_PHASE,
       PowerUpType.WINGMAN_DRONES,
       PowerUpType.CANNON_COOLING,
+      PowerUpType.BLACK_HOLE,
     ];
     const spacing = 50;
     const totalWidth = (types.length - 1) * spacing;
