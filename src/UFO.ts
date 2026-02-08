@@ -673,7 +673,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     const textX = Phaser.Math.Clamp(barX + barWidth + 8, 8, this.scene.scale.width - 130);
     const textY = barY + barHeight * 0.5;
     this.bossHitsText.setPosition(textX, textY);
-    const hitsLabel = `TREFFER ${liveEnergy}`;
+    const hitsLabel = `${liveEnergy}`;
     if (hitsLabel !== this.bossHitsLabelCache) {
       this.bossHitsText.setText(hitsLabel);
       this.bossHitsLabelCache = hitsLabel;

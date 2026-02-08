@@ -9,6 +9,7 @@ const PRESSURE_BACKOFF_MAX = 900;
 const ACTIVE_ENEMY_CAP = 52;
 const ACTIVE_ENEMY_CAP_REDUCED = 36;
 const FRAGMENT_CAP_BUFFER = 8;
+const OFFSCREEN_CULL_INTERVAL_MS = 64;
 
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
   constructor(scene: Phaser.Scene, x: number, y: number) {
@@ -78,19 +79,6 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const rotSpeed = Phaser.Math.Between(50, 200) * Phaser.Math.Clamp(difficultyScale, 0.9, 1.9);
     this.setAngularVelocity(Phaser.Math.RND.sign() * rotSpeed);
   }
-
-  preUpdate(time: number, delta: number) {
-    super.preUpdate(time, delta);
-
-    const height = this.scene.scale.height;
-    const width = this.scene.scale.width;
-    const padding = 100 * this.scaleX;
-
-    // Remove if off screen (bottom, left, right)
-    if (this.y > height + padding || this.x < -padding || this.x > width + padding) {
-      this.disableBody(true, true);
-    }
-  }
 }
 
 export class EnemyManager {
@@ -98,6 +86,7 @@ export class EnemyManager {
   public enemies: Phaser.Physics.Arcade.Group;
   private spawnTimer: number = 0;
   private spawnInterval: number = INITIAL_SPAWN_INTERVAL;
+  private offscreenCullTimer: number = 0;
   private difficultyLevel: number = 1;
   private baseEnemySpeedMultiplier: number = 1;
   private enemySpeedMultiplier: number = 1;
@@ -261,6 +250,12 @@ export class EnemyManager {
   }
 
   update(_time: number, delta: number) {
+    this.offscreenCullTimer -= delta;
+    if (this.offscreenCullTimer <= 0) {
+      this.cullOffscreenEnemies();
+      this.offscreenCullTimer = OFFSCREEN_CULL_INTERVAL_MS;
+    }
+
     this.spawnTimer -= delta;
     if (this.spawnTimer > 0) return;
 
@@ -336,5 +331,18 @@ export class EnemyManager {
 
   private getIntensityRamp() {
     return Phaser.Math.Clamp((this.runtimeIntensity - 0.6) / 0.4, 0, 1);
+  }
+
+  private cullOffscreenEnemies() {
+    const height = this.scene.scale.height;
+    const width = this.scene.scale.width;
+    const enemies = this.enemies.getChildren() as Enemy[];
+    for (const enemy of enemies) {
+      if (!enemy.active) continue;
+      const padding = 100 * enemy.scaleX;
+      if (enemy.y > height + padding || enemy.x < -padding || enemy.x > width + padding) {
+        enemy.disableBody(true, true);
+      }
+    }
   }
 }

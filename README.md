@@ -9,13 +9,20 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 - Difficulty presets: `EASY`, `NORMAL`, `HARD` (affects enemies, drops, UFO pressure, and level curve).
 - Two UFO variants:
   - `Scout`: light pressure, occasional aimed shots, single-hit destroy.
-  - `Boss`: procedural animated silhouette with tentacles, 3-phase escalation (attack patterns intensify as health drops), dodge AI that reads incoming bullet trajectories, multi-hit energy bar with segmented display and hit-count label.
+  - `Boss`: procedural animated silhouette with tentacles, 3-phase escalation (attack patterns intensify as health drops), dodge AI that reads incoming bullet trajectories, multi-hit energy bar with segmented display and numeric hit label.
 - Level progression with transition overlay between levels (`LEVEL N`, `3, 2, 1, GO!`).
 - Mandatory boss phase at level end before level can advance.
 - Dynamic bullet-pressure controls:
   - adaptive bullet cap,
   - collision-hit coalescing for mass scenes.
 - Enhanced ship visuals and power-up readability (thruster + effect overlays).
+- Attract mode now includes occasional UFO live-fire for a more dynamic demo screen.
+
+## Audio
+
+- Attract / Game Over / Menu scenes use the existing loop track (`song.mp3`).
+- Main gameplay uses a dedicated low-volume loop track (`gameloop.mp3`) so SFX remain in the foreground.
+- Gameplay loop pauses/resumes with gameplay scene pause/resume and stops when leaving the gameplay scene.
 
 ## Power-Ups
 
@@ -42,6 +49,7 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 - Help: UI button `HELP (H)` / `H`.
 - Debug overlay (off by default): `D`.
 - Test spawn (debug): `B` activates shield bunkers.
+- Quick bunker trigger (debug/test): double-click (mouse) or double-tap (touch) when bunkers are currently inactive.
 
 ### UI Button Hotkeys
 
@@ -105,6 +113,8 @@ Automation helpers are exposed on `window`:
 - Difficulty switch persists and affects pacing.
 - Level transition overlay appears (`3, 2, 1, GO!`).
 - Boss appears at level end and requires multiple hits.
-- Boss energy bar is shown directly on the boss UFO and decreases on hits (segmented bar + "TREFFER N" label).
+- Boss energy bar is shown directly on the boss UFO and decreases on hits (segmented bar + numeric label).
 - Boss hit-flash and damage-drain animation visible on each hit.
 - Scout/Boss destruction uses full explosion and cleanup without freeze states.
+- Attract-mode UFO occasionally fires demo shots.
+- In-game background loop (`gameloop.mp3`) is audible but quieter than gameplay SFX.

@@ -728,3 +728,32 @@ TODOs for next agent
 - Validation:
   - `npm run lint` pass
   - `npm run build` pass
+- Performance pass #10 (enemy culling + visual/update throttling) completed:
+  - `src/EnemyManager.ts`
+    - Removed per-enemy offscreen checks from `Enemy.preUpdate`.
+    - Added centralized offscreen culling in `EnemyManager` every `64ms` (`cullOffscreenEnemies`) to reduce per-frame per-object callback overhead.
+  - `src/MainScene.ts`
+    - Added throttled visual redraw accumulators:
+      - wormhole graphics redraw at ~28ms (`high`) / ~48ms (`reduced`) instead of every frame.
+      - black-hole graphics redraw at ~34ms (`high`) / ~52ms (`reduced`) instead of every frame.
+    - Added active power-up state sync throttling:
+      - replaced repeated `new Map(this.activePowerUps)` copies with in-place sync (`syncActivePowerUpsToState`) and periodic sync every `180ms` (plus immediate sync on set changes).
+  - Validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+    - Playwright capture run:
+      - `output/web-game/perf-pass-10-cull-visual`
+      - no `errors-*.json`
+      - screenshots visually intact (attract + gameplay)
+      - sampled FPS remained stable in this run (~52 -> 47 during active gameplay frames).
+- Audio update (gameplay loop track) completed:
+  - Added dedicated gameplay BGM track from `gameloop.mp3` in `src/MusicManager.ts`.
+  - Menu/GameOver/Attract continue using existing `song.mp3` via `musicManager.play()`.
+  - Main gameplay now uses `musicManager.playGameplay()` in `MainScene` with low volume (`0.1`) to keep SFX dominant.
+  - MainScene pause/resume now pauses/resumes gameplay loop through scene lifecycle hooks; shutdown stops gameplay loop.
+  - Validation: `npm run lint` pass, `npm run build` pass.
+- AttractScene UFO behavior update:
+  - UFO in attract mode now uses combat mode and has a hidden moving target, so it fires occasional demo shots while flying.
+  - Implemented in `src/AttractScene.ts` by enabling combat on UFO, setting a hidden physics target, and updating that target via Lissajous-style motion each frame.
+  - Cleanup on scene shutdown now detaches combat target and destroys the hidden target sprite.
+  - Validation: `npm run lint` pass, `npm run build` pass.

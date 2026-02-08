@@ -133,6 +133,12 @@ export default class MainScene extends Phaser.Scene {
   private awaitingTurnInput: boolean = false;
   private turnKeyHandler?: (event: KeyboardEvent) => void;
   private turnPointerHandler?: () => void;
+  private shieldBunkerPointerHandler?: (
+    pointer: Phaser.Input.Pointer,
+    currentlyOver: Phaser.GameObjects.GameObject[],
+  ) => void;
+  private onScenePaused?: () => void;
+  private onSceneResumed?: () => void;
   private onBlur?: () => void;
   private onVisibilityChange?: () => void;
 
@@ -157,6 +163,7 @@ export default class MainScene extends Phaser.Scene {
   private wormholeGraphics!: Phaser.GameObjects.Graphics;
   private wormholeSpawnTimer: number = 0;
   private wormholeForceAccumulatorMs: number = 0;
+  private wormholeVisualAccumulatorMs: number = 0;
   private eliteDrone!: Phaser.Physics.Arcade.Sprite;
   private eliteDroneLabel!: Phaser.GameObjects.Text;
   private eliteDroneSpawnTimer: number = 0;
@@ -188,6 +195,8 @@ export default class MainScene extends Phaser.Scene {
   private lastP2LivesLabel: string = '';
   private lastLevelLabel: string = '';
   private blackHoleForceAccumulatorMs: number = 0;
+  private blackHoleVisualAccumulatorMs: number = 0;
+  private activeStateSyncMs: number = 0;
   private pendingEnemyHits: PendingEnemyHit[] = [];
   private hitClusterScratch: Map<number, { sumX: number; sumY: number; count: number }> = new Map();
   private collisionPressureMetrics: CollisionPressureMetrics = {
@@ -226,6 +235,9 @@ export default class MainScene extends Phaser.Scene {
   private spawnProtectionTween?: Phaser.Tweens.Tween;
   private shieldBunkerWarningStarted: boolean = false;
   private shieldBunkerWarningTween?: Phaser.Tweens.Tween;
+  private lastShieldBunkerTapAt: number = -10000;
+  private lastShieldBunkerPointerId: number = -1;
+  private readonly shieldBunkerDoubleTapWindowMs: number = 320;
 
   constructor() {
     super('MainScene');
@@ -261,9 +273,14 @@ export default class MainScene extends Phaser.Scene {
     this.spawnProtectionTween = undefined;
     this.shieldBunkerWarningStarted = false;
     this.shieldBunkerWarningTween = undefined;
+    this.lastShieldBunkerTapAt = -10000;
+    this.lastShieldBunkerPointerId = -1;
     this.backgroundDecorTier = 'off';
     this.backgroundDecorSpawnTimerMs = 0;
     this.backgroundDecor = [];
+    this.wormholeVisualAccumulatorMs = 0;
+    this.blackHoleVisualAccumulatorMs = 0;
+    this.activeStateSyncMs = 0;
     this.playerStates = [];
     for (let i = 0; i < this.playerCount; i++) {
       this.playerStates.push({
@@ -294,7 +311,11 @@ export default class MainScene extends Phaser.Scene {
     }
 
     this.audio = new AudioManager(this);
-    musicManager.stop();
+    musicManager.playGameplay();
+    this.onScenePaused = () => musicManager.pauseGameplay();
+    this.onSceneResumed = () => musicManager.resumeGameplay();
+    this.events.on(Phaser.Scenes.Events.PAUSE, this.onScenePaused);
+    this.events.on(Phaser.Scenes.Events.RESUME, this.onSceneResumed);
     this.isGameOver = false;
     this.isSwitching = false;
     this.isLevelTransition = false;
@@ -462,6 +483,7 @@ export default class MainScene extends Phaser.Scene {
       this.removeDrones();
       this.removeBlackHole();
       this.audio.destroy();
+      musicManager.stopGameplay();
       this.clearWorldEvents('reset');
       this.pendingEnemyHits.length = 0;
       this.stopShieldBunkerWarning(false);
@@ -487,8 +509,12 @@ export default class MainScene extends Phaser.Scene {
       this.switchOverlay?.destroy();
       this.levelTransitionOverlay?.destroy();
       this.activeMarkerTween?.stop();
+      if (this.onScenePaused) this.events.off(Phaser.Scenes.Events.PAUSE, this.onScenePaused);
+      if (this.onSceneResumed) this.events.off(Phaser.Scenes.Events.RESUME, this.onSceneResumed);
       if (this.turnKeyHandler) this.input.keyboard?.off('keydown', this.turnKeyHandler);
       if (this.turnPointerHandler) this.input.off('pointerdown', this.turnPointerHandler);
+      if (this.shieldBunkerPointerHandler)
+        this.input.off('pointerdown', this.shieldBunkerPointerHandler);
       if (this.onBlur) this.game.events.off('blur', this.onBlur);
       if (this.onVisibilityChange)
         document.removeEventListener('visibilitychange', this.onVisibilityChange);
@@ -1025,6 +1051,7 @@ export default class MainScene extends Phaser.Scene {
       ttlMs: this.rollRange(WORMHOLE_TUNING.ttlMs),
     };
     this.wormholeGraphics.setVisible(true);
+    this.wormholeVisualAccumulatorMs = performanceMonitor.reducedParticles ? 48 : 28;
     this.wormholeForceAccumulatorMs = 0;
     this.setWormholeSpawnTimer('respawn');
   }
@@ -1034,6 +1061,7 @@ export default class MainScene extends Phaser.Scene {
     this.wormhole.active = false;
     this.wormholeGraphics.clear();
     this.wormholeGraphics.setVisible(false);
+    this.wormholeVisualAccumulatorMs = 0;
     this.wormholeForceAccumulatorMs = 0;
   }
 
@@ -1067,24 +1095,29 @@ export default class MainScene extends Phaser.Scene {
       this.wormhole.y = Phaser.Math.Clamp(this.wormhole.y, pad, height * WORMHOLE_TUNING.maxYRatio);
     }
 
-    const t = this.time.now * 0.004;
-    const radiusOuter =
-      WORMHOLE_TUNING.outerRadiusBase + Math.sin(t * 1.8) * WORMHOLE_TUNING.outerRadiusWave;
-    const radiusInner =
-      WORMHOLE_TUNING.innerRadiusBase + Math.cos(t * 2.6) * WORMHOLE_TUNING.innerRadiusWave;
-    this.wormholeGraphics
-      .clear()
-      .lineStyle(3, 0x9f52ff, 0.85)
-      .strokeCircle(this.wormhole.x, this.wormhole.y, radiusOuter)
-      .lineStyle(2, 0x57f6ff, 0.88)
-      .strokeCircle(this.wormhole.x, this.wormhole.y, radiusInner);
-    for (let i = 0; i < 3; i++) {
-      const angle = t + i * ((Math.PI * 2) / 3);
-      const orbitRadius = 26 + i * 6;
-      const ox = Math.cos(angle) * orbitRadius;
-      const oy = Math.sin(angle) * orbitRadius;
-      this.wormholeGraphics.fillStyle(0xc8f2ff, 0.7);
-      this.wormholeGraphics.fillCircle(this.wormhole.x + ox, this.wormhole.y + oy, 2);
+    this.wormholeVisualAccumulatorMs += delta;
+    const wormholeVisualInterval = performanceMonitor.reducedParticles ? 48 : 28;
+    if (this.wormholeVisualAccumulatorMs >= wormholeVisualInterval) {
+      this.wormholeVisualAccumulatorMs = 0;
+      const t = this.time.now * 0.004;
+      const radiusOuter =
+        WORMHOLE_TUNING.outerRadiusBase + Math.sin(t * 1.8) * WORMHOLE_TUNING.outerRadiusWave;
+      const radiusInner =
+        WORMHOLE_TUNING.innerRadiusBase + Math.cos(t * 2.6) * WORMHOLE_TUNING.innerRadiusWave;
+      this.wormholeGraphics
+        .clear()
+        .lineStyle(3, 0x9f52ff, 0.85)
+        .strokeCircle(this.wormhole.x, this.wormhole.y, radiusOuter)
+        .lineStyle(2, 0x57f6ff, 0.88)
+        .strokeCircle(this.wormhole.x, this.wormhole.y, radiusInner);
+      for (let i = 0; i < 3; i++) {
+        const angle = t + i * ((Math.PI * 2) / 3);
+        const orbitRadius = 26 + i * 6;
+        const ox = Math.cos(angle) * orbitRadius;
+        const oy = Math.sin(angle) * orbitRadius;
+        this.wormholeGraphics.fillStyle(0xc8f2ff, 0.7);
+        this.wormholeGraphics.fillCircle(this.wormhole.x + ox, this.wormhole.y + oy, 2);
+      }
     }
 
     this.wormholeForceAccumulatorMs += delta;
@@ -1243,11 +1276,13 @@ export default class MainScene extends Phaser.Scene {
   private updateActivePowerUps(delta: number) {
     const showDebugLists = this.debugOverlayEnabled;
     let list = '';
+    let powerUpSetChanged = false;
     this.activePowerUps.forEach((timeLeft, type) => {
       const newTime = timeLeft - delta;
       if (newTime <= 0) {
         this.activePowerUps.delete(type);
         this.deactivatePowerUp(type);
+        powerUpSetChanged = true;
       } else {
         this.activePowerUps.set(type, newTime);
         if (type === PowerUpType.SHIELD_BUNKER) {
@@ -1258,13 +1293,15 @@ export default class MainScene extends Phaser.Scene {
         }
       }
     });
+    this.activeStateSyncMs -= delta;
+    if (powerUpSetChanged || this.activeStateSyncMs <= 0) {
+      this.syncActivePowerUpsToState();
+      this.activeStateSyncMs = 180;
+    }
     if (!showDebugLists) {
       if (this.lastPowerUpList !== '') {
         this.powerUpListText.setText('');
         this.lastPowerUpList = '';
-      }
-      if (this.playerStates[this.activePlayerIndex]) {
-        this.playerStates[this.activePlayerIndex].activePowerUps = new Map(this.activePowerUps);
       }
       return;
     }
@@ -1276,9 +1313,15 @@ export default class MainScene extends Phaser.Scene {
       }
       this.powerUpTextRefreshMs = 100;
     }
-    if (this.playerStates[this.activePlayerIndex]) {
-      this.playerStates[this.activePlayerIndex].activePowerUps = new Map(this.activePowerUps);
-    }
+  }
+
+  private syncActivePowerUpsToState() {
+    const state = this.playerStates[this.activePlayerIndex];
+    if (!state) return;
+    state.activePowerUps.clear();
+    this.activePowerUps.forEach((timeLeft, type) => {
+      state.activePowerUps.set(type, timeLeft);
+    });
   }
 
   private saveActivePlayerState() {
@@ -1287,7 +1330,7 @@ export default class MainScene extends Phaser.Scene {
     state.score = this.score;
     state.lives = this.lives;
     state.powerUpTimer = this.powerUpTimer;
-    state.activePowerUps = new Map(this.activePowerUps);
+    this.syncActivePowerUpsToState();
   }
 
   private loadActivePlayerState(index: number) {
@@ -1297,6 +1340,7 @@ export default class MainScene extends Phaser.Scene {
     this.lives = state.lives;
     this.powerUpTimer = state.powerUpTimer;
     this.activePowerUps = new Map(state.activePowerUps);
+    this.activeStateSyncMs = 0;
     this.applyPassivePerksFromActiveState();
     this.applyActivePowerUpEffects(true);
     this.updatePowerUpUI();
@@ -1744,9 +1788,8 @@ export default class MainScene extends Phaser.Scene {
 
   private activatePowerUp(type: PowerUpType) {
     this.activePowerUps.set(type, this.getPowerUpDuration(type));
-    if (this.playerStates[this.activePlayerIndex]) {
-      this.playerStates[this.activePlayerIndex].activePowerUps = new Map(this.activePowerUps);
-    }
+    this.syncActivePowerUpsToState();
+    this.activeStateSyncMs = 180;
     switch (type) {
       case PowerUpType.TRIPLE_SHOT:
         this.player.setTripleShot(true);
@@ -1810,9 +1853,8 @@ export default class MainScene extends Phaser.Scene {
         this.removeShieldBunkers();
         break;
     }
-    if (this.playerStates[this.activePlayerIndex]) {
-      this.playerStates[this.activePlayerIndex].activePowerUps = new Map(this.activePowerUps);
-    }
+    this.syncActivePowerUpsToState();
+    this.activeStateSyncMs = 180;
   }
 
   private applySlowMo(active: boolean) {
@@ -1942,16 +1984,23 @@ export default class MainScene extends Phaser.Scene {
     const x = Phaser.Math.Between(Math.round(GAME_WIDTH * 0.2), Math.round(GAME_WIDTH * 0.8));
     const y = Phaser.Math.Between(Math.round(GAME_HEIGHT * 0.2), Math.round(GAME_HEIGHT * 0.5));
     const g = this.add.graphics().setDepth(5);
+    this.blackHoleVisualAccumulatorMs = performanceMonitor.reducedParticles ? 52 : 34;
+    this.blackHoleForceAccumulatorMs = 0;
     this.blackHole = { x, y, active: true, graphics: g };
   }
 
   private updateBlackHole(delta: number) {
     if (!this.blackHole?.active) return;
     const { x, y, graphics } = this.blackHole;
-    graphics
-      .clear()
-      .lineStyle(2, 0xaa00ff, 0.8)
-      .strokeCircle(x, y, 50 + Math.sin(this.time.now * 0.01) * 10);
+    this.blackHoleVisualAccumulatorMs += delta;
+    const visualInterval = performanceMonitor.reducedParticles ? 52 : 34;
+    if (this.blackHoleVisualAccumulatorMs >= visualInterval) {
+      this.blackHoleVisualAccumulatorMs = 0;
+      graphics
+        .clear()
+        .lineStyle(2, 0xaa00ff, 0.8)
+        .strokeCircle(x, y, 50 + Math.sin(this.time.now * 0.01) * 10);
+    }
 
     this.blackHoleForceAccumulatorMs += delta;
     if (this.blackHoleForceAccumulatorMs < 33) return;
@@ -1971,6 +2020,8 @@ export default class MainScene extends Phaser.Scene {
   private removeBlackHole() {
     this.blackHole?.graphics.destroy();
     this.blackHole = null;
+    this.blackHoleVisualAccumulatorMs = 0;
+    this.blackHoleForceAccumulatorMs = 0;
     this.audio.stopBlackHoleLoop();
   }
 
@@ -2087,9 +2138,52 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private triggerShieldBunkerTest() {
+    this.tryActivateShieldBunkerFromInput();
+  }
+
+  private hasActiveShieldBunkers() {
+    return (
+      this.activePowerUps.has(PowerUpType.SHIELD_BUNKER) ||
+      (this.shieldBunkers?.countActive(true) ?? 0) > 0
+    );
+  }
+
+  private tryActivateShieldBunkerFromInput() {
     if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
+    if (this.scene.isPaused('MainScene') || !this.scene.isActive('MainScene')) return;
+    if (this.hasActiveShieldBunkers()) return;
     this.audio.playPickup();
     this.activatePowerUp(PowerUpType.SHIELD_BUNKER);
+  }
+
+  private handleShieldBunkerPointerDown(
+    pointer: Phaser.Input.Pointer,
+    currentlyOver: Phaser.GameObjects.GameObject[] = [],
+  ) {
+    if (pointer.button !== 0) return;
+    if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
+    if (this.scene.isPaused('MainScene') || !this.scene.isActive('MainScene')) return;
+
+    const overInteractiveUI = currentlyOver.some((obj) => {
+      const input = (obj as any).input as { enabled?: boolean } | undefined;
+      return Boolean(input?.enabled);
+    });
+    if (overInteractiveUI) {
+      this.lastShieldBunkerTapAt = -10000;
+      this.lastShieldBunkerPointerId = -1;
+      return;
+    }
+
+    const now = this.time.now;
+    const pointerId = pointer.id ?? 0;
+    const isDoubleTap =
+      pointerId === this.lastShieldBunkerPointerId &&
+      now - this.lastShieldBunkerTapAt <= this.shieldBunkerDoubleTapWindowMs;
+    this.lastShieldBunkerTapAt = now;
+    this.lastShieldBunkerPointerId = pointerId;
+
+    if (!isDoubleTap) return;
+    this.tryActivateShieldBunkerFromInput();
   }
 
   private handlePlayerHitPowerUp(_player: any, obj2: any) {
@@ -2671,6 +2765,9 @@ export default class MainScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-H', () => this.openHelp());
     this.input.keyboard?.on('keydown-D', () => this.toggleDebugOverlay());
     this.input.keyboard?.on('keydown-B', () => this.triggerShieldBunkerTest());
+    this.shieldBunkerPointerHandler = (pointer, currentlyOver) =>
+      this.handleShieldBunkerPointerDown(pointer, currentlyOver);
+    this.input.on('pointerdown', this.shieldBunkerPointerHandler);
 
     this.onBlur = () => this.requestPause();
     this.onVisibilityChange = () => {

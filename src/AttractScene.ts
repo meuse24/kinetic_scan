@@ -87,6 +87,10 @@ export default class AttractScene extends Phaser.Scene {
   private creditLabel!: Phaser.GameObjects.Text;
   private enemyManager!: EnemyManager;
   private ufo!: UFO;
+  private attractCombatTarget!: Phaser.Physics.Arcade.Sprite;
+  private attractCombatPhase: number = 0;
+  private attractCombatTargetX: number = 0;
+  private attractCombatTargetY: number = 0;
   private ufoSpawnTimer: number = 0;
   private ambientEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   private highScoreGroup!: Phaser.GameObjects.Container;
@@ -170,7 +174,21 @@ export default class AttractScene extends Phaser.Scene {
     this.ambientEmitter.setDepth(1);
 
     this.enemyManager = new EnemyManager(this);
-    this.ufo = new UFO(this, this.audio);
+    this.attractCombatTarget = this.physics.add.sprite(centerX, centerY - 140, 'dust');
+    this.attractCombatTarget.setActive(true);
+    this.attractCombatTarget.setVisible(false);
+    const combatBody = this.attractCombatTarget.body as Phaser.Physics.Arcade.Body | null;
+    if (combatBody) {
+      combatBody.allowGravity = false;
+      combatBody.immovable = true;
+      combatBody.setVelocity(0, 0);
+    }
+    this.attractCombatPhase = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    this.attractCombatTargetX = this.attractCombatTarget.x;
+    this.attractCombatTargetY = this.attractCombatTarget.y;
+
+    this.ufo = new UFO(this, this.audio, { combatEnabled: true });
+    this.ufo.setCombatTarget(this.attractCombatTarget);
     this.ufo.setDepth(6);
     const preset = getDifficultyPreset(this.difficultyKey);
     this.audio.setDifficultyMix(this.difficultyKey);
@@ -285,7 +303,9 @@ export default class AttractScene extends Phaser.Scene {
       this.heartbeatTimer?.remove(false);
       this.heartbeatTimer = null;
       this.enemyManager.enemies.destroy(true);
+      this.ufo.setCombatTarget(null);
       this.ufo.deactivate();
+      this.attractCombatTarget?.destroy();
       this.removeAttractBlackHole();
       this.clearDemoPowerUps();
       this.clearBackgroundDecor();
@@ -310,6 +330,7 @@ export default class AttractScene extends Phaser.Scene {
       this.configureBackgroundDecor();
     }
     this.enemyManager.update(time, delta);
+    this.updateAttractCombatTarget(delta);
     this.updateBackgroundDecor(delta);
     this.enemyDepthRefreshMs -= delta;
     if (this.enemyDepthRefreshMs <= 0) {
@@ -331,6 +352,26 @@ export default class AttractScene extends Phaser.Scene {
         this.ufoSpawnTimer = Phaser.Math.Between(20000, 45000);
       }
     }
+  }
+
+  private updateAttractCombatTarget(delta: number) {
+    if (!this.attractCombatTarget?.active) return;
+
+    this.attractCombatPhase += (delta / 1000) * 0.55;
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const nextX = width * 0.5 + Math.sin(this.attractCombatPhase * 1.2) * width * 0.28;
+    const nextY = height * 0.33 + Math.cos(this.attractCombatPhase * 1.7) * height * 0.16;
+    const stepSec = Math.max(delta / 1000, 1 / 120);
+    const vx = (nextX - this.attractCombatTargetX) / stepSec;
+    const vy = (nextY - this.attractCombatTargetY) / stepSec;
+
+    this.attractCombatTarget.setPosition(nextX, nextY);
+    const body = this.attractCombatTarget.body as Phaser.Physics.Arcade.Body | null;
+    body?.setVelocity(vx, vy);
+
+    this.attractCombatTargetX = nextX;
+    this.attractCombatTargetY = nextY;
   }
 
   private async insertCoin() {

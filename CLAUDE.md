@@ -14,7 +14,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Retro arcade space shooter ("MEUSE24 Kinetic-Scan") built with **Phaser 3** and **TypeScript**, bundled with **Vite**. Production builds use `vite-plugin-singlefile` to produce a single self-contained HTML file with all assets inlined.
 
-All game graphics are procedurally generated at runtime via Phaser's `Graphics.generateTexture()` — there are no external image assets. Audio is synthesized via the Web Audio API (no audio files).
+All game graphics are procedurally generated at runtime via Phaser's `Graphics.generateTexture()` — there are no external image assets.  
+Audio is hybrid:
+- gameplay SFX and diegetic effects are synthesized in `AudioManager` (Web Audio API),
+- BGM loops are file-based (`src/song.mp3` for menu-like scenes and `gameloop.mp3` for active gameplay).
 
 ## Architecture
 
@@ -27,8 +30,8 @@ All game graphics are procedurally generated at runtime via Phaser's `Graphics.g
 
 Scenes are Phaser's unit of game state. The game flows: **AttractScene** (title/menu) -> **MainScene** (gameplay) -> **GameOverScene** -> back to AttractScene. **PauseScene** and **HelpScene** overlay during gameplay. **BezelScene** runs as a persistent overlay providing a CRT monitor bezel frame.
 
-- `src/AttractScene.ts` — Title screen with attract-mode demo, credit system, 1P/2P start buttons, high scores
-- `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, 2-player turn switching
+- `src/AttractScene.ts` — Title screen with attract-mode demo, credit system, 1P/2P start buttons, high scores, and occasional demo UFO shots
+- `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, 2-player turn switching, debug/test bunker trigger (`B` or double-click/double-tap when inactive)
 - `src/GameOverScene.ts` — Game over screen with high score entry (keyboard, touch swipe/tap, mouse wheel)
 - `src/PauseScene.ts` — Pause overlay
 - `src/HelpScene.ts` — Controls/help overlay with scrollable content, `BACK (ESC/H)`, and a dedicated click hit-area for reliable pointer input
@@ -47,6 +50,7 @@ Scenes are Phaser's unit of game state. The game flows: **AttractScene** (title/
 - `src/MainSceneTuning.ts` — Central tuning constants for transitions, early-level ramp, spawn protection, background decor, and shield bunker timing/layout
 - `src/ExplosionManager.ts` — Particle emitter pools for asteroid and player death explosions
 - `src/AudioManager.ts` — Web Audio API synthesizer for all game sounds (shoot, explode, power-up, UFO hum, etc.)
+- `src/MusicManager.ts` — BGM controller for scene-specific loops (`song.mp3` in menu-like scenes, `gameloop.mp3` during gameplay at reduced volume so SFX remain dominant)
 - `src/SoundManager.ts` — Global mute toggle singleton, persisted to localStorage
 - `src/CreditManager.ts` — Arcade-style credit/coin system singleton
 - `src/CRTPipeline.ts` — Custom WebGL post-processing shader (scanlines, chromatic aberration, curvature, vignette)
