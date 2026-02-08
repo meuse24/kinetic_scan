@@ -140,6 +140,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private heatPerShot: number = 9;
   private heatDecayPerSec: number = 28;
   private overheatUntil: number = 0;
+  private passiveCoolingMultiplier: number = 1;
   private firedThisFrame: boolean = false;
   private muzzleFlashes!: Phaser.GameObjects.Group;
   private spaceKey?: Phaser.Input.Keyboard.Key;
@@ -153,6 +154,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private thrusterGraphics: Phaser.GameObjects.Graphics;
   private shieldGraphics: Phaser.GameObjects.Graphics;
   private powerUpGraphics: Phaser.GameObjects.Graphics;
+  private visualRefreshAccumulatorMs: number = 0;
+  private readonly visualRefreshIntervalMs: number = 30;
 
   constructor(scene: Phaser.Scene, x: number, y: number, bullets: Phaser.Physics.Arcade.Group) {
     if (!scene.textures.exists('player_wireframe')) {
@@ -228,6 +231,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.powerUpGraphics.setDepth(this.depth + 1);
     this.shieldGraphics = scene.add.graphics();
     this.shieldGraphics.setDepth(this.depth + 2);
+    this.visualRefreshAccumulatorMs = this.visualRefreshIntervalMs;
     this.muzzleFlashes = scene.add.group({
       classType: Phaser.GameObjects.Image,
       maxSize: 20,
@@ -252,15 +256,27 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   public setMagnetic(active: boolean) {
+    if (this.isMagnetic !== active) {
+      this.invalidateVisualRefresh();
+    }
     this.isMagnetic = active;
   }
   public setTripleShot(active: boolean) {
+    if (this.isTripleShot !== active) {
+      this.invalidateVisualRefresh();
+    }
     this.isTripleShot = active;
   }
   public setShield(active: boolean) {
+    if (this.hasShield !== active) {
+      this.invalidateVisualRefresh();
+    }
     this.hasShield = active;
   }
   public setCannonCooling(active: boolean) {
+    if (this.hasCannonCooling !== active) {
+      this.invalidateVisualRefresh();
+    }
     this.hasCannonCooling = active;
     if (active) {
       this.heat = 0;
@@ -271,9 +287,15 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     return this.hasShield;
   }
   public setSlowMotionVisual(active: boolean) {
+    if (this.hasSlowMotion !== active) {
+      this.invalidateVisualRefresh();
+    }
     this.hasSlowMotion = active;
   }
   public setBlackHoleVisual(active: boolean) {
+    if (this.hasBlackHole !== active) {
+      this.invalidateVisualRefresh();
+    }
     this.hasBlackHole = active;
   }
   public setDrones(drones: Phaser.GameObjects.Group | null) {
@@ -287,6 +309,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   }
   public getHeatBarAnchor() {
     return { x: this.x, y: this.y + 40 };
+  }
+
+  public setPassiveCoolingMultiplier(multiplier: number) {
+    this.passiveCoolingMultiplier = Phaser.Math.Clamp(multiplier, 1, 2.2);
   }
 
   public resetHeat() {
@@ -313,6 +339,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   private queueFire() {
     this.fireBuffer = Math.min(this.maxFireBuffer, this.fireBuffer + 1);
+  }
+
+  private invalidateVisualRefresh() {
+    this.visualRefreshAccumulatorMs = this.visualRefreshIntervalMs;
   }
 
   private drawShield() {
@@ -419,6 +449,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.thrusterGraphics.clear();
       this.powerUpGraphics.clear();
       this.shieldGraphics.clear();
+      this.visualRefreshAccumulatorMs = 0;
       this.setTint(0xffffff);
       return;
     }
@@ -461,9 +492,13 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.y = this.maxBoundY;
       if (this.body && this.body.velocity.y > 0) this.body.velocity.y = 0;
     }
-    this.drawThruster();
-    this.drawPowerUpIndicators();
-    this.drawShield();
+    this.visualRefreshAccumulatorMs += delta;
+    if (this.visualRefreshAccumulatorMs >= this.visualRefreshIntervalMs) {
+      this.visualRefreshAccumulatorMs = 0;
+      this.drawThruster();
+      this.drawPowerUpIndicators();
+      this.drawShield();
+    }
     this.firedThisFrame = false;
     const canFire = this.hasCannonCooling || time >= this.overheatUntil;
     if (this.isDesktop) {
@@ -540,7 +575,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const wasOverheated = time < this.overheatUntil;
     this.heat = Math.min(100, this.heat + this.heatPerShot);
     if (this.heat >= 100 && !wasOverheated) {
-      this.overheatUntil = time + 2000;
+      const overheatDuration = Math.round(2000 / this.passiveCoolingMultiplier);
+      this.overheatUntil = time + overheatDuration;
       this.fireBuffer = 0;
       const sceneAny = this.scene as any;
       if (sceneAny.spawnOverheatSmoke) {
@@ -555,7 +591,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       this.overheatUntil = 0;
       return;
     }
-    const coolAmount = (this.heatDecayPerSec * delta) / 1000;
+    const coolAmount = (this.heatDecayPerSec * this.passiveCoolingMultiplier * delta) / 1000;
     this.heat = Math.max(0, this.heat - coolAmount);
   }
 

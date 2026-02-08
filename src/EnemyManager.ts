@@ -118,7 +118,7 @@ export class EnemyManager {
     this.difficultyLevel = Math.max(1, Math.floor(level));
     const ramp = this.difficultyLevel - 1;
     this.enemySpeedMultiplier =
-      this.preset.enemySpeedScale * (1 + Phaser.Math.Clamp(ramp * 0.085, 0, 1.2));
+      this.preset.enemySpeedScale * (1 + Phaser.Math.Clamp(ramp * 0.07, 0, 1.05));
   }
 
   public setDifficultyPreset(preset: DifficultyPreset) {
@@ -263,7 +263,7 @@ export class EnemyManager {
     const spawned = this.spawnEnemy();
     const minInterval = this.getMinSpawnInterval();
     const intervalStep =
-      (5 + Math.floor((this.difficultyLevel - 1) * 0.8)) * this.preset.enemySpawnScale;
+      (4 + Math.floor((this.difficultyLevel - 1) * 0.65)) * this.preset.enemySpawnScale;
 
     if (spawned && this.spawnInterval > minInterval) {
       this.spawnInterval -= intervalStep;
@@ -275,7 +275,7 @@ export class EnemyManager {
     }
 
     const pressure = activeCount / Math.max(1, activeCap);
-    const pressurePenaltyScale = Phaser.Math.Clamp(1 - (this.difficultyLevel - 1) * 0.035, 0.6, 1);
+    const pressurePenaltyScale = Phaser.Math.Clamp(1 - (this.difficultyLevel - 1) * 0.025, 0.7, 1);
     const presetPressureScale = Phaser.Math.Clamp(1 / this.preset.enemySpawnScale, 0.72, 1.22);
     const pressurePenalty = Math.round(pressure * 350 * pressurePenaltyScale);
     this.spawnTimer = this.spawnInterval + pressurePenalty * presetPressureScale;
@@ -299,14 +299,14 @@ export class EnemyManager {
   private getActiveEnemyCap() {
     const base = performanceMonitor.reducedParticles ? ACTIVE_ENEMY_CAP_REDUCED : ACTIVE_ENEMY_CAP;
     const levelBonusBase = performanceMonitor.reducedParticles
-      ? Math.min(14, (this.difficultyLevel - 1) * 2)
-      : Math.min(22, (this.difficultyLevel - 1) * 3);
+      ? Math.min(12, (this.difficultyLevel - 1) * 1.6)
+      : Math.min(20, (this.difficultyLevel - 1) * 2.5);
     const levelBonus = Math.round(levelBonusBase * this.preset.enemyCapScale);
     return base + levelBonus;
   }
 
   private getMinSpawnInterval() {
-    const levelReduction = (this.difficultyLevel - 1) * 12 * this.preset.enemySpawnScale;
+    const levelReduction = (this.difficultyLevel - 1) * 9 * this.preset.enemySpawnScale;
     return Math.max(120, MIN_SPAWN_INTERVAL - levelReduction);
   }
 }

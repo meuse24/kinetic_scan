@@ -366,3 +366,124 @@ TODOs for next agent
     - level transition countdown overlay,
     - ship/UFO visual upgrades,
     - current power-up set and controls.
+- Balance pass (requested): level duration + difficulty pacing + boss end-of-level enforcement.
+  - `MainScene` tuning:
+    - Raised level score requirement curve (`getNextLevelScore`) from `2800 + ...` to `3400 + ...` with smoother ramp (`r^1.28`), increasing early level duration and reducing late spikes.
+    - Scout UFO spawn cadence slowed and smoothed (`computeNextUFOSpawnDelay`): wider/higher delay window and softer per-level ramp.
+    - Boss encounter trigger now spawns boss sooner once threshold is reached (`ufoSpawnTimer` lowered to `320-620ms`) to keep "end-of-level boss" pacing snappy.
+    - Added explicit guard comment in `pickUFOVariantForLevel`: mid-level spawns remain scout only.
+  - `EnemyManager` tuning:
+    - Reduced per-level enemy speed ramp (`0.085 -> 0.07`, lower cap).
+    - Reduced spawn acceleration and level pressure growth (`intervalStep`, `pressurePenaltyScale`, active-cap growth, min-interval reduction).
+  - `PowerUpDirector` tuning:
+    - Slightly improved sustain at higher levels: slower decay in drop chance and gentler interval inflation.
+  - `Difficulty` preset rebalance:
+    - Easy and hard presets moved closer to normal (less extreme), preserving distinction while reducing abrupt difficulty cliffs.
+- Validation after balance pass:
+  - `npm run lint` pass.
+  - `npm run build` pass.
+  - Playwright skill runs:
+    - `output/web-game/balance-baseline-pass` (pre-change reference) -> screenshots + states captured, no `errors-*.json`.
+    - `output/web-game/balance-tuned-pass` (post-change) -> screenshots + states captured, no `errors-*.json`.
+    - `output/web-game/balance-tuned-pressure-pass` (post-change stress burst) -> screenshot + state captured, no `errors-*.json`.
+  - Visual/state checks:
+    - Boss still appears in `BOSS FIGHT` end-phase only (`difficulty.bossPending=true` state with `ufo.variant="boss"`).
+    - Mid-level states remain scout/no-boss while `bossPending=false`.
+    - Normal L1 threshold now 3400 (previously 2800), increasing pre-boss playtime.
+- Performance optimization pass (new request) using develop-web-game workflow.
+- Baseline profiling runs:
+  - `output/web-game/perf-pass-9-baseline`
+  - `output/web-game/perf-pass-9-baseline-ufo`
+  - Observed gameplay FPS samples around mid/high 50s, with intermittent drops in stress moments.
+
+Changes implemented:
+1) `src/UFO.ts` (major hotspot reduction)
+- Added visual update throttling:
+  - New accumulators/flags to draw UFO graphics at a controlled cadence instead of every frame.
+  - Boss draw cadence slower than scout, with forced refresh on hit/shoot/state changes.
+- Added dodge sampling throttling:
+  - Boss dodge offset now recalculates at short intervals instead of every frame.
+- Added boss hit text cache:
+  - Avoids redundant `setText`/`setColor` each draw when unchanged.
+- Added optional reduced visual detail mode:
+  - Fewer tentacles/lights and smaller dodge sample budget in reduced-quality situations.
+- Replaced boss HP bar stroke color interpolation from object-based `Phaser.Display.Color` allocations to direct RGB integer math (lower GC churn).
+
+2) `src/Player.ts` (graphics overlay throttling)
+- Added visual refresh interval for thruster/shield/power-up overlay graphics (~30ms cadence).
+- Added invalidation on power-up state toggles so visuals still update immediately when effects change.
+- Kept gameplay/input/fire logic at full update rate.
+
+3) `src/MainScene.ts` (allocation + HUD/UI throttles)
+- Collision cluster map now reused (`hitClusterScratch`) instead of allocating a new `Map` per flush.
+- Power-up bar and heat bar graphics now redraw on a timed cadence (instead of every frame).
+- HUD text updates now cached (`last...Label`) to avoid redundant `setText` calls.
+- Wired UFO reduced-detail mode to `performanceMonitor.reducedParticles` and quality-flag changes.
+
+Validation:
+- `npm run lint` pass.
+- `npm run build` pass.
+- Playwright skill runs after each meaningful batch:
+  - `output/web-game/perf-pass-10-opt-ufo`
+  - `output/web-game/perf-pass-11-opt-hud-ufo`
+  - `output/web-game/perf-pass-12-opt-final-ufo`
+  - stress loops:
+    - `output/web-game/perf-pass-13-stress-opt`
+    - `output/web-game/perf-pass-14-stress-opt-more`
+    - `output/web-game/perf-pass-15-stress-opt-hard`
+- Console/page errors:
+  - No `errors-*.json` emitted in the new perf-pass outputs.
+- Visual inspection:
+  - Gameplay, boss visuals/HP label, HUD, and scene transitions remain intact in captured screenshots.
+
+Measured FPS snapshots (state JSON samples):
+- Baseline reference (`perf-pass-9-baseline-ufo`): gameplay samples ~57 FPS.
+- After optimization:
+  - `perf-pass-11-opt-hud-ufo`: gameplay samples ~54-58 FPS (avg ~56 in sampled run).
+  - `perf-pass-14-stress-opt-more`: gameplay sample 59 FPS.
+  - `perf-pass-15-stress-opt-hard`: gameplay samples 57 and 60 FPS (avg 58.5).
+- Interpretation:
+  - Peak/stress behavior remains stable around high-50s to 60 with no regressions or new errors.
+  - Improvements are mainly reduced CPU/GC pressure and smoother behavior under heavy visual load rather than dramatic average-FPS jumps in these short stochastic captures.
+
+TODOs for next agent (optional deeper perf pass)
+- Add a deterministic, longer gameplay action profile with fewer immediate game-over outcomes to improve apples-to-apples FPS statistics (more gameplay samples per run).
+- Add temporary frame-time telemetry in `render_game_to_text` (e.g., rolling `dt` percentiles) for more sensitive before/after comparison.
+
+- Boss-defeat transition pacing polish (requested):
+  - Added a short post-boss celebration window before the level transition overlay appears.
+  - `MainScene.completeLevelAfterBossDefeat()` now starts the transition countdown with delay (`bossDefeatCelebrationDelayMs = 1100`), so the boss explosion is visible first.
+  - Slowed inter-level countdown beat timing in `MainScene.startLevelTransitionCountdown(...)` (`levelTransitionBeatMs = 900`).
+  - Transition now supports delayed overlay start while still freezing gameplay immediately (`isLevelTransition` + physics pause), then runs `3/2/1/GO`.
+  - Removed immediate level-transition flash that previously overlapped boss destruction feedback.
+- Validation (explicitly without Playwright, per request):
+  - `npm run lint` pass.
+  - `npm run build` pass.
+
+- Timing fine-tuning (follow-up request):
+  - Increased post-boss celebration delay before level overlay from `1100ms` to `1600ms`.
+  - Slowed level transition countdown beat from `900ms` to `1050ms`.
+
+- New gameplay elements implemented (follow-up request):
+  - Added `Wurmloch-Anomalie` in `MainScene`:
+    - periodic spawn with procedural visuals,
+    - drifting movement + bounce bounds,
+    - gravitational pull on asteroids and active player bullets,
+    - creates visible bullet trajectory bending near anomaly.
+  - Added `Elite-Bergungsdrohne` in `MainScene`:
+    - rare timed spawns,
+    - fast flee behavior away from player with erratic drift,
+    - can be collected by touch or by shooting.
+  - Added permanent run-perks granted by elite drone interactions:
+    - `+1 LIFE` (capped),
+    - `COOLING+` (faster heat cooldown + shorter overheat lock),
+    - `MAGNET+` (longer magnetic duration on UFO rewards).
+  - Perk persistence wired through `PlayerState` (also for 2-player turn swapping):
+    - `eliteLifePerkCount`,
+    - `eliteCoolingPerkLevel`,
+    - `eliteMagnetPerkLevel`.
+  - Added perk HUD line (`PERKS L+ C+ M+`) and included perk/world-event info in `getDifficultyState()`.
+  - `Player` now supports passive cooling multiplier via `setPassiveCoolingMultiplier(...)`.
+- Validation (without Playwright):
+  - `npm run lint` pass.
+  - `npm run build` pass.

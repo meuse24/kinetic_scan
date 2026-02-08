@@ -23,6 +23,20 @@ interface PlayerState {
   lives: number;
   activePowerUps: Map<PowerUpType, number>;
   powerUpTimer: number;
+  eliteLifePerkCount: number;
+  eliteCoolingPerkLevel: number;
+  eliteMagnetPerkLevel: number;
+}
+
+type ElitePerkType = 'bonus_life' | 'cooling' | 'magnet';
+
+interface WormholeState {
+  active: boolean;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  ttlMs: number;
 }
 
 type MainSceneData = {
@@ -91,6 +105,8 @@ export default class MainScene extends Phaser.Scene {
   private levelTransitionPrompt!: Phaser.GameObjects.Text;
   private levelTransitionEvents: Phaser.Time.TimerEvent[] = [];
   private levelTransitionCountdownLabel: string = '';
+  private readonly bossDefeatCelebrationDelayMs: number = 1600;
+  private readonly levelTransitionBeatMs: number = 1050;
   private awaitingTurnInput: boolean = false;
   private turnKeyHandler?: (event: KeyboardEvent) => void;
   private turnPointerHandler?: () => void;
@@ -114,6 +130,14 @@ export default class MainScene extends Phaser.Scene {
     active: boolean;
     graphics: Phaser.GameObjects.Graphics;
   } | null = null;
+  private wormhole: WormholeState | null = null;
+  private wormholeGraphics!: Phaser.GameObjects.Graphics;
+  private wormholeSpawnTimer: number = 0;
+  private wormholeForceAccumulatorMs: number = 0;
+  private eliteDrone!: Phaser.Physics.Arcade.Sprite;
+  private eliteDroneLabel!: Phaser.GameObjects.Text;
+  private eliteDroneSpawnTimer: number = 0;
+  private eliteDroneLifetimeMs: number = 0;
   private empGraphics!: Phaser.GameObjects.Graphics;
 
   private p1ScoreText!: Phaser.GameObjects.Text;
@@ -128,8 +152,16 @@ export default class MainScene extends Phaser.Scene {
   private lastDebugLine: string = '';
   private powerUpTextRefreshMs: number = 0;
   private lastPowerUpList: string = '';
+  private powerUpBarRefreshMs: number = 0;
+  private heatBarRefreshMs: number = 0;
+  private lastP1ScoreLabel: string = '';
+  private lastP2ScoreLabel: string = '';
+  private lastP1LivesLabel: string = '';
+  private lastP2LivesLabel: string = '';
+  private lastLevelLabel: string = '';
   private blackHoleForceAccumulatorMs: number = 0;
   private pendingEnemyHits: PendingEnemyHit[] = [];
+  private hitClusterScratch: Map<number, { sumX: number; sumY: number; count: number }> = new Map();
   private collisionPressureMetrics: CollisionPressureMetrics = {
     queuedTotal: 0,
     queuedBulletTotal: 0,
@@ -154,8 +186,12 @@ export default class MainScene extends Phaser.Scene {
   private debugText!: Phaser.GameObjects.Text;
   private powerUpBar!: Phaser.GameObjects.Graphics;
   private powerUpListText!: Phaser.GameObjects.Text;
+  private perkText!: Phaser.GameObjects.Text;
   private heatBar!: Phaser.GameObjects.Graphics;
   private levelText!: Phaser.GameObjects.Text;
+  private lastPerkLabel: string = '';
+  private passiveCoolingMultiplier: number = 1;
+  private magneticDurationMultiplier: number = 1;
   private smokeEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
 
   constructor() {
@@ -172,6 +208,16 @@ export default class MainScene extends Phaser.Scene {
     this.progressionScore = 0;
     this.nextLevelScore = this.getNextLevelScore(1);
     this.levelBossPendingDefeat = false;
+    this.powerUpBarRefreshMs = 0;
+    this.heatBarRefreshMs = 0;
+    this.lastP1ScoreLabel = '';
+    this.lastP2ScoreLabel = '';
+    this.lastP1LivesLabel = '';
+    this.lastP2LivesLabel = '';
+    this.lastLevelLabel = '';
+    this.lastPerkLabel = '';
+    this.passiveCoolingMultiplier = 1;
+    this.magneticDurationMultiplier = 1;
     this.playerStates = [];
     for (let i = 0; i < this.playerCount; i++) {
       this.playerStates.push({
@@ -179,6 +225,9 @@ export default class MainScene extends Phaser.Scene {
         lives: 3,
         activePowerUps: new Map(),
         powerUpTimer: 0,
+        eliteLifePerkCount: 0,
+        eliteCoolingPerkLevel: 0,
+        eliteMagnetPerkLevel: 0,
       });
     }
   }
@@ -209,6 +258,9 @@ export default class MainScene extends Phaser.Scene {
       lives: 3,
       activePowerUps: new Map(),
       powerUpTimer: 0,
+      eliteLifePerkCount: 0,
+      eliteCoolingPerkLevel: 0,
+      eliteMagnetPerkLevel: 0,
     };
     this.score = startingState.score;
     this.lives = startingState.lives;
@@ -233,6 +285,7 @@ export default class MainScene extends Phaser.Scene {
     this.ufo = new UFO(this, this.audio, { combatEnabled: true });
     this.ufo.setCombatTarget(this.player);
     this.ufo.setEvasionThreatGroup(this.bullets);
+    this.ufo.setReducedVisualDetail(performanceMonitor.reducedParticles);
     this.powerUpDirector = new PowerUpDirector(this);
     this.applyDifficultyProfile(true);
 
@@ -258,13 +311,18 @@ export default class MainScene extends Phaser.Scene {
     this.slowMoOverlay = this.add
       .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x0000ff, 0)
       .setDepth(5);
+    this.wormholeGraphics = this.add.graphics().setDepth(35);
+    this.wormholeGraphics.setVisible(false);
     this.empGraphics = this.add.graphics().setDepth(10);
+    this.createEliteDroneEntity();
+    this.resetWorldEventTimers();
     this.createHUD();
     this.createTurnOverlay();
     this.createLevelTransitionOverlay();
     this.powerUpBar = this.add.graphics();
     this.heatBar = this.add.graphics().setDepth(120);
     this.createSmokeEmitter();
+    this.applyPassivePerksFromActiveState();
     this.updateHUD();
     this.applyActivePowerUpEffects(true);
     this.ufoSpawnTimer = this.computeNextUFOSpawnDelay();
@@ -288,6 +346,20 @@ export default class MainScene extends Phaser.Scene {
       this.player,
       this.powerUpDirector.getGroup(),
       this.handlePlayerHitPowerUp,
+      undefined,
+      this,
+    );
+    this.physics.add.overlap(
+      this.player,
+      this.eliteDrone,
+      this.handlePlayerRescueEliteDrone,
+      undefined,
+      this,
+    );
+    this.physics.add.overlap(
+      this.bullets,
+      this.eliteDrone,
+      this.handleBulletHitEliteDrone,
       undefined,
       this,
     );
@@ -317,10 +389,16 @@ export default class MainScene extends Phaser.Scene {
       this.ufo.deactivate();
       this.removeDrones();
       this.removeBlackHole();
+      this.deactivateWormhole();
+      this.deactivateEliteDrone('reset');
       this.pendingEnemyHits.length = 0;
       this.powerUpBar.destroy();
       this.heatBar.destroy();
       this.smokeEmitter?.destroy();
+      this.wormholeGraphics.destroy();
+      this.eliteDroneLabel.destroy();
+      this.eliteDrone.destroy();
+      this.perkText.destroy();
       this.empGraphics.destroy();
       this.slowMoOverlay.destroy();
       this.switchTimer?.remove(false);
@@ -344,6 +422,8 @@ export default class MainScene extends Phaser.Scene {
     this.updateDynamicBulletCap(delta);
     this.player.update(time, delta);
     this.enemyManager.update(time, delta);
+    this.updateWormhole(delta);
+    this.updateEliteDrone(delta);
     this.flushPendingEnemyHits();
     this.powerUpDirector.update(this.progressionScore, delta);
 
@@ -359,6 +439,7 @@ export default class MainScene extends Phaser.Scene {
       ) {
         this.cameras.main.removePostPipeline('CRTPipeline');
       }
+      this.ufo.setReducedVisualDetail(performanceMonitor.reducedParticles);
       this.useHighEndVFX = performanceMonitor.smokeEnabled && this.useHighEndVFX;
     }
 
@@ -393,10 +474,15 @@ export default class MainScene extends Phaser.Scene {
 
     if (this.powerUpTimer > 0) {
       this.powerUpTimer -= delta;
-      this.updatePowerUpUI();
+      this.powerUpBarRefreshMs -= delta;
+      if (this.powerUpBarRefreshMs <= 0 || this.powerUpTimer <= 0) {
+        this.updatePowerUpUI();
+        this.powerUpBarRefreshMs = 34;
+      }
       if (this.powerUpTimer <= 0) {
         this.player.setMagnetic(false);
         this.powerUpBar.clear();
+        this.powerUpBarRefreshMs = 0;
       }
       if (this.playerStates[this.activePlayerIndex]) {
         this.playerStates[this.activePlayerIndex].powerUpTimer = this.powerUpTimer;
@@ -407,13 +493,18 @@ export default class MainScene extends Phaser.Scene {
     this.updateDrones();
     this.updateBlackHole(delta);
     this.updateBossEnergyUI();
-    this.updateHeatBar();
+    this.heatBarRefreshMs -= delta;
+    if (this.heatBarRefreshMs <= 0) {
+      this.updateHeatBar();
+      this.heatBarRefreshMs = 34;
+    }
   }
 
   private updatePowerUpUI() {
     this.powerUpBar.clear();
     const width = 200;
-    const progress = Math.max(0, this.powerUpTimer / 5000);
+    const barMaxDuration = this.getScaledMagneticDuration(7000);
+    const progress = Phaser.Math.Clamp(this.powerUpTimer / Math.max(1, barMaxDuration), 0, 1);
     this.powerUpBar.fillStyle(0x00ffff, 0.8);
     this.powerUpBar.fillRect(GAME_WIDTH / 2 - width / 2, 80, width * progress, 10);
     if (Math.sin(this.time.now * 0.01) > 0) {
@@ -450,23 +541,51 @@ export default class MainScene extends Phaser.Scene {
 
   private updateHUD() {
     if (this.playerCount === 2) {
-      this.p1ScoreText.setText(`P1 SCORE: ${this.playerStates[0].score}`);
-      this.p2ScoreText?.setText(`P2 SCORE: ${this.playerStates[1].score}`);
-      this.p1LivesText.setText(`P1 LIVES: ${this.playerStates[0].lives}`);
-      this.p2LivesText?.setText(`P2 LIVES: ${this.playerStates[1].lives}`);
+      const p1ScoreLabel = `P1 SCORE: ${this.playerStates[0].score}`;
+      if (p1ScoreLabel !== this.lastP1ScoreLabel) {
+        this.p1ScoreText.setText(p1ScoreLabel);
+        this.lastP1ScoreLabel = p1ScoreLabel;
+      }
+      const p2ScoreLabel = `P2 SCORE: ${this.playerStates[1].score}`;
+      if (p2ScoreLabel !== this.lastP2ScoreLabel) {
+        this.p2ScoreText?.setText(p2ScoreLabel);
+        this.lastP2ScoreLabel = p2ScoreLabel;
+      }
+      const p1LivesLabel = `P1 LIVES: ${this.playerStates[0].lives}`;
+      if (p1LivesLabel !== this.lastP1LivesLabel) {
+        this.p1LivesText.setText(p1LivesLabel);
+        this.lastP1LivesLabel = p1LivesLabel;
+      }
+      const p2LivesLabel = `P2 LIVES: ${this.playerStates[1].lives}`;
+      if (p2LivesLabel !== this.lastP2LivesLabel) {
+        this.p2LivesText?.setText(p2LivesLabel);
+        this.lastP2LivesLabel = p2LivesLabel;
+      }
       this.updateActiveMarker();
     } else {
-      this.p1ScoreText.setText(`SCORE: ${this.score}`);
-      this.p1LivesText.setText(`LIVES: ${this.lives}`);
+      const p1ScoreLabel = `SCORE: ${this.score}`;
+      if (p1ScoreLabel !== this.lastP1ScoreLabel) {
+        this.p1ScoreText.setText(p1ScoreLabel);
+        this.lastP1ScoreLabel = p1ScoreLabel;
+      }
+      const p1LivesLabel = `LIVES: ${this.lives}`;
+      if (p1LivesLabel !== this.lastP1LivesLabel) {
+        this.p1LivesText.setText(p1LivesLabel);
+        this.lastP1LivesLabel = p1LivesLabel;
+      }
     }
+    let nextLevelLabel = '';
     if (this.levelBossPendingDefeat) {
-      this.levelText.setText(`${this.difficultyPreset.label}  LEVEL ${this.level}  BOSS FIGHT`);
+      nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  BOSS FIGHT`;
     } else {
-      this.levelText.setText(
-        `${this.difficultyPreset.label}  LEVEL ${this.level}  NEXT ${Math.max(0, this.nextLevelScore - this.progressionScore)}`,
-      );
+      nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  NEXT ${Math.max(0, this.nextLevelScore - this.progressionScore)}`;
+    }
+    if (nextLevelLabel !== this.lastLevelLabel) {
+      this.levelText.setText(nextLevelLabel);
+      this.lastLevelLabel = nextLevelLabel;
     }
 
+    this.updatePerkHUD();
     this.updateBossEnergyUI();
   }
 
@@ -503,7 +622,7 @@ export default class MainScene extends Phaser.Scene {
     if (this.ufo.active && this.ufo.getVariant() !== 'boss') {
       this.ufo.deactivate();
     }
-    this.ufoSpawnTimer = Phaser.Math.Between(420, 900);
+    this.ufoSpawnTimer = Phaser.Math.Between(320, 620);
     this.cameras.main.flash(180, 255, 96, 128, false);
     this.cameras.main.shake(220, 0.005);
     this.updateHUD();
@@ -515,8 +634,7 @@ export default class MainScene extends Phaser.Scene {
     this.level += 1;
     this.nextLevelScore = this.progressionScore + this.getNextLevelScore(this.level);
     this.applyDifficultyProfile();
-    this.startLevelTransitionCountdown();
-    this.cameras.main.flash(220, 120, 120, 255, false);
+    this.startLevelTransitionCountdown(this.bossDefeatCelebrationDelayMs);
     this.tweens.add({
       targets: this.levelText,
       scaleX: 1.24,
@@ -585,6 +703,350 @@ export default class MainScene extends Phaser.Scene {
     this.smokeEmitter.setDepth(120);
   }
 
+  private createEliteDroneEntity() {
+    this.eliteDrone = this.physics.add.sprite(-160, -160, 'elite_drone');
+    this.eliteDrone.setActive(false);
+    this.eliteDrone.setVisible(false);
+    this.eliteDrone.setDepth(112);
+    this.eliteDrone.setScale(1);
+    this.eliteDrone.setCollideWorldBounds(false);
+    this.eliteDrone.setCircle(14, 2, 2);
+    const body = this.eliteDrone.body as Phaser.Physics.Arcade.Body | null;
+    if (body) {
+      body.allowGravity = false;
+      body.moves = true;
+      body.setMaxVelocity(360, 360);
+    }
+
+    this.eliteDroneLabel = this.add
+      .text(0, 0, 'ELITE', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '12px',
+        color: '#afffd2',
+        stroke: '#001a10',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(113)
+      .setVisible(false);
+  }
+
+  private resetWorldEventTimers() {
+    this.wormholeSpawnTimer = Phaser.Math.Between(13000, 21000);
+    this.wormholeForceAccumulatorMs = 0;
+    this.eliteDroneSpawnTimer = Phaser.Math.Between(22000, 34000);
+    this.eliteDroneLifetimeMs = 0;
+  }
+
+  private applyPassivePerksFromActiveState() {
+    const state = this.playerStates[this.activePlayerIndex];
+    const coolingLevel = state?.eliteCoolingPerkLevel ?? 0;
+    const magnetLevel = state?.eliteMagnetPerkLevel ?? 0;
+    this.passiveCoolingMultiplier = 1 + coolingLevel * 0.2;
+    this.magneticDurationMultiplier = 1 + magnetLevel * 0.24;
+    this.player.setPassiveCoolingMultiplier(this.passiveCoolingMultiplier);
+    this.updatePerkHUD();
+  }
+
+  private updatePerkHUD() {
+    if (!this.perkText) return;
+    const state = this.playerStates[this.activePlayerIndex];
+    if (!state) return;
+    const perkLabel = `PERKS L+${state.eliteLifePerkCount} C+${state.eliteCoolingPerkLevel} M+${state.eliteMagnetPerkLevel}`;
+    if (perkLabel !== this.lastPerkLabel) {
+      this.perkText.setText(perkLabel);
+      this.lastPerkLabel = perkLabel;
+    }
+  }
+
+  private getScaledMagneticDuration(baseMs: number) {
+    return Math.round(
+      baseMs * this.difficultyPreset.powerUpDurationScale * this.magneticDurationMultiplier,
+    );
+  }
+
+  private pickElitePerk(state: PlayerState): ElitePerkType {
+    const candidates: ElitePerkType[] = [];
+    if (state.eliteLifePerkCount < 4) candidates.push('bonus_life');
+    if (state.eliteCoolingPerkLevel < 3) candidates.push('cooling');
+    if (state.eliteMagnetPerkLevel < 3) candidates.push('magnet');
+    if (candidates.length === 0) return 'bonus_life';
+    return Phaser.Utils.Array.GetRandom(candidates);
+  }
+
+  private grantElitePerk(trigger: 'rescued' | 'shot', x: number, y: number) {
+    const state = this.playerStates[this.activePlayerIndex];
+    if (!state) return;
+
+    const perk = this.pickElitePerk(state);
+    let label = '';
+    if (perk === 'bonus_life') {
+      state.eliteLifePerkCount += 1;
+      this.lives = Math.min(9, this.lives + 1);
+      state.lives = this.lives;
+      label = '+1 LIFE';
+    } else if (perk === 'cooling') {
+      state.eliteCoolingPerkLevel += 1;
+      label = 'COOLING+';
+    } else {
+      state.eliteMagnetPerkLevel += 1;
+      label = 'MAGNET+';
+    }
+
+    this.applyPassivePerksFromActiveState();
+    this.addScore(620 + this.level * 35);
+
+    const prefix = trigger === 'rescued' ? 'RETTUNG' : 'BERGUNG';
+    const pop = this.add
+      .text(x, y - 24, `${prefix} ${label}`, {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '13px',
+        color: '#b7ffe0',
+        stroke: '#00150f',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(140);
+    this.tweens.add({
+      targets: pop,
+      y: y - 58,
+      alpha: 0,
+      duration: 780,
+      ease: 'Sine.easeOut',
+      onComplete: () => pop.destroy(),
+    });
+
+    this.cameras.main.flash(90, 120, 255, 210, false);
+    this.updateHUD();
+  }
+
+  private spawnWormhole() {
+    if (this.wormhole?.active || this.isGameOver) return;
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const vx = Phaser.Math.Between(-60, 60) || 35;
+    const vy = Phaser.Math.Between(-42, 42);
+    this.wormhole = {
+      active: true,
+      x: Phaser.Math.Between(130, width - 130),
+      y: Phaser.Math.Between(110, Math.round(height * 0.58)),
+      vx,
+      vy,
+      ttlMs: Phaser.Math.Between(8200, 10800),
+    };
+    this.wormholeGraphics.setVisible(true);
+    this.wormholeForceAccumulatorMs = 0;
+    this.wormholeSpawnTimer = Phaser.Math.Between(25000, 36000);
+  }
+
+  private deactivateWormhole() {
+    if (!this.wormhole) return;
+    this.wormhole.active = false;
+    this.wormholeGraphics.clear();
+    this.wormholeGraphics.setVisible(false);
+    this.wormholeForceAccumulatorMs = 0;
+  }
+
+  private updateWormhole(delta: number) {
+    if (!this.wormhole?.active) {
+      this.wormholeSpawnTimer -= delta;
+      if (this.wormholeSpawnTimer <= 0) {
+        this.spawnWormhole();
+      }
+      return;
+    }
+
+    this.wormhole.ttlMs -= delta;
+    if (this.wormhole.ttlMs <= 0) {
+      this.deactivateWormhole();
+      return;
+    }
+
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const pad = 96;
+    this.wormhole.x += (this.wormhole.vx * delta) / 1000;
+    this.wormhole.y += (this.wormhole.vy * delta) / 1000;
+
+    if (this.wormhole.x < pad || this.wormhole.x > width - pad) {
+      this.wormhole.vx *= -1;
+      this.wormhole.x = Phaser.Math.Clamp(this.wormhole.x, pad, width - pad);
+    }
+    if (this.wormhole.y < pad || this.wormhole.y > height * 0.78) {
+      this.wormhole.vy *= -1;
+      this.wormhole.y = Phaser.Math.Clamp(this.wormhole.y, pad, height * 0.78);
+    }
+
+    const t = this.time.now * 0.004;
+    const radiusOuter = 34 + Math.sin(t * 1.8) * 4;
+    const radiusInner = 19 + Math.cos(t * 2.6) * 3;
+    this.wormholeGraphics
+      .clear()
+      .lineStyle(3, 0x9f52ff, 0.85)
+      .strokeCircle(this.wormhole.x, this.wormhole.y, radiusOuter)
+      .lineStyle(2, 0x57f6ff, 0.88)
+      .strokeCircle(this.wormhole.x, this.wormhole.y, radiusInner);
+    for (let i = 0; i < 3; i++) {
+      const angle = t + i * ((Math.PI * 2) / 3);
+      const orbitRadius = 26 + i * 6;
+      const ox = Math.cos(angle) * orbitRadius;
+      const oy = Math.sin(angle) * orbitRadius;
+      this.wormholeGraphics.fillStyle(0xc8f2ff, 0.7);
+      this.wormholeGraphics.fillCircle(this.wormhole.x + ox, this.wormhole.y + oy, 2);
+    }
+
+    this.wormholeForceAccumulatorMs += delta;
+    if (this.wormholeForceAccumulatorMs < 33) return;
+
+    const forceScale = this.wormholeForceAccumulatorMs / (1000 / 60);
+    this.wormholeForceAccumulatorMs = 0;
+    const wx = this.wormhole.x;
+    const wy = this.wormhole.y;
+    const radius = 250;
+    const radiusSq = radius * radius;
+
+    const enemies = this.enemyManager.enemies.getChildren() as Enemy[];
+    for (const enemy of enemies) {
+      if (!enemy.active || !enemy.body) continue;
+      const dx = wx - enemy.x;
+      const dy = wy - enemy.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq <= 36 || distSq > radiusSq) continue;
+      const invDist = 1 / Math.sqrt(distSq);
+      const pull = (1 - distSq / radiusSq) * 16 * forceScale;
+      enemy.body.velocity.x += dx * invDist * pull;
+      enemy.body.velocity.y += dy * invDist * pull;
+    }
+
+    const bullets = this.bullets.getChildren() as Bullet[];
+    for (const bullet of bullets) {
+      if (!bullet.active || !bullet.body) continue;
+      const dx = wx - bullet.x;
+      const dy = wy - bullet.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq <= 16 || distSq > radiusSq) continue;
+      const invDist = 1 / Math.sqrt(distSq);
+      const bend = (1 - distSq / radiusSq) * 24 * forceScale;
+      bullet.body.velocity.x += dx * invDist * bend;
+      bullet.body.velocity.y += dy * invDist * bend;
+      const speed = bullet.body.velocity.length();
+      if (speed > 760) {
+        const scale = 760 / speed;
+        bullet.body.velocity.x *= scale;
+        bullet.body.velocity.y *= scale;
+      }
+    }
+  }
+
+  private spawnEliteDrone() {
+    if (this.eliteDrone.active || this.isGameOver) return;
+    const spawnLeft = Phaser.Math.Between(0, 1) === 0;
+    const x = spawnLeft
+      ? Phaser.Math.Between(86, 180)
+      : Phaser.Math.Between(this.scale.width - 180, this.scale.width - 86);
+    const y = Phaser.Math.Between(92, Math.round(this.scale.height * 0.46));
+    this.eliteDrone.enableBody(true, x, y, true, true);
+    this.eliteDrone.setActive(true);
+    this.eliteDrone.setVisible(true);
+    this.eliteDrone.setAlpha(1);
+    this.eliteDrone.setTint(0xa7ffd8);
+    this.eliteDroneLifetimeMs = Phaser.Math.Between(6300, 8200);
+    this.eliteDroneLabel.setVisible(true);
+    this.eliteDroneSpawnTimer = Phaser.Math.Between(28000, 42000);
+    this.cameras.main.flash(70, 120, 255, 120, false);
+  }
+
+  private deactivateEliteDrone(reason: 'rescued' | 'shot' | 'expired' | 'reset') {
+    if (!this.eliteDrone) return;
+    if (this.eliteDrone.active) {
+      this.eliteDrone.disableBody(true, true);
+      this.eliteDrone.setActive(false);
+      this.eliteDrone.setVisible(false);
+    }
+    this.eliteDroneLabel?.setVisible(false);
+    this.eliteDroneLifetimeMs = 0;
+    if (reason === 'reset') {
+      this.eliteDroneSpawnTimer = Phaser.Math.Between(16000, 26000);
+    } else if (reason === 'expired') {
+      this.eliteDroneSpawnTimer = Phaser.Math.Between(19000, 30000);
+    } else {
+      this.eliteDroneSpawnTimer = Phaser.Math.Between(30000, 45000);
+    }
+  }
+
+  private updateEliteDrone(delta: number) {
+    if (!this.eliteDrone?.active) {
+      this.eliteDroneSpawnTimer -= delta;
+      if (this.eliteDroneSpawnTimer <= 0) {
+        this.spawnEliteDrone();
+      }
+      return;
+    }
+
+    this.eliteDroneLifetimeMs -= delta;
+    if (this.eliteDroneLifetimeMs <= 0) {
+      this.deactivateEliteDrone('expired');
+      return;
+    }
+
+    const body = this.eliteDrone.body as Phaser.Physics.Arcade.Body | null;
+    if (!body) return;
+    const dx = this.eliteDrone.x - this.player.x;
+    const dy = this.eliteDrone.y - this.player.y;
+    const dist = Math.max(20, Math.hypot(dx, dy));
+    const awayX = dx / dist;
+    const awayY = dy / dist;
+    const baseSpeed = 210 + Math.min(120, this.level * 8);
+    const wave = this.time.now * 0.0036;
+    let vx = awayX * baseSpeed + Math.cos(wave) * 62;
+    let vy = awayY * baseSpeed + Math.sin(wave * 1.15) * 52 - 36;
+
+    if (this.eliteDrone.x < 76) vx += 85;
+    if (this.eliteDrone.x > this.scale.width - 76) vx -= 85;
+    if (this.eliteDrone.y < 72) vy += 72;
+    if (this.eliteDrone.y > this.scale.height * 0.82) vy -= 96;
+
+    body.setVelocity(vx, vy);
+    this.eliteDrone.rotation += (delta / 1000) * 3.2;
+    this.eliteDroneLabel.setPosition(this.eliteDrone.x, this.eliteDrone.y - 24);
+    this.eliteDroneLabel.setAlpha(0.55 + Math.sin(this.time.now * 0.01) * 0.3);
+
+    const outBounds = 140;
+    if (
+      this.eliteDrone.x < -outBounds ||
+      this.eliteDrone.x > this.scale.width + outBounds ||
+      this.eliteDrone.y < -outBounds ||
+      this.eliteDrone.y > this.scale.height + outBounds
+    ) {
+      this.deactivateEliteDrone('expired');
+    }
+  }
+
+  private handlePlayerRescueEliteDrone(obj1: any, obj2: any) {
+    if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
+    const drone = (obj1 === this.eliteDrone ? obj1 : obj2) as Phaser.Physics.Arcade.Sprite;
+    if (!drone.active) return;
+    const x = drone.x;
+    const y = drone.y;
+    this.audio.playPickup();
+    this.grantElitePerk('rescued', x, y);
+    this.deactivateEliteDrone('rescued');
+  }
+
+  private handleBulletHitEliteDrone(obj1: any, obj2: any) {
+    if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
+    const bullet = (obj1 === this.eliteDrone ? obj2 : obj1) as Bullet;
+    const drone = (obj1 === this.eliteDrone ? obj1 : obj2) as Phaser.Physics.Arcade.Sprite;
+    if (!drone.active || !bullet.active) return;
+    const x = drone.x;
+    const y = drone.y;
+    bullet.disableBody(true, true);
+    this.explosionManager.triggerExplosion(x, y);
+    this.audio.playExplosion();
+    this.grantElitePerk('shot', x, y);
+    this.deactivateEliteDrone('shot');
+  }
+
   public spawnOverheatSmoke(x: number, y: number) {
     if (!this.useHighEndVFX || !this.smokeEmitter) return;
     this.smokeEmitter.emitParticleAt(x, y + 10, 10);
@@ -631,6 +1093,7 @@ export default class MainScene extends Phaser.Scene {
     this.lives = state.lives;
     this.powerUpTimer = state.powerUpTimer;
     this.activePowerUps = new Map(state.activePowerUps);
+    this.applyPassivePerksFromActiveState();
     this.applyActivePowerUpEffects(true);
     this.updatePowerUpUI();
     this.updateActivePowerUps(0);
@@ -670,6 +1133,7 @@ export default class MainScene extends Phaser.Scene {
   private clearCurrentPowerUps() {
     this.activePowerUps.clear();
     this.powerUpTimer = 0;
+    this.powerUpBarRefreshMs = 0;
     this.player.setMagnetic(false);
     this.player.setTripleShot(false);
     this.player.setShield(false);
@@ -691,6 +1155,9 @@ export default class MainScene extends Phaser.Scene {
     this.enemyManager.enemies.clear(true, true);
     this.powerUpDirector.reset();
     this.ufo.deactivate();
+    this.deactivateWormhole();
+    this.deactivateEliteDrone('reset');
+    this.resetWorldEventTimers();
     this.ufoSpawnTimer = this.levelBossPendingDefeat
       ? Phaser.Math.Between(500, 900)
       : this.computeNextUFOSpawnDelay();
@@ -804,66 +1271,81 @@ export default class MainScene extends Phaser.Scene {
     this.levelTransitionEvents.length = 0;
   }
 
-  private startLevelTransitionCountdown() {
+  private startLevelTransitionCountdown(delayBeforeOverlayMs: number = 0) {
     if (this.isLevelTransition || this.isGameOver) return;
     this.isLevelTransition = true;
     this.physics.world.pause();
     this.ufo.setCombatTarget(null);
     if (this.player.body) this.player.body.enable = false;
 
-    this.levelTransitionTitle.setText(`LEVEL ${this.level}`);
-    this.levelTransitionCountdown.setText('3');
-    this.levelTransitionCountdown.setScale(1);
-    this.levelTransitionCountdown.setAlpha(1);
-    this.levelTransitionCountdown.setFontSize(94);
-    this.levelTransitionCountdown.setColor('#ffffff');
-    this.levelTransitionPrompt.setAlpha(1);
-    this.levelTransitionOverlay.setVisible(true);
-    this.levelTransitionCountdownLabel = '3';
-
     this.tweens.killTweensOf(this.levelTransitionCountdown);
     this.tweens.killTweensOf(this.levelTransitionPrompt);
-    this.tweens.add({
-      targets: this.levelTransitionPrompt,
-      alpha: 0.35,
-      duration: 420,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
-
     this.clearLevelTransitionEvents();
-    const beats = ['3', '2', '1', 'GO!'] as const;
-    const beatMs = 640;
-    beats.forEach((beat, index) => {
-      const event = this.time.delayedCall(index * beatMs, () => {
-        if (!this.isLevelTransition || !this.scene.isActive(this.scene.key)) return;
-        const isGo = beat === 'GO!';
-        this.levelTransitionCountdownLabel = beat;
-        this.levelTransitionCountdown.setText(beat);
-        this.levelTransitionCountdown.setFontSize(isGo ? 80 : 94);
-        this.levelTransitionCountdown.setColor(isGo ? '#66ff99' : '#ffffff');
-        this.levelTransitionCountdown.setScale(isGo ? 0.7 : 0.88);
-        this.levelTransitionCountdown.setAlpha(1);
-        this.tweens.add({
-          targets: this.levelTransitionCountdown,
-          scaleX: isGo ? 1.24 : 1.14,
-          scaleY: isGo ? 1.24 : 1.14,
-          alpha: isGo ? 1 : 0.9,
-          duration: beatMs - 60,
-          ease: 'Cubic.easeOut',
-        });
-        if (isGo) {
-          this.cameras.main.flash(130, 180, 255, 180, false);
-        }
-      });
-      this.levelTransitionEvents.push(event);
-    });
+    this.levelTransitionOverlay.setVisible(false);
+    this.levelTransitionCountdownLabel = '';
 
-    const finishEvent = this.time.delayedCall(beats.length * beatMs + 90, () => {
-      this.finishLevelTransitionCountdown(true);
-    });
-    this.levelTransitionEvents.push(finishEvent);
+    const beginCountdown = () => {
+      if (!this.isLevelTransition || !this.scene.isActive(this.scene.key)) return;
+
+      this.levelTransitionTitle.setText(`LEVEL ${this.level}`);
+      this.levelTransitionCountdown.setText('3');
+      this.levelTransitionCountdown.setScale(1);
+      this.levelTransitionCountdown.setAlpha(1);
+      this.levelTransitionCountdown.setFontSize(94);
+      this.levelTransitionCountdown.setColor('#ffffff');
+      this.levelTransitionPrompt.setAlpha(1);
+      this.levelTransitionOverlay.setVisible(true);
+      this.levelTransitionCountdownLabel = '3';
+
+      this.tweens.add({
+        targets: this.levelTransitionPrompt,
+        alpha: 0.35,
+        duration: 420,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+
+      const beats = ['3', '2', '1', 'GO!'] as const;
+      const beatMs = this.levelTransitionBeatMs;
+      beats.forEach((beat, index) => {
+        const event = this.time.delayedCall(index * beatMs, () => {
+          if (!this.isLevelTransition || !this.scene.isActive(this.scene.key)) return;
+          const isGo = beat === 'GO!';
+          this.levelTransitionCountdownLabel = beat;
+          this.levelTransitionCountdown.setText(beat);
+          this.levelTransitionCountdown.setFontSize(isGo ? 80 : 94);
+          this.levelTransitionCountdown.setColor(isGo ? '#66ff99' : '#ffffff');
+          this.levelTransitionCountdown.setScale(isGo ? 0.7 : 0.88);
+          this.levelTransitionCountdown.setAlpha(1);
+          this.tweens.add({
+            targets: this.levelTransitionCountdown,
+            scaleX: isGo ? 1.24 : 1.14,
+            scaleY: isGo ? 1.24 : 1.14,
+            alpha: isGo ? 1 : 0.9,
+            duration: beatMs - 60,
+            ease: 'Cubic.easeOut',
+          });
+          if (isGo) {
+            this.cameras.main.flash(130, 180, 255, 180, false);
+          }
+        });
+        this.levelTransitionEvents.push(event);
+      });
+
+      const finishEvent = this.time.delayedCall(beats.length * beatMs + 90, () => {
+        this.finishLevelTransitionCountdown(true);
+      });
+      this.levelTransitionEvents.push(finishEvent);
+    };
+
+    const safeDelay = Math.max(0, delayBeforeOverlayMs);
+    if (safeDelay === 0) {
+      beginCountdown();
+      return;
+    }
+    const delayEvent = this.time.delayedCall(safeDelay, beginCountdown);
+    this.levelTransitionEvents.push(delayEvent);
   }
 
   private finishLevelTransitionCountdown(resumePhysics: boolean) {
@@ -1176,10 +1658,7 @@ export default class MainScene extends Phaser.Scene {
       // Scout should always pop instantly on hit to avoid stale/frozen visual states.
       this.ufo.deactivate();
       this.triggerUFODestructionFX(ufoX, ufoY, 'scout');
-      this.powerUpTimer = Math.max(
-        this.powerUpTimer,
-        Math.round(5000 * this.difficultyPreset.powerUpDurationScale),
-      );
+      this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(5000));
       this.player.setMagnetic(true);
       this.addScore(500 + this.level * 25);
       this.ufoSpawnTimer = this.levelBossPendingDefeat
@@ -1203,10 +1682,7 @@ export default class MainScene extends Phaser.Scene {
 
     this.triggerUFODestructionFX(ufoX, ufoY, variant);
 
-    this.powerUpTimer = Math.max(
-      this.powerUpTimer,
-      Math.round(7000 * this.difficultyPreset.powerUpDurationScale),
-    );
+    this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(7000));
     this.player.setMagnetic(true);
     if (Phaser.Math.Between(0, 99) < 45) {
       const rewardPool = [PowerUpType.SHIELD, PowerUpType.CANNON_COOLING, PowerUpType.TRIPLE_SHOT];
@@ -1396,12 +1872,13 @@ export default class MainScene extends Phaser.Scene {
     if (shouldCoalesce) {
       this.collisionPressureMetrics.coalescedFlushes++;
       const clusterSize = 90;
-      const clusters = new Map<string, { sumX: number; sumY: number; count: number }>();
+      const clusters = this.hitClusterScratch;
+      clusters.clear();
       for (const hit of hits) {
         totalPoints += hit.points;
         const clusterX = Math.floor(hit.x / clusterSize);
         const clusterY = Math.floor(hit.y / clusterSize);
-        const key = `${clusterX}:${clusterY}`;
+        const key = clusterY * 1024 + clusterX;
         const cluster = clusters.get(key);
         if (cluster) {
           cluster.sumX += hit.x;
@@ -1597,6 +2074,8 @@ export default class MainScene extends Phaser.Scene {
     this.finishLevelTransitionCountdown(false);
     this.ufo.setCombatTarget(null);
     this.ufo.deactivate();
+    this.deactivateWormhole();
+    this.deactivateEliteDrone('reset');
     this.player.setActive(false).setVisible(false);
     this.saveActivePlayerState();
     this.switchTimer?.remove(false);
@@ -1665,6 +2144,13 @@ export default class MainScene extends Phaser.Scene {
       .setDepth(100);
     this.powerUpListText = this.add
       .text(30, powerY, '', { fontFamily: '"Press Start 2P"', fontSize: '14px', color: '#00ffff' })
+      .setDepth(100);
+    this.perkText = this.add
+      .text(30, powerY + 58, 'PERKS L+0 C+0 M+0', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '11px',
+        color: '#9effd0',
+      })
       .setDepth(100);
     const pauseBtn = this.add
       .text(GAME_WIDTH - 30, 80, '|| PAUSE', {
@@ -1760,6 +2246,24 @@ export default class MainScene extends Phaser.Scene {
       shardG.generateTexture('ufo_shard', 16, 16);
       shardG.destroy();
     }
+
+    if (!this.textures.exists('elite_drone')) {
+      const droneG = this.add.graphics();
+      droneG.fillStyle(0x103f2a, 0.95);
+      droneG.lineStyle(2, 0xa2ffd8, 1);
+      droneG.fillRoundedRect(2, 6, 28, 16, 8);
+      droneG.strokeRoundedRect(2, 6, 28, 16, 8);
+      droneG.lineStyle(1, 0xd6fff1, 0.9);
+      droneG.strokeCircle(16, 14, 4);
+      droneG.beginPath();
+      droneG.moveTo(6, 14);
+      droneG.lineTo(26, 14);
+      droneG.strokePath();
+      droneG.fillStyle(0x8affef, 0.95);
+      droneG.fillCircle(16, 4, 2.4);
+      droneG.generateTexture('elite_drone', 32, 28);
+      droneG.destroy();
+    }
   }
 
   private createStarfield() {
@@ -1779,6 +2283,7 @@ export default class MainScene extends Phaser.Scene {
 
   public getDifficultyState() {
     const bossActive = this.ufo?.active && this.ufo.getVariant() === 'boss';
+    const state = this.playerStates[this.activePlayerIndex];
     return {
       preset: this.difficultyKey,
       presetLabel: this.difficultyPreset.label,
@@ -1793,27 +2298,37 @@ export default class MainScene extends Phaser.Scene {
         active: this.isLevelTransition,
         countdown: this.levelTransitionCountdownLabel,
       },
+      perks: {
+        lifeBonus: state?.eliteLifePerkCount ?? 0,
+        coolingLevel: state?.eliteCoolingPerkLevel ?? 0,
+        magnetLevel: state?.eliteMagnetPerkLevel ?? 0,
+      },
+      worldEvents: {
+        wormholeActive: Boolean(this.wormhole?.active),
+        eliteDroneActive: Boolean(this.eliteDrone?.active),
+      },
     };
   }
 
   private pickUFOVariantForLevel(): UFOVariant {
+    // Bosses are strictly end-of-level encounters and must never spawn mid-level.
     return 'scout';
   }
 
   private computeNextUFOSpawnDelay(lastVariant?: UFOVariant) {
-    const levelRamp = (this.level - 1) * 740;
-    const rateScale = Phaser.Math.Clamp(1 / this.difficultyPreset.ufoSpawnRateScale, 0.55, 1.4);
-    const minBase = Math.max(4200, Math.round((10500 - levelRamp) * rateScale));
-    const maxBase = Math.max(minBase + 2200, Math.round((17000 - levelRamp) * rateScale));
+    const levelRamp = (this.level - 1) * 560;
+    const rateScale = Phaser.Math.Clamp(1 / this.difficultyPreset.ufoSpawnRateScale, 0.62, 1.34);
+    const minBase = Math.max(5200, Math.round((12200 - levelRamp) * rateScale));
+    const maxBase = Math.max(minBase + 2600, Math.round((18800 - levelRamp) * rateScale));
     if (lastVariant === 'boss') {
-      return Phaser.Math.Between(minBase + 2000, maxBase + 3500);
+      return Phaser.Math.Between(minBase + 2500, maxBase + 4200);
     }
     return Phaser.Math.Between(minBase, maxBase);
   }
 
   private getNextLevelScore(level: number) {
     const ramp = Math.max(0, level - 1);
-    const requirement = 2800 + ramp * 2100 + Math.pow(ramp, 1.42) * 480;
+    const requirement = 3400 + ramp * 1700 + Math.pow(ramp, 1.28) * 520;
     return Math.round(requirement * this.difficultyPreset.levelCurveScale);
   }
 

@@ -98,9 +98,9 @@ export class PowerUpDirector {
     const ramp = this.difficultyLevel - 1;
     this.comboThreshold = Phaser.Math.Clamp(5 + Math.floor(ramp / 2), 5, 10);
     const dropScale = this.preset.powerUpDropScale;
-    this.scoreInterval = Math.round((2500 + ramp * 340) / dropScale);
-    this.idleSpawnTime = Math.round((60000 + ramp * 3200) / dropScale);
-    this.spawnRollChance = Phaser.Math.Clamp((1 - ramp * 0.075) * dropScale, 0.3, 1);
+    this.scoreInterval = Math.round((2500 + ramp * 300) / dropScale);
+    this.idleSpawnTime = Math.round((60000 + ramp * 2600) / dropScale);
+    this.spawnRollChance = Phaser.Math.Clamp((1 - ramp * 0.06) * dropScale, 0.38, 1);
   }
 
   public setDifficultyPreset(preset: DifficultyPreset) {

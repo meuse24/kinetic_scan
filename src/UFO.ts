@@ -100,6 +100,13 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
   private bossPhase: 1 | 2 | 3 = 1;
   private shotPatternIndex: number = 0;
   private tentaclePhases: number[] = [0, 0.9, 1.8, 2.7, 3.6, 4.5];
+  private visualRefreshAccumulatorMs: number = 0;
+  private forceVisualRefresh: boolean = true;
+  private dodgeRefreshMs: number = 0;
+  private cachedDodgeOffset: number = 0;
+  private bossHitsLabelCache: string = '';
+  private bossHitsColorCache: string = '#ffffff';
+  private reducedVisualDetail: boolean = false;
 
   constructor(scene: Phaser.Scene, audio: AudioManager, options: UFOOptions = {}) {
     ensureUFOTextures(scene);
@@ -165,6 +172,13 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.evasionThreats = threats;
   }
 
+  public setReducedVisualDetail(reduced: boolean) {
+    if (this.reducedVisualDetail === reduced) return;
+    this.reducedVisualDetail = reduced;
+    this.forceVisualRefresh = true;
+    this.dodgeRefreshMs = 0;
+  }
+
   public getProjectiles() {
     return this.projectiles;
   }
@@ -194,6 +208,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     if (!this.visible) this.setVisible(true);
     if (this.body && !this.body.enable) this.body.enable = true;
     if (!this.visualGraphics.visible) this.visualGraphics.setVisible(true);
+    this.forceVisualRefresh = true;
   }
 
   public spawn(config: UFOSpawnConfig = {}) {
@@ -218,6 +233,12 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.hitFlashUntil = 0;
     this.shootFlashUntil = 0;
     this.displayHitPoints = 1;
+    this.visualRefreshAccumulatorMs = 0;
+    this.forceVisualRefresh = true;
+    this.dodgeRefreshMs = 0;
+    this.cachedDodgeOffset = 0;
+    this.bossHitsLabelCache = '';
+    this.bossHitsColorCache = '#ffffff';
 
     if (this.variant === 'boss') {
       const baseHealth = 6 + Math.floor(level * 1.15);
@@ -278,6 +299,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.hitPoints = Math.max(0, prevHitPoints - damage);
     this.displayHitPoints = prevHitPoints;
     this.hitFlashUntil = this.scene.time.now + 120;
+    this.forceVisualRefresh = true;
     if (this.hitPoints <= 0) {
       const variant = this.variant;
       this.deactivate();
@@ -308,7 +330,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
       if (Math.abs(this.displayHitPoints - this.hitPoints) < 0.02) {
         this.displayHitPoints = this.hitPoints;
       }
-      this.updateBossMovement(time);
+      this.updateBossMovement(time, delta);
     } else {
       this.updateScoutMovement();
     }
@@ -323,7 +345,19 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
         (this.variant === 'boss' ? -26 : 0) + Math.sin(this.timeAlive * 2.2) * 18;
     }
 
-    this.drawAnimatedBody(time);
+    const visualIntervalMs = this.reducedVisualDetail
+      ? this.variant === 'boss'
+        ? 48
+        : 36
+      : this.variant === 'boss'
+        ? 34
+        : 26;
+    this.visualRefreshAccumulatorMs += delta;
+    if (this.forceVisualRefresh || this.visualRefreshAccumulatorMs >= visualIntervalMs) {
+      this.visualRefreshAccumulatorMs = 0;
+      this.forceVisualRefresh = false;
+      this.drawAnimatedBody(time);
+    }
     this.tryShoot(time);
 
     const width = this.scene.scale.width;
@@ -341,6 +375,12 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.visualGraphics.clear();
     this.visualGraphics.setVisible(false);
     this.bossHitsText.setVisible(false);
+    this.bossHitsLabelCache = '';
+    this.bossHitsColorCache = '#ffffff';
+    this.visualRefreshAccumulatorMs = 0;
+    this.forceVisualRefresh = true;
+    this.dodgeRefreshMs = 0;
+    this.cachedDodgeOffset = 0;
     this.clearProjectiles();
     this.audioManager.stopUFOSound();
   }
@@ -358,12 +398,17 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     return 1;
   }
 
-  private updateBossMovement(time: number) {
+  private updateBossMovement(time: number, delta: number) {
     const width = this.scene.scale.width;
     const phase = this.resolveBossPhase();
     const phaseAggression = 1 + (phase - 1) * 0.22;
     const amplitudeX = (85 + this.difficultyLevel * 3) * phaseAggression;
-    const dodgeOffset = this.computeBossDodgeOffset(phase);
+    this.dodgeRefreshMs -= delta;
+    if (this.dodgeRefreshMs <= 0) {
+      this.cachedDodgeOffset = this.computeBossDodgeOffset(phase);
+      this.dodgeRefreshMs = phase === 3 ? 52 : phase === 2 ? 64 : 78;
+    }
+    const dodgeOffset = this.cachedDodgeOffset;
     const targetX = Phaser.Math.Clamp(
       this.startX + Math.sin(this.timeAlive * 1.35 + this.movementSeed) * amplitudeX + dodgeOffset,
       125,
@@ -399,7 +444,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     let dodgeAccumulator = 0;
     let considered = 0;
     const maxDistanceSq = 290 * 290;
-    const maxSamples = 14;
+    const maxSamples = this.reducedVisualDetail ? 8 : 14;
 
     for (const bullet of bulletChildren) {
       if (!bullet.active) continue;
@@ -444,7 +489,9 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
   }
 
   private drawScoutBody(time: number) {
-    this.bossHitsText.setVisible(false);
+    if (this.bossHitsText.visible) {
+      this.bossHitsText.setVisible(false);
+    }
     const g = this.visualGraphics;
     const x = this.x;
     const y = this.y;
@@ -454,7 +501,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     g.clear();
     g.setDepth(this.depth + 1);
 
-    for (let i = 0; i < this.tentaclePhases.length; i++) {
+    const tentacleStep = this.reducedVisualDetail ? 2 : 1;
+    for (let i = 0; i < this.tentaclePhases.length; i += tentacleStep) {
       const phase = this.tentaclePhases[i];
       const rootX = x - 34 + i * 14;
       const rootY = y + 14;
@@ -487,8 +535,9 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     g.fillEllipse(x, y - 6, 48, 24);
     g.strokeEllipse(x, y - 6, 48, 24);
 
-    for (let i = 0; i < 8; i++) {
-      const t = i / 8;
+    const lightCount = this.reducedVisualDetail ? 5 : 8;
+    for (let i = 0; i < lightCount; i++) {
+      const t = i / lightCount;
       const lx = x - 42 + t * 84;
       const ly = y + 6 + Math.sin(time * 0.01 + i * 0.8) * 2;
       const alpha = 0.35 + (Math.sin(time * 0.013 + i) + 1) * 0.32;
@@ -512,10 +561,9 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     const y = this.y;
     const pulse = 0.5 + Math.sin(time * 0.007 + this.movementSeed) * 0.5;
     const hpRatio = this.maxHitPoints > 0 ? this.hitPoints / this.maxHitPoints : 0;
-    const displayRatio =
-      this.maxHitPoints > 0 ? this.displayHitPoints / this.maxHitPoints : 0;
+    const displayRatio = this.maxHitPoints > 0 ? this.displayHitPoints / this.maxHitPoints : 0;
     const phase = this.resolveBossPhase();
-    const tentacleCount = 8;
+    const tentacleCount = this.reducedVisualDetail ? 5 : 8;
     const hullAccent = phase === 3 ? 0xff4eb8 : phase === 2 ? 0xff73d8 : 0xff58cf;
     const energyAccent = phase === 3 ? 0xff91ff : phase === 2 ? 0x9df6ff : 0x5ee1ff;
 
@@ -559,8 +607,9 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.drawAntennaSet(g, x - 8, y - 24, 2, 12, time, 0x9dfdff);
     this.drawAntennaSet(g, x + 18, y - 21, 2, 10, time + 240, 0xff99ef);
 
-    for (let i = 0; i < 12; i++) {
-      const angle = (i / 12) * Math.PI * 2 + time * 0.002;
+    const orbitLightCount = this.reducedVisualDetail ? 7 : 12;
+    for (let i = 0; i < orbitLightCount; i++) {
+      const angle = (i / orbitLightCount) * Math.PI * 2 + time * 0.002;
       const rx = x + Math.cos(angle) * 58;
       const ry = y + 8 + Math.sin(angle) * 14;
       const alpha = 0.25 + (Math.sin(time * 0.011 + i) + 1) * 0.24;
@@ -568,13 +617,11 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
       g.fillCircle(rx, ry, 2.5);
     }
 
-    const hpColor = Phaser.Display.Color.Interpolate.ColorWithColor(
-      Phaser.Display.Color.ValueToColor(0xff3838),
-      Phaser.Display.Color.ValueToColor(0x66ffcc),
-      100,
-      Math.round(hpRatio * 100),
-    );
-    const hpStroke = Phaser.Display.Color.GetColor(hpColor.r, hpColor.g, hpColor.b);
+    const hpLerp = Phaser.Math.Clamp(hpRatio, 0, 1);
+    const hpR = Math.round(255 * (1 - hpLerp) + 102 * hpLerp);
+    const hpG = Math.round(56 * (1 - hpLerp) + 255 * hpLerp);
+    const hpB = Math.round(56 * (1 - hpLerp) + 204 * hpLerp);
+    const hpStroke = (hpR << 16) | (hpG << 8) | hpB;
     const barX = x - 56;
     const barY = y - 40;
     const barWidth = 112;
@@ -626,8 +673,16 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     const textX = Phaser.Math.Clamp(barX + barWidth + 8, 8, this.scene.scale.width - 130);
     const textY = barY + barHeight * 0.5;
     this.bossHitsText.setPosition(textX, textY);
-    this.bossHitsText.setText(`TREFFER ${liveEnergy}`);
-    this.bossHitsText.setColor(time < this.hitFlashUntil ? '#ffefef' : '#ffffff');
+    const hitsLabel = `TREFFER ${liveEnergy}`;
+    if (hitsLabel !== this.bossHitsLabelCache) {
+      this.bossHitsText.setText(hitsLabel);
+      this.bossHitsLabelCache = hitsLabel;
+    }
+    const hitsColor = time < this.hitFlashUntil ? '#ffefef' : '#ffffff';
+    if (hitsColor !== this.bossHitsColorCache) {
+      this.bossHitsText.setColor(hitsColor);
+      this.bossHitsColorCache = hitsColor;
+    }
     this.bossHitsText.setVisible(true);
 
     this.drawCannonGlow(g, time, [x - 22, x + 22], y + 22, phase === 3 ? 0xff7f7f : 0xffb2ff);
@@ -731,6 +786,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
 
     this.fireProjectile(muzzleX, muzzleY, angle, speed, 'scout');
     this.shootFlashUntil = time + 140;
+    this.forceVisualRefresh = true;
     this.nextShotAt = time + Phaser.Math.Between(1200, 2300);
   }
 
@@ -828,6 +884,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     }
 
     this.shootFlashUntil = time + 220;
+    this.forceVisualRefresh = true;
     const minCooldown = phase === 3 ? 620 : phase === 2 ? 800 : 980;
     const maxCooldown = phase === 3 ? 980 : phase === 2 ? 1200 : 1450;
     const levelFactor = Phaser.Math.Clamp(1 - this.difficultyLevel * 0.01, 0.75, 1);
