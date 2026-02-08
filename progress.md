@@ -898,3 +898,59 @@ TODOs for next agent
     - `output/web-game/phaser-arcade-alias-smoke-2`
     - state reached gameplay (`MainScene` active),
     - no `errors-0.json` emitted.
+
+## 2026-02-08 - Feature batch: 8 gameplay enhancements
+
+### Prio 1: Score-Milestone-Feedback
+- Added `MILESTONE_TUNING` in `src/MainSceneTuning.ts` with 5 thresholds (5K/10K/25K/50K/100K).
+- Added `playMilestoneSting()` in `src/AudioManager.ts` (ascending C5-E6 triangle wave arpeggio).
+- Added `checkMilestone()` / `triggerMilestone()` in `src/MainScene.ts`: camera flash + shake + animated label text.
+
+### Prio 2: Asteroid Swarms
+- Added `SWARM_TUNING` in `src/MainSceneTuning.ts` (spawn cadence, formation, bonus values).
+- Added `swarmId`/`swarmTotal` to `Enemy` class and `spawnSwarm()` to `EnemyManager`.
+- Added swarm spawn timer, kill tracking, and full-swarm-wipe bonus in `MainScene`.
+
+### Prio 3: Rogue-Lite Perk System
+- Created `src/PerkSystem.ts` with 12 perks, stacking, modifier getters, state save/load.
+- Created `src/PerkSelectScene.ts` (3-card overlay, keyboard/click, 15s timeout).
+- Registered in `BootScene.ts` lazy loading.
+- Integrated after boss defeat in `MainScene` level transition flow.
+- Perk state persisted in `PlayerState` for 2P mode.
+
+### Prio 4: Persistent Stats + Unlocks
+- Created `src/StatsManager.ts` singleton (localStorage persistence).
+- Tracks: totalKills, totalScore, totalGames, totalDeaths, highestCombo, highestLevel, totalBossKills, totalPlaytimeMs.
+- 5 ship skins with milestone unlock conditions.
+- Wired into MainScene game lifecycle (start/kill/death/boss/end).
+
+### Prio 5: Boss Modifiers
+- Added `BossModifier` type to `src/UFO.ts`: shielded (0.2 HP/s regen), summoner (mini-swarm spawns), berserk (speed scales with HP loss), armored (50% DR).
+- `rollBossModifier()` in MainScene selects modifier at level 3+.
+- Summoner boss spawns asteroid swarms near its position every 3-5s.
+
+### Prio 6: Daily Challenge
+- Added "DAILY (C)" button to `src/AttractScene.ts`.
+- Seeds `Phaser.Math.RND` with today's date, forces normal difficulty, 1P only.
+- "DAILY CHALLENGE" HUD badge in MainScene.
+- Separate leaderboard (`spaceShooterDailyHighscore`) in GameOverScene.
+
+### Prio 7: Tutorial Hints
+- Added `showTutorialHints()` in MainScene: 3 sequential fade-in/out hints on first-ever play.
+- localStorage flag `spaceShooterTutorialShown`.
+
+### Prio 8: Volume Slider
+- Extended `SoundManager.ts` with masterVolume, sfxVolume, bgmVolume + computed effective volumes.
+- localStorage persistence (`spaceShooterVolumes`).
+- Rewrote `PauseScene.ts` with 3 draggable slider controls (track click + drag handle).
+
+### Playwright Test Suite
+- Created `tests/web_game_playwright_client.js` (reusable Playwright client).
+- Created `tests/test_combo_system.js` (5 scenarios, 7 assertions).
+- Created `.claude/skills/test-game.md` (skill definition).
+- Added combo state to `render_game_to_text()` in `src/main.ts`.
+
+### Validation
+- `npx tsc --noEmit` pass (zero errors).
+- `npm run lint` pass (zero errors for src/).
+- All 8 features compile and lint clean.

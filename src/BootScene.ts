@@ -198,11 +198,13 @@ export default class BootScene extends Phaser.Scene {
           { default: GameOverScene },
           { default: PauseScene },
           { default: HelpScene },
+          { default: PerkSelectScene },
         ] = await Promise.all([
           import('./MainScene'),
           import('./GameOverScene'),
           import('./PauseScene'),
           import('./HelpScene'),
+          import('./PerkSelectScene'),
         ]);
 
         const sceneManager = this.game.scene;
@@ -211,6 +213,8 @@ export default class BootScene extends Phaser.Scene {
           sceneManager.add('GameOverScene', GameOverScene, false);
         if (!sceneManager.keys.PauseScene) sceneManager.add('PauseScene', PauseScene, false);
         if (!sceneManager.keys.HelpScene) sceneManager.add('HelpScene', HelpScene, false);
+        if (!sceneManager.keys.PerkSelectScene)
+          sceneManager.add('PerkSelectScene', PerkSelectScene, false);
       })();
     }
     return runtimeScenesLoadPromise;

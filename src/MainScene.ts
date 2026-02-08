@@ -4,7 +4,7 @@ import { EnemyManager, Enemy } from './EnemyManager';
 import { ExplosionManager } from './ExplosionManager';
 import { AudioManager } from './AudioManager';
 import { UFO, UFOProjectile } from './UFO';
-import type { UFOVariant } from './UFO';
+import type { UFOVariant, BossModifier } from './UFO';
 import { PowerUpDirector } from './PowerUpDirector';
 import { PowerUp, PowerUpType } from './PowerUp';
 import {
@@ -23,7 +23,9 @@ import {
   ELITE_DRONE_TUNING,
   JUICE_TUNING,
   LEVEL_TRANSITION_TUNING,
+  MILESTONE_TUNING,
   SHIELD_BUNKER_TUNING,
+  SWARM_TUNING,
   SPAWN_PROTECTION_TUNING,
   WORMHOLE_TUNING,
   pickEliteDroneSpawnDelayRange,
@@ -31,6 +33,10 @@ import {
   type EliteDroneDeactivateReason,
   type IntRange,
 } from './MainSceneTuning';
+import { ComboManager } from './ComboManager';
+import type { ComboState } from './ComboManager';
+import { PerkSystem } from './PerkSystem';
+import { statsManager } from './StatsManager';
 
 interface PlayerState {
   score: number;
@@ -40,6 +46,8 @@ interface PlayerState {
   eliteLifePerkCount: number;
   eliteCoolingPerkLevel: number;
   eliteMagnetPerkLevel: number;
+  comboState: ComboState;
+  perkState: [string, number][];
 }
 
 type ElitePerkType = 'bonus_life' | 'cooling' | 'magnet';
@@ -72,6 +80,7 @@ interface NebulaLayerState {
 type MainSceneData = {
   players?: number;
   difficulty?: DifficultyPresetKey;
+  dailySeed?: string;
 };
 
 interface PendingEnemyHit {
@@ -112,6 +121,8 @@ export default class MainScene extends Phaser.Scene {
   public audio!: AudioManager;
   private ufo!: UFO;
   private powerUpDirector!: PowerUpDirector;
+  private comboManager!: ComboManager;
+  private perkSystem!: PerkSystem;
 
   private score: number = 0;
   private lives: number = 3;
@@ -244,6 +255,12 @@ export default class MainScene extends Phaser.Scene {
   private heatBar!: Phaser.GameObjects.Graphics;
   private levelText!: Phaser.GameObjects.Text;
   private lastPerkLabel: string = '';
+  private milestoneIndex: number = 0;
+  private milestoneText!: Phaser.GameObjects.Text;
+  private swarmSpawnTimerMs: number = 0;
+  private swarmKills: Map<number, number> = new Map();
+  private summonerTimerMs: number = 0;
+  private dailySeed: string = '';
   private passiveCoolingMultiplier: number = 1;
   private magneticDurationMultiplier: number = 1;
   private smokeEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
@@ -270,12 +287,17 @@ export default class MainScene extends Phaser.Scene {
     this.difficultyKey = resolveDifficultyKey(data?.difficulty ?? null);
     setCurrentDifficultyKey(this.difficultyKey);
     this.difficultyPreset = getDifficultyPreset(this.difficultyKey);
+    this.dailySeed = data?.dailySeed ?? '';
+    if (this.dailySeed) {
+      Phaser.Math.RND.sow([this.dailySeed]);
+    }
     this.activePlayerIndex = 0;
     this.debugOverlayEnabled = false;
     this.level = 1;
     this.progressionScore = 0;
     this.nextLevelScore = this.getNextLevelScore(1);
     this.levelBossPendingDefeat = false;
+    this.milestoneIndex = 0;
     this.levelStartScore = 0;
     this.levelElapsedMs = 0;
     this.earlySupportDropGranted = false;
@@ -317,6 +339,8 @@ export default class MainScene extends Phaser.Scene {
         eliteLifePerkCount: 0,
         eliteCoolingPerkLevel: 0,
         eliteMagnetPerkLevel: 0,
+        comboState: { comboCount: 0, multiplier: 1, lastKillTime: 0 },
+        perkState: [],
       });
     }
   }
@@ -354,6 +378,8 @@ export default class MainScene extends Phaser.Scene {
       eliteLifePerkCount: 0,
       eliteCoolingPerkLevel: 0,
       eliteMagnetPerkLevel: 0,
+      comboState: { comboCount: 0, multiplier: 1, lastKillTime: 0 },
+      perkState: [],
     };
     this.score = startingState.score;
     this.lives = startingState.lives;
@@ -382,6 +408,9 @@ export default class MainScene extends Phaser.Scene {
     this.ufo.setEvasionThreatGroup(this.bullets);
     this.ufo.setReducedVisualDetail(performanceMonitor.reducedParticles);
     this.powerUpDirector = new PowerUpDirector(this);
+    this.comboManager = new ComboManager(this);
+    this.perkSystem = new PerkSystem();
+    statsManager.onGameStart();
     this.applyDifficultyProfile(true);
 
     this.useHighEndVFX =
@@ -424,6 +453,7 @@ export default class MainScene extends Phaser.Scene {
     this.applyActivePowerUpEffects(true);
     this.resetLevelOpeningState();
     this.applySpawnProtection(SPAWN_PROTECTION_TUNING.startGraceMs, true);
+    this.showTutorialHints();
     this.ufoSpawnTimer = this.computeNextUFOSpawnDelay();
 
     this.physics.add.overlap(
@@ -519,6 +549,7 @@ export default class MainScene extends Phaser.Scene {
       if (bunkerGroup?.children && typeof bunkerGroup.clear === 'function') {
         bunkerGroup.clear(true, true);
       }
+      this.comboManager.destroy();
       this.powerUpBar.destroy();
       this.heatBar.destroy();
       this.damageOverlayTween?.stop();
@@ -569,7 +600,10 @@ export default class MainScene extends Phaser.Scene {
     this.enemyManager.update(time, delta);
     this.updateWormhole(delta);
     this.updateEliteDrone(delta);
+    this.updateSwarmSpawner(delta);
     this.flushPendingEnemyHits();
+    this.comboManager.update(time);
+    this.comboManager.updateHUD();
     this.powerUpDirector.update(this.progressionScore, delta);
     this.updateProjectileTrails(delta);
 
@@ -630,6 +664,9 @@ export default class MainScene extends Phaser.Scene {
       if (this.ufoSpawnTimer <= 0) {
         if (this.levelBossPendingDefeat) {
           this.ufo.spawn({ variant: 'boss', level: this.level });
+          if (this.level >= 3) {
+            this.ufo.setBossModifier(this.rollBossModifier());
+          }
           this.ufoSpawnTimer = Phaser.Math.Between(1700, 2500);
         } else {
           const variant = this.pickUFOVariantForLevel();
@@ -637,6 +674,32 @@ export default class MainScene extends Phaser.Scene {
           this.ufoSpawnTimer = this.computeNextUFOSpawnDelay(variant);
         }
       }
+    }
+
+    // Summoner boss modifier: spawn extra asteroids periodically
+    if (
+      this.ufo.active &&
+      this.ufo.getVariant() === 'boss' &&
+      this.ufo.getBossModifier() === 'summoner'
+    ) {
+      this.summonerTimerMs -= delta;
+      if (this.summonerTimerMs <= 0) {
+        this.summonerTimerMs = Phaser.Math.Between(3000, 5000);
+        const sx = this.ufo.x + Phaser.Math.Between(-80, 80);
+        const sy = this.ufo.y + 30;
+        this.enemyManager.spawnSwarm(3, 0.5, 220, 40, 20);
+        this.cameras.main.flash(60, 180, 100, 255, false);
+        // reposition last swarm near boss
+        const enemies = this.enemyManager.enemies.getChildren() as Enemy[];
+        for (let i = enemies.length - 1; i >= Math.max(0, enemies.length - 3); i--) {
+          const e = enemies[i];
+          if (e.active && e.swarmId > 0) {
+            e.setPosition(sx + Phaser.Math.Between(-40, 40), sy);
+          }
+        }
+      }
+    } else {
+      this.summonerTimerMs = 2000;
     }
 
     if (this.powerUpTimer > 0) {
@@ -761,13 +824,114 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private addScore(points: number) {
-    this.score += points;
-    this.progressionScore += points;
+    const prevScore = this.score;
+    const adjusted = Math.round(points * this.perkSystem.getScoreMultiplier());
+    this.score += adjusted;
+    this.progressionScore += adjusted;
     if (this.playerStates[this.activePlayerIndex]) {
       this.playerStates[this.activePlayerIndex].score = this.score;
     }
+    this.checkMilestone(prevScore, this.score);
     this.checkLevelProgression();
     this.updateHUD();
+  }
+
+  private checkMilestone(prevScore: number, newScore: number) {
+    const thresholds = MILESTONE_TUNING.thresholds;
+    if (this.milestoneIndex >= thresholds.length) return;
+    const next = thresholds[this.milestoneIndex];
+    if (prevScore < next.score && newScore >= next.score) {
+      this.triggerMilestone(this.milestoneIndex);
+      this.milestoneIndex++;
+    }
+  }
+
+  private triggerMilestone(index: number) {
+    const m = MILESTONE_TUNING.thresholds[index];
+    const [r, g, b] = m.flashColor;
+    this.cameras.main.flash(MILESTONE_TUNING.flashDurationMs, r, g, b, false);
+    this.cameras.main.shake(MILESTONE_TUNING.shakeDurationMs, MILESTONE_TUNING.shakeIntensity);
+    this.audio.playMilestoneSting();
+
+    this.milestoneText
+      .setText(m.label)
+      .setColor(m.color)
+      .setScale(0.5)
+      .setAlpha(1)
+      .setVisible(true);
+
+    this.tweens.add({
+      targets: this.milestoneText,
+      scaleX: 1.2,
+      scaleY: 1.2,
+      duration: 280,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: this.milestoneText,
+          y: this.milestoneText.y - MILESTONE_TUNING.textRiseY,
+          alpha: 0,
+          scaleX: 0.9,
+          scaleY: 0.9,
+          duration: MILESTONE_TUNING.textDurationMs - 280,
+          delay: 400,
+          ease: 'Sine.easeIn',
+          onComplete: () => {
+            this.milestoneText.setVisible(false);
+            this.milestoneText.setY(GAME_HEIGHT * 0.32);
+          },
+        });
+      },
+    });
+  }
+
+  private showTutorialHints() {
+    try {
+      if (localStorage.getItem('spaceShooterTutorialShown')) return;
+      localStorage.setItem('spaceShooterTutorialShown', '1');
+    } catch {
+      return;
+    }
+
+    const centerX = GAME_WIDTH / 2;
+    const hintStyle = {
+      fontFamily: '"Press Start 2P"',
+      fontSize: '14px',
+      color: '#ffffff',
+      stroke: '#000000',
+      strokeThickness: 3,
+    };
+
+    const hints = [
+      { text: 'ARROWS / WASD TO MOVE', delayMs: 500, durationMs: 2500 },
+      { text: 'SPACE TO FIRE', delayMs: 3500, durationMs: 2500 },
+      { text: 'COLLECT POWER-UPS!', delayMs: 7000, durationMs: 2500 },
+    ];
+
+    for (const hint of hints) {
+      this.time.delayedCall(hint.delayMs, () => {
+        if (!this.scene.isActive(this.scene.key) || this.isGameOver) return;
+        const t = this.add
+          .text(centerX, GAME_HEIGHT * 0.55, hint.text, hintStyle)
+          .setOrigin(0.5)
+          .setDepth(142)
+          .setAlpha(0);
+        this.tweens.add({
+          targets: t,
+          alpha: 1,
+          duration: 300,
+          onComplete: () => {
+            this.tweens.add({
+              targets: t,
+              alpha: 0,
+              delay: hint.durationMs - 600,
+              duration: 300,
+              onComplete: () => t.destroy(),
+            });
+          },
+        });
+      });
+    }
   }
 
   private checkLevelProgression() {
@@ -799,10 +963,11 @@ export default class MainScene extends Phaser.Scene {
     if (!this.levelBossPendingDefeat || this.isGameOver) return;
     this.levelBossPendingDefeat = false;
     this.level += 1;
+    statsManager.onBossKill();
+    statsManager.updateHighestLevel(this.level);
     this.nextLevelScore = this.progressionScore + this.getNextLevelScore(this.level);
     this.applyDifficultyProfile();
     this.resetLevelOpeningState();
-    this.startLevelTransitionCountdown(LEVEL_TRANSITION_TUNING.bossDefeatCelebrationDelayMs);
     this.tweens.add({
       targets: this.levelText,
       scaleX: 1.24,
@@ -811,6 +976,45 @@ export default class MainScene extends Phaser.Scene {
       yoyo: true,
       ease: 'Sine.easeOut',
     });
+
+    // Show perk selection, then continue to level transition countdown
+    const celebrationMs = LEVEL_TRANSITION_TUNING.bossDefeatCelebrationDelayMs;
+    if (this.perkSystem.rollChoices(1).length > 0) {
+      this.time.delayedCall(celebrationMs, () => {
+        if (!this.scene.isActive(this.scene.key) || this.isGameOver) return;
+        this.events.once('perkSelectDone', () => {
+          this.applyPerkEffects();
+          this.startLevelTransitionCountdown(0);
+        });
+        this.scene.launch('PerkSelectScene', {
+          perkSystem: this.perkSystem,
+          level: this.level,
+        });
+      });
+    } else {
+      this.startLevelTransitionCountdown(celebrationMs);
+    }
+  }
+
+  private rollBossModifier(): BossModifier {
+    const pool: BossModifier[] = ['shielded', 'berserk', 'armored'];
+    if (this.level >= 4) pool.push('summoner');
+    return Phaser.Utils.Array.GetRandom(pool);
+  }
+
+  private applyPerkEffects() {
+    // Apply shield-on-level-up perk
+    if (this.perkSystem.hasShieldOnLevel() && !this.player.getShieldActive()) {
+      this.player.setShield(true);
+      this.activePowerUps.set(PowerUpType.SHIELD, Infinity);
+    }
+    // Apply start-shield perk (same effect)
+    if (this.perkSystem.hasStartShield() && this.level === 2 && !this.player.getShieldActive()) {
+      this.player.setShield(true);
+      this.activePowerUps.set(PowerUpType.SHIELD, Infinity);
+    }
+    // Extra lives from perk are applied immediately when selected (addPerk recalculates)
+    // Other perk effects are read dynamically via getters in the gameplay loop
   }
 
   private applyDifficultyProfile(silent: boolean = false) {
@@ -1223,6 +1427,46 @@ export default class MainScene extends Phaser.Scene {
     this.wormholeForceAccumulatorMs = 0;
     this.eliteDroneSpawnTimer = this.rollRange(ELITE_DRONE_TUNING.initialSpawnDelayMs);
     this.eliteDroneLifetimeMs = 0;
+    this.swarmSpawnTimerMs =
+      this.level >= SWARM_TUNING.minLevel ? this.rollRange(SWARM_TUNING.initialDelayMs) : 999999;
+    this.swarmKills.clear();
+  }
+
+  private updateSwarmSpawner(delta: number) {
+    if (this.level < SWARM_TUNING.minLevel || this.isLevelTransition || this.isSwitching) return;
+    this.swarmSpawnTimerMs -= delta;
+    if (this.swarmSpawnTimerMs > 0) return;
+    this.swarmSpawnTimerMs = this.rollRange(SWARM_TUNING.spawnIntervalMs);
+
+    const count = Phaser.Math.Between(SWARM_TUNING.countRange[0], SWARM_TUNING.countRange[1]);
+    const swarmId = this.enemyManager.spawnSwarm(
+      count,
+      SWARM_TUNING.scale,
+      SWARM_TUNING.speed,
+      SWARM_TUNING.spacingX,
+      SWARM_TUNING.spacingY,
+    );
+    if (swarmId > 0) {
+      this.swarmKills.set(swarmId, 0);
+    }
+  }
+
+  private onSwarmEnemyKilled(enemy: Enemy, x: number, y: number) {
+    if (enemy.swarmId === 0) return;
+    const swarmId = enemy.swarmId;
+    const total = enemy.swarmTotal;
+    const kills = (this.swarmKills.get(swarmId) ?? 0) + 1;
+    this.swarmKills.set(swarmId, kills);
+
+    if (kills >= total) {
+      // Full swarm wiped — bonus!
+      const bonus = SWARM_TUNING.bonusPerAsteroid * total * SWARM_TUNING.fullSwarmBonusMultiplier;
+      this.addScore(bonus);
+      this.comboManager.spawnClusterPopup(x, y - 20, bonus);
+      this.cameras.main.flash(100, 136, 204, 255, false);
+      this.audio.playPickup();
+      this.swarmKills.delete(swarmId);
+    }
   }
 
   private applyPassivePerksFromActiveState() {
@@ -1608,6 +1852,8 @@ export default class MainScene extends Phaser.Scene {
     state.score = this.score;
     state.lives = this.lives;
     state.powerUpTimer = this.powerUpTimer;
+    state.comboState = this.comboManager.saveState();
+    state.perkState = this.perkSystem.saveState();
     this.syncActivePowerUpsToState();
   }
 
@@ -1618,6 +1864,8 @@ export default class MainScene extends Phaser.Scene {
     this.lives = state.lives;
     this.powerUpTimer = state.powerUpTimer;
     this.activePowerUps = new Map(state.activePowerUps);
+    this.comboManager.loadState(state.comboState);
+    this.perkSystem.loadState(state.perkState);
     this.activeStateSyncMs = 0;
     this.applyPassivePerksFromActiveState();
     this.applyActivePowerUpEffects(true);
@@ -2648,7 +2896,8 @@ export default class MainScene extends Phaser.Scene {
       this.triggerUFODestructionFX(ufoX, ufoY, 'scout');
       this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(5000));
       this.player.setMagnetic(true);
-      this.addScore(500 + this.level * 25);
+      const scoutPoints = 500 + this.level * 25;
+      this.addScore(this.comboManager.registerKill(ufoX, ufoY, scoutPoints, this.time.now));
       this.ufoSpawnTimer = this.levelBossPendingDefeat
         ? Phaser.Math.Between(650, 1200)
         : this.computeNextUFOSpawnDelay('scout');
@@ -2683,7 +2932,8 @@ export default class MainScene extends Phaser.Scene {
       const reward = Phaser.Utils.Array.GetRandom(rewardPool);
       this.activatePowerUp(reward);
     }
-    this.addScore(1800 + this.level * 220 + bossPhase * 120);
+    const bossPoints = 1800 + this.level * 220 + bossPhase * 120;
+    this.addScore(this.comboManager.registerKill(ufoX, ufoY, bossPoints, this.time.now));
     if (this.levelBossPendingDefeat) {
       this.completeLevelAfterBossDefeat();
     }
@@ -2816,6 +3066,7 @@ export default class MainScene extends Phaser.Scene {
       const x = enemy.x;
       const y = enemy.y;
       const points = Math.floor(100 / enemy.scaleX);
+      const wasSwarm = enemy.swarmId > 0;
       bullet.disableBody(true, true);
       this.powerUpDirector.onAsteroidDestroyed(enemy.x, enemy.y);
       this.enemyManager.splitAsteroid(enemy.x, enemy.y, enemy.scaleX);
@@ -2829,6 +3080,7 @@ export default class MainScene extends Phaser.Scene {
         this.applyImpactShake(80, 0.003);
       }
       this.enqueuePendingEnemyHit(x, y, points, 'bullet');
+      if (wasSwarm) this.onSwarmEnemyKilled(enemy, x, y);
     }
   }
 
@@ -2974,7 +3226,11 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private enqueuePendingEnemyHit(x: number, y: number, points: number, source: 'bullet' | 'emp') {
-    this.pendingEnemyHits.push({ x, y, points, source });
+    const multipliedPoints =
+      points > 0 ? this.comboManager.registerKill(x, y, points, this.time.now) : 0;
+    statsManager.onKill();
+    statsManager.updateHighestCombo(this.comboManager.getState().comboCount);
+    this.pendingEnemyHits.push({ x, y, points: multipliedPoints, source });
     this.collisionPressureMetrics.queuedTotal += 1;
     if (source === 'emp') this.collisionPressureMetrics.queuedEmpTotal += 1;
     else this.collisionPressureMetrics.queuedBulletTotal += 1;
@@ -3046,6 +3302,8 @@ export default class MainScene extends Phaser.Scene {
     this.applyImpactShake(460, 0.031);
     this.spawnImpactRing(this.player.x, this.player.y, 0xff8c8c, 22, 98, 220);
     this.powerUpDirector.resetDamageFreeTime();
+    this.comboManager.reset();
+    statsManager.onDeath();
 
     if (this.playerCount === 1) {
       if (this.lives <= 0) {
@@ -3092,6 +3350,8 @@ export default class MainScene extends Phaser.Scene {
     this.removeShieldBunkers();
     this.player.setActive(false).setVisible(false);
     this.saveActivePlayerState();
+    statsManager.updateHighestLevel(this.level);
+    statsManager.onGameEnd(this.score);
     this.switchTimer?.remove(false);
     this.time.delayedCall(1500, () => {
       this.scene.stop('PauseScene');
@@ -3099,6 +3359,7 @@ export default class MainScene extends Phaser.Scene {
         scores: this.playerStates.map((state) => state.score),
         players: this.playerCount,
         difficulty: this.difficultyKey,
+        dailySeed: this.dailySeed,
       });
     });
   }
@@ -3167,6 +3428,8 @@ export default class MainScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 0)
       .setDepth(100);
+    const comboHudY = levelRowY + (isCompactHud ? 18 : 22);
+    this.comboManager.createHUD(comboHudY, isCompactHud);
     const debugY =
       this.playerCount === 2
         ? isCompactHud
@@ -3204,6 +3467,29 @@ export default class MainScene extends Phaser.Scene {
         color: '#9effd0',
       })
       .setDepth(100);
+    this.milestoneText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.32, '', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: `${MILESTONE_TUNING.fontSize}px`,
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setDepth(MILESTONE_TUNING.textDepth)
+      .setVisible(false);
+    if (this.dailySeed) {
+      this.add
+        .text(GAME_WIDTH / 2, isCompactHud ? 6 : 10, 'DAILY CHALLENGE', {
+          fontFamily: '"Press Start 2P"',
+          fontSize: isCompactHud ? '9px' : '10px',
+          color: '#ffcc44',
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5, 0)
+        .setDepth(100);
+    }
     this.setDebugOverlayVisible(false);
     const pauseBtn = this.add
       .text(GAME_WIDTH - hudMarginX, pauseButtonY, '|| PAUSE (P)', {

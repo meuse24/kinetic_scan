@@ -18,6 +18,7 @@ interface GameOverData {
   scores?: number[];
   players?: number;
   difficulty?: DifficultyPresetKey;
+  dailySeed?: string;
 }
 
 interface ScoreEntry {
@@ -31,7 +32,8 @@ type PlayerButton = {
   label: Phaser.GameObjects.Text;
 };
 
-const STORAGE_KEY = 'spaceShooterHighscore';
+const STORAGE_KEY_NORMAL = 'spaceShooterHighscore';
+const STORAGE_KEY_DAILY = 'spaceShooterDailyHighscore';
 const LEADERBOARD_SIZE = 5;
 const FALLBACK_ENTRY: ScoreEntry = { name: '---', score: 0 };
 
@@ -48,6 +50,7 @@ export default class GameOverScene extends Phaser.Scene {
   private coinText!: Phaser.GameObjects.Text;
   private creditLabel!: Phaser.GameObjects.Text;
   private difficultyKey: DifficultyPresetKey = getCurrentDifficultyKey();
+  private dailySeed: string = '';
   private difficultyText!: Phaser.GameObjects.Text;
   private playerButtons: PlayerButton[] = [];
   private idleTimer?: Phaser.Time.TimerEvent;
@@ -61,8 +64,13 @@ export default class GameOverScene extends Phaser.Scene {
     super('GameOverScene');
   }
 
+  private getStorageKey() {
+    return this.dailySeed ? STORAGE_KEY_DAILY : STORAGE_KEY_NORMAL;
+  }
+
   init(data: GameOverData) {
     this.difficultyKey = resolveDifficultyKey(data?.difficulty ?? null);
+    this.dailySeed = data?.dailySeed ?? '';
     setCurrentDifficultyKey(this.difficultyKey);
     const scores = Array.isArray(data.scores) ? [...data.scores] : [data.score ?? 0];
     if (data.players === 2 || scores.length > 1) {
@@ -533,7 +541,7 @@ export default class GameOverScene extends Phaser.Scene {
   private loadScores(): ScoreEntry[] {
     const entries: ScoreEntry[] = [];
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(this.getStorageKey());
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
@@ -554,7 +562,7 @@ export default class GameOverScene extends Phaser.Scene {
 
   private saveScores(entries: ScoreEntry[]) {
     const trimmed = entries.filter((entry) => entry.score > 0 && entry.name !== '---');
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+    localStorage.setItem(this.getStorageKey(), JSON.stringify(trimmed));
   }
 
   private createHelpButton() {

@@ -12,6 +12,9 @@ const FRAGMENT_CAP_BUFFER = 8;
 const OFFSCREEN_CULL_INTERVAL_MS = 64;
 
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
+  public swarmId: number = 0;
+  public swarmTotal: number = 0;
+
   constructor(scene: Phaser.Scene, x: number, y: number) {
     super(scene, x, y, 'asteroid_0');
   }
@@ -45,6 +48,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       this.setTexture(textureKey);
       this.setScale(Phaser.Math.FloatBetween(0.5, 2.0));
     }
+
+    this.swarmId = 0;
+    this.swarmTotal = 0;
 
     // 2. Physics Body & Offset
     this.enableBody(true, x, y, true, true);
@@ -92,6 +98,7 @@ export class EnemyManager {
   private enemySpeedMultiplier: number = 1;
   private runtimeIntensity: number = 1;
   private preset: DifficultyPreset = getDifficultyPreset('normal');
+  private nextSwarmId: number = 1;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -176,6 +183,39 @@ export class EnemyManager {
         fragment.spawn(x, y, newScale, vx, vy, this.enemySpeedMultiplier);
       }
     }
+  }
+
+  public spawnSwarm(
+    count: number,
+    scale: number,
+    speed: number,
+    spacingX: number,
+    spacingY: number,
+  ): number {
+    const width = this.scene.scale.width;
+    const centerX = Phaser.Math.Between(Math.round(width * 0.25), Math.round(width * 0.75));
+    const startY = -60;
+    const swarmId = this.nextSwarmId++;
+    let spawned = 0;
+
+    for (let i = 0; i < count; i++) {
+      const row = Math.floor(i / 2);
+      const col = i % 2;
+      const offsetX = (col === 0 ? -1 : 1) * Math.floor((i + 1) / 2) * spacingX * 0.5;
+      const offsetY = -row * spacingY;
+      const x = centerX + offsetX;
+      const y = startY + offsetY;
+
+      const enemy = this.enemies.get(x, y) as Enemy;
+      if (enemy) {
+        enemy.spawn(x, y, scale, 0, speed, this.enemySpeedMultiplier);
+        enemy.swarmId = swarmId;
+        enemy.swarmTotal = count;
+        spawned++;
+      }
+    }
+
+    return spawned > 0 ? swarmId : 0;
   }
 
   private generateAsteroidTextures() {

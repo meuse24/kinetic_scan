@@ -148,3 +148,46 @@ Classic arcade credits and a two-player alternating flow keep the game loop auth
 - **Credit Manager:** Global credits persist across scenes. Press `I` or tap the on-screen "INSERT COIN (I)" text to add credits. Start buttons consume 1 credit for 1P or 2 credits for 2P.
 - **2-Player Turn System:** Each player has their own score, lives, and active power-ups. When a life is lost, gameplay pauses briefly, a "PLAYER X GET READY" overlay appears with an interactive "PRESS START" prompt, and control swaps after input.
 - **End Condition:** The run ends only when both players are out of lives. Game Over shows both final scores and allows immediate 1P/2P restart with credits.
+
+### 17. Score Milestones & Combo System
+- **Combo System:** Kill-streak tracking with configurable timeout (3s default). Each consecutive kill within the window increments the combo counter and multiplier. Score popups display combo multiplier and bonus points.
+- **Score Milestones:** At 5K, 10K, 25K, 50K, and 100K score thresholds, the game triggers camera flash + shake, an ascending arpeggio sound effect, and a large animated text label (e.g., "EXCELLENT!", "UNSTOPPABLE!").
+
+### 18. Asteroid Swarms
+- **V-Formation Spawning:** From level 2+, groups of 5-8 small asteroids spawn in V-formation every 20-30 seconds.
+- **Swarm Kill Tracking:** Each swarm member carries a shared `swarmId`. Destroying all members of a swarm awards a bonus multiplier (3x per-asteroid bonus for full wipe).
+
+### 19. Rogue-Lite Perk System
+- **Post-Boss Selection:** After each boss defeat, a `PerkSelectScene` overlay presents 3 random perk cards.
+- **12 Perks:** Fire rate, max life, fragment score, homing chance, cooldown speed, bullet speed, score multiplier, shield-on-level, explosion radius, combo window, magnet range, start shield.
+- **Stacking:** Most perks can be stacked up to 3 times for cumulative effects.
+- **15s Auto-Timeout:** If no selection is made, a random perk is chosen automatically.
+- **Keyboard/Mouse:** Select via keys `1`/`2`/`3` or click.
+
+### 20. Boss Modifiers
+- **From Level 3+:** Boss UFOs receive a random modifier for variety.
+- **4 Modifier Types:**
+  - `Shielded`: passive HP regeneration (0.2 HP/s).
+  - `Summoner`: periodically spawns mini asteroid swarms near the boss.
+  - `Berserk`: movement speed scales up as HP decreases (up to 60% faster at low HP).
+  - `Armored`: 50% damage reduction on all hits.
+
+### 21. Daily Challenge
+- **Seeded Runs:** Today's date string seeds `Phaser.Math.RND` for deterministic spawn sequences.
+- **Fixed Difficulty:** Always `normal`, 1P only.
+- **Separate Leaderboard:** Daily high scores stored independently (`spaceShooterDailyHighscore`).
+- **HUD Badge:** "DAILY CHALLENGE" displayed during gameplay.
+- **Access:** `C` key or "DAILY (C)" button in attract screen.
+
+### 22. Persistent Stats & Unlocks
+- **Lifetime Stats:** Total kills, total score, total games, total deaths, highest combo, highest level, boss kills, playtime — all persisted to `localStorage`.
+- **Ship Skins:** 5 color variants unlocked via milestone conditions (500 kills, level 5, 10 boss kills, 50K total score).
+
+### 23. Tutorial Hints
+- **First-Play Only:** On the very first game start, 3 sequential fade-in/fade-out hints guide the player: "ARROWS TO MOVE", "SPACE TO FIRE", "COLLECT POWER-UPS".
+- **One-Time:** Stored in `localStorage` (`spaceShooterTutorialShown`), never shown again.
+
+### 24. Volume Control
+- **Per-Channel Sliders:** Pause menu features 3 draggable sliders for MASTER, SFX, and BGM volume.
+- **Effective Volume:** SFX = master × sfx, BGM = master × bgm.
+- **Persistence:** Volume settings saved to `localStorage` and restored on next session.

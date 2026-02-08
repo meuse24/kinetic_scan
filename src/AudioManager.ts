@@ -468,6 +468,26 @@ export class AudioManager {
     click.stop(now + shotDuration * 0.8);
   }
 
+  public playMilestoneSting() {
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
+    const now = this.audioContext.currentTime;
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51];
+    const step = 0.07;
+    for (let i = 0; i < notes.length; i++) {
+      const t = now + i * step;
+      const osc = this.audioContext.createOscillator();
+      const gain = this.audioContext.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(notes[i], t);
+      gain.gain.setValueAtTime(0.28, t);
+      gain.gain.exponentialRampToValueAtTime(0.01, t + 0.22);
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + 0.22);
+    }
+  }
+
   public startUFOSound() {
     if (
       !this.audioContext ||

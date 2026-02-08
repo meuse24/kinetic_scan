@@ -22,9 +22,10 @@
 - Prefix intentionally unused parameters with `_` to satisfy lint rules.
 
 ## Testing Guidelines
-- There is no automated test suite configured yet.
+- Playwright-based automation tests in `tests/` (run with `node tests/test_combo_system.js` against a running dev server).
 - Minimum pre-PR checks: `npm run lint`, `npm run build`, then manual smoke testing in browser (`npm run dev`).
 - Validate critical flows: attract -> play -> pause/help -> game over, plus resize/fullscreen behavior.
+- Validate new systems: combo multiplier, perk selection after boss, swarm bonus, daily challenge leaderboard, milestone effects, volume sliders.
 - If adding tests, prefer `src/**/*.test.ts` naming and add corresponding npm scripts in `package.json`.
 
 ## Commit & Pull Request Guidelines

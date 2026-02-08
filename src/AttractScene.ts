@@ -317,6 +317,7 @@ export default class AttractScene extends Phaser.Scene {
     this.difficultyText.on('pointerdown', () => this.cycleDifficulty(1));
 
     this.createPlayerButtons(centerX, centerY + 210, uiDepth);
+    this.createDailyChallengeButton(centerX, centerY + 280, uiDepth);
 
     this.createPowerUpPreview(centerX, GAME_HEIGHT - 130, uiDepth);
     this.createEventBanner(centerX, centerY + 164, uiDepth);
@@ -1395,6 +1396,37 @@ export default class AttractScene extends Phaser.Scene {
     recalculateDimensions();
     setCurrentDifficultyKey(this.difficultyKey);
     this.scene.start('MainScene', { players: requiredCredits, difficulty: this.difficultyKey });
+  }
+
+  private createDailyChallengeButton(centerX: number, y: number, depth: number) {
+    const bg = this.add
+      .rectangle(centerX, y, 260, 44, 0x664400, 0.8)
+      .setDepth(depth)
+      .setStrokeStyle(1, 0xffaa00)
+      .setInteractive({ useHandCursor: true });
+    this.add
+      .text(centerX, y, 'DAILY (C)', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '14px',
+        color: '#ffcc44',
+      })
+      .setOrigin(0.5)
+      .setDepth(depth);
+    bg.on('pointerdown', () => this.startDaily());
+    this.input.keyboard?.on('keydown-C', () => this.startDaily());
+  }
+
+  private startDaily() {
+    if (!creditManager.spendCredits(1)) return;
+    void this.audio.resume();
+    recalculateDimensions();
+    const today = new Date().toISOString().slice(0, 10);
+    setCurrentDifficultyKey('normal');
+    this.scene.start('MainScene', {
+      players: 1,
+      difficulty: 'normal' as DifficultyPresetKey,
+      dailySeed: today,
+    });
   }
 
   private createTitleLogo(centerX: number, y: number, depth: number) {

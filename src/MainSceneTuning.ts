@@ -207,6 +207,54 @@ export const JUICE_TUNING = {
   } as Record<DifficultyPresetKey, number>,
 } as const;
 
+export const COMBO_TUNING = {
+  timeWindowMs: 2500,
+  thresholds: [
+    { minKills: 0, multiplier: 1, color: '#ffffff', hudColor: '' },
+    { minKills: 3, multiplier: 2, color: '#ffff00', hudColor: '#ffff00' },
+    { minKills: 6, multiplier: 3, color: '#ff8800', hudColor: '#ff8800' },
+    { minKills: 10, multiplier: 5, color: '#ff2200', hudColor: '#ff2200' },
+    { minKills: 15, multiplier: 8, color: '#ff00ff', hudColor: '#ff00ff' },
+  ],
+  popupPoolSize: 20,
+  popupRiseY: 36,
+  popupDurationMs: 650,
+  popupFontSize: 11,
+  popupDepth: 141,
+} as const;
+
+export const SWARM_TUNING = {
+  minLevel: 2,
+  spawnIntervalMs: [20000, 30000] as IntRange,
+  initialDelayMs: [12000, 18000] as IntRange,
+  countRange: [5, 8] as IntRange,
+  scale: 0.45,
+  speed: 260,
+  spacingX: 52,
+  spacingY: 28,
+  bonusPerAsteroid: 50,
+  fullSwarmBonusMultiplier: 3,
+  swarmColor: 0x88ccff,
+} as const;
+
+export const MILESTONE_TUNING = {
+  thresholds: [
+    { score: 5000, label: 'NICE!', color: '#ffff00', flashColor: [255, 255, 100] as const },
+    { score: 10000, label: 'GREAT!', color: '#ff8800', flashColor: [255, 180, 60] as const },
+    { score: 25000, label: 'EXCELLENT!', color: '#ff4400', flashColor: [255, 100, 40] as const },
+    { score: 50000, label: 'INCREDIBLE!', color: '#ff00ff', flashColor: [255, 80, 255] as const },
+    { score: 100000, label: 'UNSTOPPABLE!', color: '#00ffff', flashColor: [80, 255, 255] as const },
+  ],
+  fontSize: 38,
+  flashDurationMs: 200,
+  flashAlpha: 160,
+  textRiseY: 60,
+  textDurationMs: 1800,
+  textDepth: 145,
+  shakeIntensity: 0.008,
+  shakeDurationMs: 250,
+} as const;
+
 export const pickEliteDroneSpawnDelayRange = (reason: EliteDroneDeactivateReason): IntRange => {
   if (reason === 'reset') return ELITE_DRONE_TUNING.resetSpawnDelayMs;
   if (reason === 'expired') return ELITE_DRONE_TUNING.expiredSpawnDelayMs;

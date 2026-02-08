@@ -148,6 +148,11 @@ if (typeof window.render_game_to_text !== 'function') {
           x: Math.round(bunker.x),
           y: Math.round(bunker.y),
         }));
+      const comboState = main.comboManager?.getState?.();
+      payload.combo = {
+        count: comboState?.comboCount ?? 0,
+        multiplier: comboState?.multiplier ?? 1,
+      };
     }
 
     const attract = (game.scene.keys as Record<string, any>).AttractScene;

@@ -75,6 +75,8 @@ export class UFOProjectile extends Phaser.Physics.Arcade.Sprite {
   }
 }
 
+export type BossModifier = 'none' | 'shielded' | 'summoner' | 'berserk' | 'armored';
+
 export class UFO extends Phaser.Physics.Arcade.Sprite {
   private startX: number = 0;
   private startY: number = 0;
@@ -102,6 +104,9 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
   private displayHitPoints: number = 1;
   private bossPhase: 1 | 2 | 3 = 1;
   private shotPatternIndex: number = 0;
+  private bossModifier: BossModifier = 'none';
+  private regenAccumulatorMs: number = 0;
+  private lastBerserkScale: number = 1;
   private tentaclePhases: number[] = [0, 0.9, 1.8, 2.7, 3.6, 4.5];
   private visualRefreshAccumulatorMs: number = 0;
   private forceVisualRefresh: boolean = true;
@@ -206,6 +211,15 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     return this.variant === 'boss' ? this.bossPhase : 0;
   }
 
+  public setBossModifier(mod: BossModifier) {
+    this.bossModifier = mod;
+    this.regenAccumulatorMs = 0;
+  }
+
+  public getBossModifier(): BossModifier {
+    return this.bossModifier;
+  }
+
   public ensureCombatReady() {
     if (!this.active) this.setActive(true);
     if (!this.visible) this.setVisible(true);
@@ -244,6 +258,9 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.cachedDodgeOffset = 0;
     this.bossHitsLabelCache = '';
     this.bossHitsColorCache = '#ffffff';
+    this.bossModifier = 'none';
+    this.regenAccumulatorMs = 0;
+    this.lastBerserkScale = 1;
 
     if (this.variant === 'boss') {
       const baseHealth = 6 + Math.floor(level * 1.15);
@@ -300,8 +317,9 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
         this.displayHitPoints = this.maxHitPoints;
       }
     }
+    const effectiveDamage = this.bossModifier === 'armored' ? damage * 0.5 : damage;
     const prevHitPoints = this.hitPoints;
-    this.hitPoints = Math.max(0, prevHitPoints - damage);
+    this.hitPoints = Math.max(0, prevHitPoints - effectiveDamage);
     this.displayHitPoints = prevHitPoints;
     this.hitFlashUntil = this.scene.time.now + 120;
     this.forceVisualRefresh = true;
@@ -334,6 +352,27 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
       );
       if (Math.abs(this.displayHitPoints - this.hitPoints) < 0.02) {
         this.displayHitPoints = this.hitPoints;
+      }
+      // Shielded: slow HP regen (0.2 HP/sec)
+      if (this.bossModifier === 'shielded' && this.hitPoints < this.maxHitPoints) {
+        this.regenAccumulatorMs += delta;
+        if (this.regenAccumulatorMs >= 1000) {
+          this.regenAccumulatorMs -= 1000;
+          this.hitPoints = Math.min(this.maxHitPoints, this.hitPoints + 0.2);
+          this.forceVisualRefresh = true;
+        }
+      }
+      // Berserk: speed increases as HP decreases
+      if (this.bossModifier === 'berserk' && this.body) {
+        const hpRatio = this.hitPoints / Math.max(1, this.maxHitPoints);
+        const berserkScale = 1 + (1 - hpRatio) * 0.6;
+        const baseVx = this.body.velocity.x;
+        if (Math.abs(baseVx) > 10) {
+          const sign = baseVx > 0 ? 1 : -1;
+          const absSpeed = Math.abs(baseVx) / (this.lastBerserkScale ?? 1);
+          this.lastBerserkScale = berserkScale;
+          this.body.velocity.x = sign * absSpeed * berserkScale;
+        }
       }
       this.updateBossMovement(time, delta);
     } else {

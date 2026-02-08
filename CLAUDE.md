@@ -31,10 +31,10 @@ Audio is hybrid:
 
 Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/lazy-loader) -> **AttractScene** (title/menu) -> **MainScene** (gameplay) -> **GameOverScene** -> back to AttractScene. **PauseScene** and **HelpScene** overlay during gameplay. **BezelScene** runs as a persistent overlay providing a CRT monitor bezel frame.
 
-- `src/AttractScene.ts` — Title screen with attract-mode demo, credit system, 1P/2P start buttons, high scores, and occasional demo UFO shots
-- `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, 2-player turn switching, debug/test bunker trigger (`B` or double-click/double-tap when inactive)
-- `src/GameOverScene.ts` — Game over screen with high score entry (keyboard, touch swipe/tap, mouse wheel)
-- `src/PauseScene.ts` — Pause overlay
+- `src/AttractScene.ts` — Title screen with attract-mode demo, credit system, 1P/2P start buttons, high scores, daily challenge button, and occasional demo UFO shots
+- `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, 2-player turn switching, combo system, perk integration, swarm spawning, boss modifiers, score milestones, tutorial hints, daily challenge mode, debug/test bunker trigger (`B` or double-click/double-tap when inactive)
+- `src/GameOverScene.ts` — Game over screen with high score entry (keyboard, touch swipe/tap, mouse wheel), separate daily challenge leaderboard
+- `src/PauseScene.ts` — Pause overlay with sound toggle and master/SFX/BGM volume sliders
 - `src/HelpScene.ts` — Controls/help overlay with scrollable content, `BACK (ESC/H)`, and a dedicated click hit-area for reliable pointer input
 - `src/BezelScene.ts` — Decorative CRT bezel frame with optional reflection effect
 
@@ -42,17 +42,21 @@ Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/l
 
 - `src/Player.ts` — `Player` class (ship movement, input handling for keyboard/mouse/touch, heat system) and `Bullet` class. All textures generated procedurally.
 - `src/EnemyManager.ts` — `Enemy` (asteroid) class and `EnemyManager` that handles spawning, fragmentation on destroy, and difficulty scaling
-- `src/UFO.ts` — UFO enemy with two variants: `scout` (single-hit, sine-wave movement) and `boss` (multi-hit with segmented energy bar, phase-based attack patterns, dodge AI). Both drawn procedurally with animated tentacles, hull, and antenna
+- `src/UFO.ts` — UFO enemy with two variants: `scout` (single-hit, sine-wave movement) and `boss` (multi-hit with segmented energy bar, phase-based attack patterns, dodge AI, boss modifiers: shielded/summoner/berserk/armored). Both drawn procedurally with animated tentacles, hull, and antenna
 
 ### Systems
 
 - `src/PowerUp.ts` — `PowerUp` sprite class and `PowerUpType` enum (TRIPLE_SHOT, SLOW_MOTION, SHIELD, EMP_WAVE, GHOST_PHASE, WINGMAN_DRONES, CANNON_COOLING, BLACK_HOLE, SHIELD_BUNKER)
 - `src/PowerUpDirector.ts` — Decides when/what power-ups spawn based on combo streaks, score thresholds, accuracy, and idle time
-- `src/MainSceneTuning.ts` — Central tuning constants for transitions, early-level ramp, spawn protection, background decor, and shield bunker timing/layout
+- `src/ComboManager.ts` — Combo kill tracking with configurable timeout window, multiplier tiers, and score popup integration
+- `src/PerkSystem.ts` — Rogue-lite perk registry (12 perks) with stacking logic, state save/load, and modifier getters
+- `src/PerkSelectScene.ts` — Post-boss overlay showing 3 random perk cards; keyboard (1/2/3) or click selection with 15s auto-timeout
+- `src/StatsManager.ts` — Persistent lifetime stats (kills, deaths, boss kills, combo, level, playtime, total score) and 5 unlockable ship skins via localStorage
+- `src/MainSceneTuning.ts` — Central tuning constants for transitions, early-level ramp, spawn protection, background decor, shield bunker timing/layout, swarm spawning, and score milestones
 - `src/ExplosionManager.ts` — Particle emitter pools for asteroid and player death explosions
-- `src/AudioManager.ts` — Web Audio API synthesizer for all game sounds (shoot, explode, power-up, UFO hum, etc.)
+- `src/AudioManager.ts` — Web Audio API synthesizer for all game sounds (shoot, explode, power-up, UFO hum, milestone sting, etc.)
 - `src/MusicManager.ts` — BGM controller for scene-specific loops (`song.mp3` in menu-like scenes, `gameloop.mp3` during gameplay at reduced volume so SFX remain dominant)
-- `src/SoundManager.ts` — Global mute toggle singleton, persisted to localStorage
+- `src/SoundManager.ts` — Global mute/unmute toggle + per-channel volume (master/SFX/BGM) singleton, persisted to localStorage
 - `src/CreditManager.ts` — Arcade-style credit/coin system singleton
 - `src/CRTPipeline.ts` — Custom WebGL post-processing shader (scanlines, chromatic aberration, curvature, vignette)
 
