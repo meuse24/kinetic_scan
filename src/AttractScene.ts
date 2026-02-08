@@ -282,13 +282,18 @@ export default class AttractScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
     this.coinText.on('pointerdown', () => this.insertCoin());
     this.coinInfoText = this.add
-      .text(centerX, centerY + 24, '(C) 2026 GMEU\nvite tsx claude\ngemini codex suno', {
+      .text(
+        centerX,
+        centerY + 24,
+        '(C) 2026 GMEU\nvite tsx claude\ngemini codex suno\nphaser-3',
+        {
         fontFamily: '"Press Start 2P"',
         fontSize: '20px',
         color: '#00ffff',
         align: 'center',
         lineSpacing: 4,
-      })
+        },
+      )
       .setOrigin(0.5)
       .setDepth(uiDepth);
     this.helpText = this.add
