@@ -127,7 +127,8 @@ export default class AttractScene extends Phaser.Scene {
   private ufoSpawnTimer: number = 0;
   private ambientEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   private highScoreGroup!: Phaser.GameObjects.Container;
-  private showScores: boolean = false;
+  private dailyChallengeGroup!: Phaser.GameObjects.Container;
+  private attractDisplayState: number = 0; // 0: Info, 1: Scores, 2: Daily
   private demoSplitTimer: number = 0;
   private enemyDepthRefreshMs: number = 0;
   private heartbeatActive: boolean = false;
@@ -279,6 +280,9 @@ export default class AttractScene extends Phaser.Scene {
     this.highScoreGroup = this.createHighScoreTable(centerX, centerY + 80, uiDepth);
     this.highScoreGroup.setAlpha(0);
 
+    this.dailyChallengeGroup = this.createDailyChallengeBlock(centerX, centerY + 100, uiDepth);
+    this.dailyChallengeGroup.setAlpha(0);
+
     this.time.addEvent({
       delay: 5000,
       loop: true,
@@ -317,7 +321,6 @@ export default class AttractScene extends Phaser.Scene {
     this.difficultyText.on('pointerdown', () => this.cycleDifficulty(1));
 
     this.createPlayerButtons(centerX, centerY + 210, uiDepth);
-    this.createDailyChallengeButton(centerX, centerY + 280, uiDepth);
 
     this.createPowerUpPreview(centerX, GAME_HEIGHT - 130, uiDepth);
     this.createEventBanner(centerX, centerY + 164, uiDepth);
@@ -477,43 +480,30 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   private toggleAttractMessage() {
-    this.showScores = !this.showScores;
+    this.attractDisplayState = (this.attractDisplayState + 1) % 3;
     this.playAttractWarpPulse(
       this.coinText?.x ?? GAME_WIDTH / 2,
       (this.coinText?.y ?? GAME_HEIGHT / 2) - 40,
       'soft',
     );
-    if (this.showScores) {
-      this.tweens.add({ targets: this.coinText, alpha: 0, duration: 400, ease: 'Sine.easeInOut' });
-      this.tweens.add({
-        targets: this.coinInfoText,
-        alpha: 0,
-        duration: 400,
-        ease: 'Sine.easeInOut',
-      });
-      this.tweens.add({ targets: this.helpText, alpha: 0, duration: 400, ease: 'Sine.easeInOut' });
-      this.tweens.add({
-        targets: this.highScoreGroup,
-        alpha: 1,
-        duration: 500,
-        ease: 'Sine.easeInOut',
-      });
-    } else {
-      this.tweens.add({ targets: this.coinText, alpha: 1, duration: 500, ease: 'Sine.easeInOut' });
-      this.tweens.add({
-        targets: this.coinInfoText,
-        alpha: 1,
-        duration: 500,
-        ease: 'Sine.easeInOut',
-      });
-      this.tweens.add({ targets: this.helpText, alpha: 1, duration: 500, ease: 'Sine.easeInOut' });
-      this.tweens.add({
-        targets: this.highScoreGroup,
-        alpha: 0,
-        duration: 400,
-        ease: 'Sine.easeInOut',
-      });
-    }
+
+    const infoAlpha = this.attractDisplayState === 0 ? 1 : 0;
+    const scoresAlpha = this.attractDisplayState === 1 ? 1 : 0;
+    const dailyAlpha = this.attractDisplayState === 2 ? 1 : 0;
+
+    const duration = 400;
+    const ease = 'Sine.easeInOut';
+
+    // Infoblock
+    this.tweens.add({ targets: this.coinText, alpha: infoAlpha, duration, ease });
+    this.tweens.add({ targets: this.coinInfoText, alpha: infoAlpha, duration, ease });
+    this.tweens.add({ targets: this.helpText, alpha: infoAlpha, duration, ease });
+
+    // Scores
+    this.tweens.add({ targets: this.highScoreGroup, alpha: scoresAlpha, duration, ease });
+
+    // Daily Challenge
+    this.tweens.add({ targets: this.dailyChallengeGroup, alpha: dailyAlpha, duration, ease });
   }
 
   private startHeartbeatPulse() {
@@ -1398,22 +1388,34 @@ export default class AttractScene extends Phaser.Scene {
     this.scene.start('MainScene', { players: requiredCredits, difficulty: this.difficultyKey });
   }
 
-  private createDailyChallengeButton(centerX: number, y: number, depth: number) {
-    const bg = this.add
-      .rectangle(centerX, y, 260, 44, 0x664400, 0.8)
-      .setDepth(depth)
-      .setStrokeStyle(1, 0xffaa00)
-      .setInteractive({ useHandCursor: true });
-    this.add
-      .text(centerX, y, 'DAILY (C)', {
+  private createDailyChallengeBlock(centerX: number, y: number, depth: number): Phaser.GameObjects.Container {
+    const title = this.add
+      .text(centerX, y - 40, 'DAILY CHALLENGE', {
         fontFamily: '"Press Start 2P"',
-        fontSize: '14px',
+        fontSize: '18px',
         color: '#ffcc44',
       })
-      .setOrigin(0.5)
-      .setDepth(depth);
+      .setOrigin(0.5);
+
+    const bg = this.add
+      .rectangle(centerX, y + 20, 280, 50, 0x664400, 0.8)
+      .setStrokeStyle(2, 0xffaa00)
+      .setInteractive({ useHandCursor: true });
+
+    const btnText = this.add
+      .text(centerX, y + 20, 'START (C)', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '16px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+
     bg.on('pointerdown', () => this.startDaily());
     this.input.keyboard?.on('keydown-C', () => this.startDaily());
+
+    const group = this.add.container(0, 0, [title, bg, btnText]);
+    group.setDepth(depth);
+    return group;
   }
 
   private startDaily() {

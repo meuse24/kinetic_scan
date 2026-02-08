@@ -35,11 +35,14 @@ export default class PerkSelectScene extends Phaser.Scene {
     const overlay = this.add.rectangle(centerX, centerY, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.8);
     overlay.setInteractive();
 
+    const titleY = isNarrow ? centerY - totalHeight / 2 - 80 : centerY - 220;
+    const subtitleY = isNarrow ? centerY - totalHeight / 2 - 40 : centerY - 175;
+
     // Title
     this.add
-      .text(centerX, centerY - 220, `LEVEL ${level} PERK`, {
+      .text(centerX, titleY, `LEVEL ${level} PERK`, {
         fontFamily: '"Press Start 2P"',
-        fontSize: '32px',
+        fontSize: isNarrow ? '24px' : '32px',
         color: '#ffdd00',
         stroke: '#000000',
         strokeThickness: 4,
@@ -47,7 +50,7 @@ export default class PerkSelectScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .text(centerX, centerY - 175, 'CHOOSE AN UPGRADE', {
+      .text(centerX, subtitleY, 'CHOOSE AN UPGRADE', {
         fontFamily: '"Press Start 2P"',
         fontSize: '16px',
         color: '#aaaaaa',
@@ -64,15 +67,24 @@ export default class PerkSelectScene extends Phaser.Scene {
     }
 
     // Render cards
-    const cardWidth = 240;
-    const cardHeight = 280;
-    const cardGap = 24;
-    const totalWidth = this.choices.length * cardWidth + (this.choices.length - 1) * cardGap;
-    const startX = centerX - totalWidth / 2 + cardWidth / 2;
+    const isNarrow = GAME_WIDTH < 768;
+    const cardWidth = isNarrow ? Math.min(480, GAME_WIDTH - 60) : 240;
+    const cardHeight = isNarrow ? 120 : 280;
+    const cardGap = isNarrow ? 16 : 24;
+
+    const totalHeight = isNarrow
+      ? this.choices.length * cardHeight + (this.choices.length - 1) * cardGap
+      : cardHeight;
+    const totalWidth = isNarrow
+      ? cardWidth
+      : this.choices.length * cardWidth + (this.choices.length - 1) * cardGap;
+
+    const startX = isNarrow ? centerX : centerX - totalWidth / 2 + cardWidth / 2;
+    const startY = isNarrow ? centerY - totalHeight / 2 + cardHeight / 2 + 20 : centerY + 20;
 
     this.choices.forEach((perk, i) => {
-      const cx = startX + i * (cardWidth + cardGap);
-      const cy = centerY + 20;
+      const cx = isNarrow ? startX : startX + i * (cardWidth + cardGap);
+      const cy = isNarrow ? startY + i * (cardHeight + cardGap) : startY;
       const currentStacks = this.perkSystem.getStacks(perk.id);
 
       // Card background
@@ -80,57 +92,114 @@ export default class PerkSelectScene extends Phaser.Scene {
       card.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(perk.color).color);
       card.setInteractive({ useHandCursor: true });
 
-      // Icon
-      this.add
-        .text(cx, cy - 95, perk.icon, {
-          fontFamily: '"Press Start 2P"',
-          fontSize: '44px',
-          color: perk.color,
-        })
-        .setOrigin(0.5);
+      if (isNarrow) {
+        // Horizontal layout within the narrow card
+        const iconSize = 40;
+        const padding = 16;
+        const leftX = cx - cardWidth / 2 + padding + iconSize / 2;
 
-      // Name
-      this.add
-        .text(cx, cy - 35, perk.name, {
-          fontFamily: '"Press Start 2P"',
-          fontSize: '14px',
-          color: '#ffffff',
-          wordWrap: { width: cardWidth - 24 },
-          align: 'center',
-        })
-        .setOrigin(0.5);
-
-      // Description
-      this.add
-        .text(cx, cy + 15, perk.description, {
-          fontFamily: '"Press Start 2P"',
-          fontSize: '11px',
-          color: '#cccccc',
-          wordWrap: { width: cardWidth - 24 },
-          align: 'center',
-        })
-        .setOrigin(0.5);
-
-      // Stack indicator
-      if (perk.maxStacks > 1) {
-        const stackLabel = `${currentStacks}/${perk.maxStacks}`;
+        // Icon
         this.add
-          .text(cx, cy + 60, stackLabel, {
+          .text(leftX, cy, perk.icon, {
             fontFamily: '"Press Start 2P"',
-            fontSize: '12px',
+            fontSize: '32px',
+            color: perk.color,
+          })
+          .setOrigin(0.5);
+
+        // Name
+        this.add
+          .text(leftX + iconSize + 12, cy - 20, perk.name, {
+            fontFamily: '"Press Start 2P"',
+            fontSize: '14px',
+            color: '#ffffff',
+            align: 'left',
+          })
+          .setOrigin(0, 0.5);
+
+        // Description
+        this.add
+          .text(leftX + iconSize + 12, cy + 10, perk.description, {
+            fontFamily: '"Press Start 2P"',
+            fontSize: '10px',
+            color: '#cccccc',
+            wordWrap: { width: cardWidth - iconSize - padding * 3 },
+            align: 'left',
+          })
+          .setOrigin(0, 0.5);
+
+        // Stack & Key hint (bottom right)
+        const rightX = cx + cardWidth / 2 - padding;
+        const stackLabel = perk.maxStacks > 1 ? `${currentStacks}/${perk.maxStacks}` : '';
+        this.add
+          .text(rightX, cy - 20, stackLabel, {
+            fontFamily: '"Press Start 2P"',
+            fontSize: '11px',
             color: '#888888',
+          })
+          .setOrigin(1, 0.5);
+
+        this.add
+          .text(rightX, cy + 20, `[${i + 1}]`, {
+            fontFamily: '"Press Start 2P"',
+            fontSize: '16px',
+            color: '#ffff88',
+          })
+          .setOrigin(1, 0.5);
+      } else {
+        // Vertical layout (original desktop style)
+        // Icon
+        this.add
+          .text(cx, cy - 95, perk.icon, {
+            fontFamily: '"Press Start 2P"',
+            fontSize: '44px',
+            color: perk.color,
+          })
+          .setOrigin(0.5);
+
+        // Name
+        this.add
+          .text(cx, cy - 35, perk.name, {
+            fontFamily: '"Press Start 2P"',
+            fontSize: '14px',
+            color: '#ffffff',
+            wordWrap: { width: cardWidth - 24 },
+            align: 'center',
+          })
+          .setOrigin(0.5);
+
+        // Description
+        this.add
+          .text(cx, cy + 15, perk.description, {
+            fontFamily: '"Press Start 2P"',
+            fontSize: '11px',
+            color: '#cccccc',
+            wordWrap: { width: cardWidth - 24 },
+            align: 'center',
+          })
+          .setOrigin(0.5);
+
+        // Stack indicator
+        if (perk.maxStacks > 1) {
+          const stackLabel = `${currentStacks}/${perk.maxStacks}`;
+          this.add
+            .text(cx, cy + 60, stackLabel, {
+              fontFamily: '"Press Start 2P"',
+              fontSize: '12px',
+              color: '#888888',
+            })
+            .setOrigin(0.5);
+        }
+
+        // Key hint
+        this.add
+          .text(cx, cy + 105, `[${i + 1}]`, {
+            fontFamily: '"Press Start 2P"',
+            fontSize: '18px',
+            color: '#ffff88',
           })
           .setOrigin(0.5);
       }
-
-      // Key hint
-      this.add
-        .text(cx, cy + 105, `[${i + 1}]`, {
-          fontFamily: '"Press Start 2P"',
-          fontSize: '18px',
-          color: '#ffff88',
-        })
-        .setOrigin(0.5);
 
       // Hover effect
       card.on('pointerover', () => {
@@ -154,8 +223,9 @@ export default class PerkSelectScene extends Phaser.Scene {
     }
 
     // Auto-timeout: 15s → pick random
+    const timerY = isNarrow ? centerY + totalHeight / 2 + 60 : centerY + 180;
     const timerText = this.add
-      .text(centerX, centerY + 180, '15', {
+      .text(centerX, timerY, '15', {
         fontFamily: '"Press Start 2P"',
         fontSize: '12px',
         color: '#666666',
