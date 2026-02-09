@@ -7,8 +7,34 @@ export type EliteDroneDeactivateReason = 'rescued' | 'shot' | 'expired' | 'reset
 export type BackgroundDecorTier = 'off' | 'low' | 'medium' | 'high';
 
 export const LEVEL_TRANSITION_TUNING = {
-  bossDefeatCelebrationDelayMs: 1600,
+  bossDefeatCelebrationDelayMs: 2600,
+  gameOverTransitionDelayMs: 2300,
   beatMs: 1050,
+} as const;
+
+export const LEVEL_PROGRESS_TUNING: {
+  minLevelDurationMs: Record<DifficultyPresetKey, number>;
+} = {
+  // Hard gate: each level must run at least this long before boss encounter can start.
+  minLevelDurationMs: {
+    easy: 60000,
+    normal: 60000,
+    hard: 60000,
+  },
+};
+
+export const LEVEL_BONUS_TUNING = {
+  asteroidKillPoints: 10,
+  specialKillPoints: 100,
+  basePayoutDurationMs: 1200,
+  perPointDurationMs: 1.2,
+  payoutDurationRangeMs: [1700, 3600] as IntRange,
+  completionHoldMs: 560,
+  fireworkBurstIntervalMs: 130,
+  fireworkExplosionSfxModulo: 3,
+  fireworkXPadding: 110,
+  fireworkYRangeRatio: [0.2, 0.68] as FloatRange,
+  coinTickIntervalMs: 34,
 } as const;
 
 export const BACKGROUND_DECOR_TUNING = {

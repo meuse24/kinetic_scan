@@ -128,6 +128,28 @@ if (typeof window.render_game_to_text !== 'function') {
             ? main.ufo.getActiveProjectileCount()
             : 0,
       };
+      const skyRaiders = main.skyRaiderManager?.getRaiders?.()?.getChildren?.() ?? [];
+      const activeSkyRaiders = skyRaiders
+        .filter((raider: any) => raider.active)
+        .slice(0, 12)
+        .map((raider: any) => ({
+          x: Math.round(raider.x),
+          y: Math.round(raider.y),
+          variant: raider.getVariant?.() ?? null,
+          health: raider.getHealth?.() ?? 0,
+          maxHealth: raider.getMaxHealth?.() ?? 0,
+        }));
+      payload.skyRaiders = activeSkyRaiders;
+      payload.skyRaiderStats = {
+        active:
+          typeof main.skyRaiderManager?.getActiveRaiderCount === 'function'
+            ? main.skyRaiderManager.getActiveRaiderCount()
+            : activeSkyRaiders.length,
+        shots:
+          typeof main.skyRaiderManager?.getActiveProjectileCount === 'function'
+            ? main.skyRaiderManager.getActiveProjectileCount()
+            : 0,
+      };
       if (typeof main.getCollisionPressureStats === 'function') {
         payload.collisionPressure = main.getCollisionPressureStats();
       }
@@ -239,6 +261,8 @@ if (FORCE_CANVAS_CAPTURE) {
         ufoVariant: main.ufo?.getVariant?.() ?? null,
         ufoHealth: main.ufo?.getHealth?.() ?? 0,
         ufoShots: main.ufo?.getActiveProjectileCount?.() ?? 0,
+        skyRaiders: main.skyRaiderManager?.getActiveRaiderCount?.() ?? 0,
+        skyRaiderShots: main.skyRaiderManager?.getActiveProjectileCount?.() ?? 0,
         spawnProtectionMs: main.spawnProtectionTimerMs ?? 0,
       };
     },

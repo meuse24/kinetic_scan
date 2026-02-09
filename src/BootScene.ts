@@ -99,30 +99,47 @@ export default class BootScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    // Hint text
+    // Startup / app-management guidance
     this.add
       .text(
         centerX,
-        GAME_HEIGHT - 60,
+        GAME_HEIGHT - 176,
         IS_TOUCH ? 'TAP START TO PLAY' : 'PRESS ENTER OR CLICK START',
         {
           fontFamily,
-          fontSize: '12px',
-          color: '#666666',
+          fontSize: '16px',
+          color: '#8b93a5',
         },
       )
       .setOrigin(0.5);
 
-    // Install hint (mobile only)
-    if (IS_TOUCH && !window.matchMedia('(display-mode: standalone)').matches) {
-      this.add
-        .text(centerX, GAME_HEIGHT - 30, 'TIP: ADD TO HOME SCREEN FOR FULLSCREEN', {
+    const guideTopY = GAME_HEIGHT - 112;
+    this.add
+      .rectangle(centerX, guideTopY + 38, Math.min(980, GAME_WIDTH - 28), 118, 0x091422, 0.78)
+      .setStrokeStyle(1, 0x2f415a, 0.9);
+    this.add
+      .text(centerX, guideTopY, 'INSTALL / UNINSTALL APP', {
+        fontFamily,
+        fontSize: '18px',
+        color: '#ffdf99',
+      })
+      .setOrigin(0.5);
+    this.add
+      .text(
+        centerX,
+        guideTopY + 38,
+        IS_TOUCH
+          ? 'INSTALL: SHARE OR BROWSER MENU -> ADD TO HOME SCREEN\nUNINSTALL: PRESS-HOLD APP ICON -> REMOVE APP'
+          : 'INSTALL: ADDRESS-BAR INSTALL ICON OR BROWSER MENU -> INSTALL APP\nUNINSTALL: OS APP SETTINGS OR BROWSER APP-MANAGER -> REMOVE',
+        {
           fontFamily,
-          fontSize: '8px',
-          color: '#444444',
-        })
-        .setOrigin(0.5);
-    }
+          fontSize: '12px',
+          color: '#b6c0d3',
+          align: 'center',
+          lineSpacing: 6,
+        },
+      )
+      .setOrigin(0.5);
 
     // Keyboard shortcuts
     this.input.keyboard?.on('keydown-S', () => this.toggleSound());

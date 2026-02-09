@@ -63,7 +63,7 @@ async function main() {
     assert(
       gameState.combo && gameState.combo.count === 0,
       'Initial combo count is 0',
-      `got ${JSON.stringify(gameState.combo)}`
+      `got ${JSON.stringify(gameState.combo)}`,
     );
 
     // ─── Scenario 2: Shoot asteroids → score + combo increase ────────
@@ -89,13 +89,17 @@ async function main() {
     await screenshot(page, '03_after_shooting');
 
     console.log(
-      `  State: score=${afterShooting.score}, combo=${JSON.stringify(afterShooting.combo)}, enemies=${afterShooting.enemies?.length ?? '?'}`
+      `  State: score=${afterShooting.score}, combo=${JSON.stringify(afterShooting.combo)}, enemies=${afterShooting.enemies?.length ?? '?'}`,
     );
-    assert(afterShooting.score > 0, 'Score increased after shooting', `score=${afterShooting.score}`);
+    assert(
+      afterShooting.score > 0,
+      'Score increased after shooting',
+      `score=${afterShooting.score}`,
+    );
     // Combo may or may not be active depending on whether we hit anything recently
     // Just report it
     console.log(
-      `  Info: combo count=${afterShooting.combo?.count ?? 'N/A'}, multiplier=${afterShooting.combo?.multiplier ?? 'N/A'}`
+      `  Info: combo count=${afterShooting.combo?.count ?? 'N/A'}, multiplier=${afterShooting.combo?.multiplier ?? 'N/A'}`,
     );
 
     // ─── Scenario 3: Combo timeout ───────────────────────────────────
@@ -113,7 +117,7 @@ async function main() {
     await sleep(200);
     const beforeTimeout = await getGameState(page);
     console.log(
-      `  Before timeout: combo count=${beforeTimeout.combo?.count ?? 0}, multiplier=${beforeTimeout.combo?.multiplier ?? 1}`
+      `  Before timeout: combo count=${beforeTimeout.combo?.count ?? 0}, multiplier=${beforeTimeout.combo?.multiplier ?? 1}`,
     );
 
     // Wait 3.5 seconds (combo timeWindowMs is 2500ms)
@@ -123,17 +127,17 @@ async function main() {
     const afterTimeout = await getGameState(page);
     await screenshot(page, '04_after_combo_timeout');
     console.log(
-      `  After timeout: combo count=${afterTimeout.combo?.count ?? 0}, multiplier=${afterTimeout.combo?.multiplier ?? 1}`
+      `  After timeout: combo count=${afterTimeout.combo?.count ?? 0}, multiplier=${afterTimeout.combo?.multiplier ?? 1}`,
     );
     assert(
       afterTimeout.combo?.count === 0,
       'Combo count reset to 0 after timeout',
-      `got count=${afterTimeout.combo?.count}`
+      `got count=${afterTimeout.combo?.count}`,
     );
     assert(
       afterTimeout.combo?.multiplier === 1,
       'Combo multiplier reset to 1 after timeout',
-      `got multiplier=${afterTimeout.combo?.multiplier}`
+      `got multiplier=${afterTimeout.combo?.multiplier}`,
     );
 
     // ─── Scenario 4: Player death resets combo ───────────────────────
@@ -152,7 +156,7 @@ async function main() {
     const beforeDeath = await getGameState(page);
     const livesBefore = beforeDeath.lives;
     console.log(
-      `  Before death: lives=${livesBefore}, combo count=${beforeDeath.combo?.count ?? 0}`
+      `  Before death: lives=${livesBefore}, combo count=${beforeDeath.combo?.count ?? 0}`,
     );
 
     // Wait for player to be hit naturally (enemies should be spawning)
@@ -175,12 +179,12 @@ async function main() {
       const afterDeath = await getGameState(page);
       await screenshot(page, '05_after_death');
       console.log(
-        `  After death: lives=${afterDeath.lives}, combo count=${afterDeath.combo?.count ?? '?'}`
+        `  After death: lives=${afterDeath.lives}, combo count=${afterDeath.combo?.count ?? '?'}`,
       );
       assert(
         afterDeath.combo?.count === 0,
         'Combo resets on player death',
-        `got count=${afterDeath.combo?.count}`
+        `got count=${afterDeath.combo?.count}`,
       );
     } else {
       console.log('  SKIP: Could not trigger player death within timeout');

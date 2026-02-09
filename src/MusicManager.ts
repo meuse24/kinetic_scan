@@ -7,6 +7,10 @@ export const MENU_MUSIC_KEY = 'music_menu_loop';
 export const GAMEPLAY_MUSIC_KEY = 'music_gameplay_loop';
 export const MENU_MUSIC_URL = menuMusicUrl;
 export const GAMEPLAY_MUSIC_URL = gameplayMusicUrl;
+type ManagedMusicSound =
+  | Phaser.Sound.WebAudioSound
+  | Phaser.Sound.HTML5AudioSound
+  | Phaser.Sound.NoAudioSound;
 
 class MusicManager {
   private readonly menuVolume = 0.3;
@@ -15,6 +19,7 @@ class MusicManager {
   private menuAudio: Phaser.Sound.BaseSound | null = null;
   private gameplayAudio: Phaser.Sound.BaseSound | null = null;
   private muteListenerBound = false;
+  private volumeListenerBound = false;
 
   private applyMuteState() {
     if (!this.phaserSoundManager) return;
@@ -27,6 +32,22 @@ class MusicManager {
     soundManager.onChange((muted: boolean) => {
       if (!this.phaserSoundManager) return;
       this.phaserSoundManager.mute = muted;
+    });
+  }
+
+  private applyVolumeState() {
+    const bgmScale = soundManager.getEffectiveBgmVolume();
+    const menuTrack = this.menuAudio as ManagedMusicSound | null;
+    const gameplayTrack = this.gameplayAudio as ManagedMusicSound | null;
+    if (menuTrack) menuTrack.volume = this.menuVolume * bgmScale;
+    if (gameplayTrack) gameplayTrack.volume = this.gameplayVolume * bgmScale;
+  }
+
+  private bindVolumeListener() {
+    if (this.volumeListenerBound) return;
+    this.volumeListenerBound = true;
+    soundManager.onVolumeChange(() => {
+      this.applyVolumeState();
     });
   }
 
@@ -51,7 +72,9 @@ class MusicManager {
         });
     }
     this.applyMuteState();
+    this.applyVolumeState();
     this.bindMuteListener();
+    this.bindVolumeListener();
   }
 
   play(scene: Phaser.Scene) {

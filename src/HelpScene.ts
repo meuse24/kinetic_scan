@@ -54,6 +54,10 @@ export default class HelpScene extends Phaser.Scene {
       maxOffsetX: 42,
       maxOffsetY: 28,
     });
+    this.add
+      .rectangle(centerX, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x040914, 0.72)
+      .setDepth(-30);
+    this.add.rectangle(centerX, titleY, GAME_WIDTH - 72, 72, 0x0a1322, 0.9).setDepth(-20);
 
     if (this.returnScene) {
       const targetScene = this.scene.get(this.returnScene);
@@ -107,6 +111,16 @@ export default class HelpScene extends Phaser.Scene {
     const viewHeight = GAME_HEIGHT - 200;
     this.viewRect = new Phaser.Geom.Rectangle(margin, 140, viewWidth, viewHeight);
     this.visibleHeight = this.viewRect.height - 40;
+    this.add
+      .rectangle(
+        this.viewRect.centerX,
+        this.viewRect.centerY,
+        this.viewRect.width,
+        this.viewRect.height,
+        0x0a1322,
+        0.92,
+      )
+      .setDepth(-10);
 
     const frame = this.add.graphics();
     frame.lineStyle(2, 0xffffff, 1);

@@ -5,6 +5,8 @@ import { ExplosionManager } from './ExplosionManager';
 import { AudioManager } from './AudioManager';
 import { UFO, UFOProjectile } from './UFO';
 import type { UFOVariant, BossModifier } from './UFO';
+import { SkyRaiderManager, SkyRaider, SkyRaiderShot } from './SkyRaider';
+import type { SkyRaiderVariant } from './SkyRaider';
 import { PowerUpDirector } from './PowerUpDirector';
 import { PowerUp, PowerUpType } from './PowerUp';
 import {
@@ -22,6 +24,8 @@ import {
   EARLY_LEVEL_TUNING,
   ELITE_DRONE_TUNING,
   JUICE_TUNING,
+  LEVEL_BONUS_TUNING,
+  LEVEL_PROGRESS_TUNING,
   LEVEL_TRANSITION_TUNING,
   MILESTONE_TUNING,
   SHIELD_BUNKER_TUNING,
@@ -91,6 +95,15 @@ interface PendingEnemyHit {
   source: 'bullet' | 'emp';
 }
 
+interface LevelBonusPayout {
+  completedLevel: number;
+  asteroidKills: number;
+  specialKills: number;
+  asteroidPoints: number;
+  specialPoints: number;
+  totalPoints: number;
+}
+
 type CollisionSourceMix = 'none' | 'bullet' | 'emp' | 'mixed';
 
 interface CollisionPressureMetrics {
@@ -121,6 +134,7 @@ export default class MainScene extends Phaser.Scene {
   private explosionManager!: ExplosionManager;
   public audio!: AudioManager;
   private ufo!: UFO;
+  private skyRaiderManager!: SkyRaiderManager;
   private powerUpDirector!: PowerUpDirector;
   private comboManager!: ComboManager;
   private perkSystem!: PerkSystem;
@@ -133,6 +147,8 @@ export default class MainScene extends Phaser.Scene {
   private progressionScore: number = 0;
   private nextLevelScore: number = 2500;
   private levelBossPendingDefeat: boolean = false;
+  private levelAsteroidKillCount: number = 0;
+  private levelSpecialKillCount: number = 0;
   private levelStartScore: number = 0;
   private levelElapsedMs: number = 0;
   private earlySupportDropGranted: boolean = false;
@@ -152,6 +168,7 @@ export default class MainScene extends Phaser.Scene {
   private levelTransitionPrompt!: Phaser.GameObjects.Text;
   private levelTransitionWarpGraphics!: Phaser.GameObjects.Graphics;
   private levelTransitionWarpTween?: Phaser.Tweens.Tween;
+  private levelBonusPayoutTween?: Phaser.Tweens.Tween;
   private levelTransitionEvents: Phaser.Time.TimerEvent[] = [];
   private levelTransitionCountdownLabel: string = '';
   private awaitingTurnInput: boolean = false;
@@ -300,6 +317,8 @@ export default class MainScene extends Phaser.Scene {
     this.progressionScore = 0;
     this.nextLevelScore = this.getNextLevelScore(1);
     this.levelBossPendingDefeat = false;
+    this.levelAsteroidKillCount = 0;
+    this.levelSpecialKillCount = 0;
     this.milestoneIndex = 0;
     this.levelStartScore = 0;
     this.levelElapsedMs = 0;
@@ -332,6 +351,7 @@ export default class MainScene extends Phaser.Scene {
     this.wormholeVisualAccumulatorMs = 0;
     this.blackHoleVisualAccumulatorMs = 0;
     this.activeStateSyncMs = 0;
+    this.levelBonusPayoutTween = undefined;
     this.playerStates = [];
     for (let i = 0; i < this.playerCount; i++) {
       this.playerStates.push({
@@ -374,6 +394,7 @@ export default class MainScene extends Phaser.Scene {
     this.isSwitching = false;
     this.isLevelTransition = false;
     this.levelTransitionCountdownLabel = '';
+    this.levelBonusPayoutTween = undefined;
     const startingState = this.playerStates[this.activePlayerIndex] ?? {
       score: 0,
       lives: 3,
@@ -418,6 +439,8 @@ export default class MainScene extends Phaser.Scene {
     this.ufo.setCombatTarget(this.player);
     this.ufo.setEvasionThreatGroup(this.bullets);
     this.ufo.setReducedVisualDetail(performanceMonitor.reducedParticles);
+    this.skyRaiderManager = new SkyRaiderManager(this, this.audio);
+    this.skyRaiderManager.setCombatTarget(this.player);
     this.powerUpDirector = new PowerUpDirector(this);
     this.comboManager = new ComboManager(this);
     this.perkSystem = new PerkSystem();
@@ -466,6 +489,7 @@ export default class MainScene extends Phaser.Scene {
     this.applySpawnProtection(SPAWN_PROTECTION_TUNING.startGraceMs, true);
     this.showTutorialHints();
     this.ufoSpawnTimer = this.computeNextUFOSpawnDelay();
+    this.skyRaiderManager.resetSpawnController(Phaser.Math.Between(1800, 3200));
 
     this.physics.add.overlap(
       this.bullets,
@@ -536,6 +560,44 @@ export default class MainScene extends Phaser.Scene {
       );
     }
 
+    const skyRaiders = this.skyRaiderManager.getRaiders();
+    const skyRaiderProjectiles = this.skyRaiderManager.getProjectiles();
+    this.physics.add.overlap(
+      this.bullets,
+      skyRaiders,
+      this.handleBulletHitSkyRaider,
+      undefined,
+      this,
+    );
+    this.physics.add.overlap(
+      this.player,
+      skyRaiders,
+      this.handlePlayerHitSkyRaider,
+      undefined,
+      this,
+    );
+    this.physics.add.collider(
+      skyRaiders,
+      this.shieldBunkers,
+      this.handleSkyRaiderHitShieldBunker,
+      undefined,
+      this,
+    );
+    this.physics.add.overlap(
+      this.player,
+      skyRaiderProjectiles,
+      this.handlePlayerHitSkyRaiderShot,
+      undefined,
+      this,
+    );
+    this.physics.add.collider(
+      skyRaiderProjectiles,
+      this.shieldBunkers,
+      this.handleSkyRaiderShotHitShieldBunker,
+      undefined,
+      this,
+    );
+
     // Apply CRT Shader Pipeline
     if (
       performanceMonitor.crtEnabled &&
@@ -551,6 +613,7 @@ export default class MainScene extends Phaser.Scene {
       this.sceneBackground = undefined;
       this.finishLevelTransitionCountdown(false);
       this.ufo.deactivate();
+      this.skyRaiderManager.deactivateAll();
       this.removeDrones();
       this.removeBlackHole();
       this.audio.destroy();
@@ -591,6 +654,7 @@ export default class MainScene extends Phaser.Scene {
       this.switchTimer?.remove(false);
       this.hitStopTimer?.remove(false);
       this.levelTransitionWarpTween?.stop();
+      this.levelBonusPayoutTween?.stop();
       this.switchOverlay?.destroy();
       this.levelTransitionOverlay?.destroy();
       this.activeMarkerTween?.stop();
@@ -602,16 +666,19 @@ export default class MainScene extends Phaser.Scene {
         this.input.off('pointerdown', this.shieldBunkerPointerHandler);
       if (this.onBlur) this.game.events.off('blur', this.onBlur);
       if (this.onHidden) this.game.events.off(Phaser.Core.Events.HIDDEN, this.onHidden);
+      this.skyRaiderManager.destroy();
     });
   }
 
   update(time: number, delta: number) {
     if (this.isSwitching || this.isLevelTransition) {
       this.ufo.setCombatTarget(null);
+      this.skyRaiderManager.setCombatTarget(null);
       this.sceneBackground?.updateIdle(delta);
       return;
     }
     this.ufo.setCombatTarget(this.player.active ? this.player : null);
+    this.skyRaiderManager.setCombatTarget(this.player.active ? this.player : null);
     this.updateLevelOpeningBalance(delta);
     this.updateSpawnProtection(delta);
     this.updateGuaranteedSupportDrop(delta);
@@ -630,6 +697,7 @@ export default class MainScene extends Phaser.Scene {
     this.comboManager.update(time);
     this.comboManager.updateHUD();
     this.powerUpDirector.update(this.progressionScore, delta);
+    this.skyRaiderManager.update(time, delta);
     this.updateProjectileTrails(delta);
 
     const flagChanged = performanceMonitor.update(this.game);
@@ -669,10 +737,13 @@ export default class MainScene extends Phaser.Scene {
         const activeEnemies = this.enemyManager.enemies.countActive(true);
         const activePowerUps = this.powerUpDirector.getGroup().countActive(true);
         const activeUFOProjectiles = this.ufo.getActiveProjectileCount();
+        const activeSkyRaiders = this.skyRaiderManager.getActiveRaiderCount();
+        const activeSkyRaiderProjectiles = this.skyRaiderManager.getActiveProjectileCount();
         const activeBunkers = this.shieldBunkers.countActive(true);
         const physicsBodies = (this.physics.world as any)?.bodies?.size ?? 0;
         const nextDebugStatsLine =
           `OBJ E ${activeEnemies} | P ${activePowerUps} | UP ${activeUFOProjectiles} | ` +
+          `SR ${activeSkyRaiders}/${activeSkyRaiderProjectiles} | ` +
           `BNK ${activeBunkers} | DEC ${this.backgroundDecor.length}(${this.backgroundDecorTier}) | ` +
           `WH ${this.wormhole?.active ? 1 : 0} | ED ${this.eliteDrone?.active ? 1 : 0} | BOD ${physicsBodies}`;
         if (nextDebugStatsLine !== this.lastDebugStatsLine) {
@@ -833,7 +904,14 @@ export default class MainScene extends Phaser.Scene {
     if (this.levelBossPendingDefeat) {
       nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  BOSS FIGHT`;
     } else {
-      nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  SURVIVE ${Math.max(0, this.nextLevelScore - this.progressionScore)}`;
+      const scoreRemaining = Math.max(0, this.nextLevelScore - this.progressionScore);
+      const timeRemainingMs = this.getRemainingBossGateTimeMs();
+      const timeRemainingSec = Math.ceil(timeRemainingMs / 1000);
+      if (timeRemainingSec > 0) {
+        nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  SURVIVE ${scoreRemaining}  T-${timeRemainingSec}s`;
+      } else {
+        nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  SURVIVE ${scoreRemaining}`;
+      }
     }
     if (nextLevelLabel !== this.lastLevelLabel) {
       this.levelText.setText(nextLevelLabel);
@@ -849,8 +927,20 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private addScore(points: number) {
+    this.applyScoreDelta(points, true);
+  }
+
+  private addFlatScore(points: number) {
+    this.applyScoreDelta(points, false);
+  }
+
+  private applyScoreDelta(points: number, applyMultiplier: boolean) {
+    if (points <= 0) return;
     const prevScore = this.score;
-    const adjusted = Math.round(points * this.perkSystem.getScoreMultiplier());
+    const adjusted = applyMultiplier
+      ? Math.round(points * this.perkSystem.getScoreMultiplier())
+      : Math.round(points);
+    if (adjusted <= 0) return;
     this.score += adjusted;
     this.progressionScore += adjusted;
     if (this.playerStates[this.activePlayerIndex]) {
@@ -969,7 +1059,14 @@ export default class MainScene extends Phaser.Scene {
       return;
     }
     if (this.progressionScore < this.nextLevelScore) return;
+    if (this.getRemainingBossGateTimeMs() > 0) return;
     this.triggerLevelBossEncounter();
+  }
+
+  private getRemainingBossGateTimeMs() {
+    if (this.levelBossPendingDefeat || this.isGameOver) return 0;
+    const minDurationMs = LEVEL_PROGRESS_TUNING.minLevelDurationMs[this.difficultyKey];
+    return Math.max(0, minDurationMs - this.levelElapsedMs);
   }
 
   private triggerLevelBossEncounter() {
@@ -987,6 +1084,8 @@ export default class MainScene extends Phaser.Scene {
   private completeLevelAfterBossDefeat() {
     if (!this.levelBossPendingDefeat || this.isGameOver) return;
     this.levelBossPendingDefeat = false;
+    const completedLevel = this.level;
+    const levelBonusPayout = this.consumeLevelBonusPayout(completedLevel);
     this.level += 1;
     statsManager.onBossKill();
     statsManager.updateHighestLevel(this.level);
@@ -1001,12 +1100,16 @@ export default class MainScene extends Phaser.Scene {
       yoyo: true,
       ease: 'Sine.easeOut',
     });
+    this.setPlayerOverlayControlLocked(true, false);
+    this.physics.world.pause();
 
-    // Show perk selection, then continue to level transition countdown
+    // Show bonus fireworks first, then perk selection, then level transition countdown.
     const celebrationMs = LEVEL_TRANSITION_TUNING.bossDefeatCelebrationDelayMs;
-    if (this.perkSystem.rollChoices(1).length > 0) {
-      this.time.delayedCall(celebrationMs, () => {
-        if (!this.scene.isActive(this.scene.key) || this.isGameOver) return;
+    const hasPerkChoices = this.perkSystem.rollChoices(1).length > 0;
+    this.startLevelBonusFireworksBeforeUpgrade(celebrationMs, levelBonusPayout, () => {
+      if (!this.scene.isActive(this.scene.key) || this.isGameOver) return;
+      this.setPlayerOverlayControlLocked(true, false);
+      if (hasPerkChoices) {
         this.events.once('perkSelectDone', () => {
           this.applyPerkEffects();
           this.startLevelTransitionCountdown(0);
@@ -1015,10 +1118,35 @@ export default class MainScene extends Phaser.Scene {
           perkSystem: this.perkSystem,
           level: this.level,
         });
-      });
-    } else {
-      this.startLevelTransitionCountdown(celebrationMs);
-    }
+        return;
+      }
+      this.startLevelTransitionCountdown(0);
+    });
+  }
+
+  private registerAsteroidKillForLevel() {
+    this.levelAsteroidKillCount += 1;
+  }
+
+  private registerSpecialKillForLevel() {
+    this.levelSpecialKillCount += 1;
+  }
+
+  private consumeLevelBonusPayout(completedLevel: number): LevelBonusPayout {
+    const asteroidKills = this.levelAsteroidKillCount;
+    const specialKills = this.levelSpecialKillCount;
+    this.levelAsteroidKillCount = 0;
+    this.levelSpecialKillCount = 0;
+    const asteroidPoints = asteroidKills * LEVEL_BONUS_TUNING.asteroidKillPoints;
+    const specialPoints = specialKills * LEVEL_BONUS_TUNING.specialKillPoints;
+    return {
+      completedLevel,
+      asteroidKills,
+      specialKills,
+      asteroidPoints,
+      specialPoints,
+      totalPoints: asteroidPoints + specialPoints,
+    };
   }
 
   private rollBossModifier(): BossModifier {
@@ -1051,6 +1179,8 @@ export default class MainScene extends Phaser.Scene {
     this.powerUpDirector.setDifficultyLevel(this.level);
     this.ufo.setDifficultyPreset(this.difficultyPreset);
     this.ufo.setDifficultyLevel(this.level);
+    this.skyRaiderManager.setDifficultyPreset(this.difficultyPreset);
+    this.skyRaiderManager.setDifficultyLevel(this.level);
     if (!silent) {
       this.updateHUD();
     }
@@ -1064,6 +1194,7 @@ export default class MainScene extends Phaser.Scene {
       EARLY_LEVEL_TUNING.guaranteedSupportDropDelayMs[this.difficultyKey],
     );
     this.enemyManager.setRuntimeIntensity(EARLY_LEVEL_TUNING.minIntensity[this.difficultyKey]);
+    this.skyRaiderManager.setRuntimeIntensity(EARLY_LEVEL_TUNING.minIntensity[this.difficultyKey]);
   }
 
   private getLevelProgressRatio() {
@@ -1075,6 +1206,7 @@ export default class MainScene extends Phaser.Scene {
   private updateLevelOpeningBalance(delta: number) {
     if (this.levelBossPendingDefeat || this.isGameOver) {
       this.enemyManager.setRuntimeIntensity(1);
+      this.skyRaiderManager.setRuntimeIntensity(1);
       return;
     }
     this.levelElapsedMs += delta;
@@ -1091,6 +1223,7 @@ export default class MainScene extends Phaser.Scene {
     const easedRamp = Phaser.Math.Easing.Cubic.Out(Math.max(timeRamp, scoreRamp));
     const minIntensity = EARLY_LEVEL_TUNING.minIntensity[this.difficultyKey];
     this.enemyManager.setRuntimeIntensity(Phaser.Math.Linear(minIntensity, 1, easedRamp));
+    this.skyRaiderManager.setRuntimeIntensity(Phaser.Math.Linear(minIntensity, 1, easedRamp));
   }
 
   private updateGuaranteedSupportDrop(delta: number) {
@@ -1445,6 +1578,7 @@ export default class MainScene extends Phaser.Scene {
   private clearWorldEvents(reason: EliteDroneDeactivateReason = 'reset') {
     this.deactivateWormhole();
     this.deactivateEliteDrone(reason);
+    this.skyRaiderManager.deactivateAll();
   }
 
   private resetWorldEventTimers() {
@@ -1960,12 +2094,14 @@ export default class MainScene extends Phaser.Scene {
     this.enemyManager.enemies.clear(true, true);
     this.powerUpDirector.reset();
     this.ufo.deactivate();
+    this.skyRaiderManager.deactivateAll();
     this.removeShieldBunkers();
     this.clearWorldEvents('reset');
     this.resetWorldEventTimers();
     this.ufoSpawnTimer = this.levelBossPendingDefeat
       ? Phaser.Math.Between(500, 900)
       : this.computeNextUFOSpawnDelay();
+    this.skyRaiderManager.resetSpawnController(Phaser.Math.Between(1200, 2200));
   }
 
   private clearTransitionHazardPowerUps() {
@@ -1996,12 +2132,14 @@ export default class MainScene extends Phaser.Scene {
     this.bullets.clear(true, true);
     this.enemyManager.enemies.clear(true, true);
     this.ufo.deactivate();
+    this.skyRaiderManager.deactivateAll();
     this.powerUpDirector.resetForLevelStart(this.progressionScore);
     this.clearTransitionHazardPowerUps();
     this.clearWorldEvents('reset');
     this.resetWorldEventTimers();
     this.enemyManager.resetSpawnController(Phaser.Math.Between(520, 900));
     this.ufoSpawnTimer = this.computeNextUFOSpawnDelay();
+    this.skyRaiderManager.resetSpawnController(Phaser.Math.Between(1400, 2600));
     this.updateHUD();
   }
 
@@ -2119,6 +2257,8 @@ export default class MainScene extends Phaser.Scene {
     this.tweens.killTweensOf(this.levelTransitionCountdown);
     this.tweens.killTweensOf(this.levelTransitionPrompt);
     this.levelTransitionWarpTween?.stop();
+    this.levelBonusPayoutTween?.stop();
+    this.levelBonusPayoutTween = undefined;
     this.levelTransitionWarpGraphics.clear();
   }
 
@@ -2190,15 +2330,158 @@ export default class MainScene extends Phaser.Scene {
     });
   }
 
+  private playLevelBonusCelebration(bonusPayout: LevelBonusPayout, onComplete: () => void) {
+    if (!this.isLevelTransition || !this.scene.isActive(this.scene.key)) return;
+
+    const totalPoints = Math.max(0, bonusPayout.totalPoints);
+    const summaryLine1 = `ASTEROIDS ${bonusPayout.asteroidKills} x ${LEVEL_BONUS_TUNING.asteroidKillPoints} = ${bonusPayout.asteroidPoints}`;
+    const summaryLine2 = `UFO/INVADER ${bonusPayout.specialKills} x ${LEVEL_BONUS_TUNING.specialKillPoints} = ${bonusPayout.specialPoints}`;
+    this.levelTransitionOverlay.setVisible(true);
+    this.levelTransitionTitle.setText(`LEVEL ${bonusPayout.completedLevel} BONUS`);
+    this.levelTransitionTitle.setColor('#ffd966');
+    this.levelTransitionCountdown.setText('+0');
+    this.levelTransitionCountdown.setScale(1);
+    this.levelTransitionCountdown.setAlpha(1);
+    this.levelTransitionCountdown.setFontSize(76);
+    this.levelTransitionCountdown.setColor('#ffe48a');
+    this.levelTransitionPrompt.setText(`${summaryLine1}\n${summaryLine2}`);
+    this.levelTransitionPrompt.setFontSize(14);
+    this.levelTransitionPrompt.setColor('#8cf8ff');
+    this.levelTransitionPrompt.setAlpha(1);
+    this.playLevelWarpPulse('soft');
+
+    if (totalPoints <= 0) {
+      this.levelTransitionCountdown.setText('NO BONUS');
+      this.levelTransitionCountdown.setFontSize(52);
+      this.levelTransitionCountdown.setColor('#a0aec0');
+      const doneEvent = this.time.delayedCall(LEVEL_BONUS_TUNING.completionHoldMs, () => {
+        if (!this.isLevelTransition || !this.scene.isActive(this.scene.key)) return;
+        onComplete();
+      });
+      this.levelTransitionEvents.push(doneEvent);
+      return;
+    }
+
+    const duration = Phaser.Math.Clamp(
+      Math.round(
+        LEVEL_BONUS_TUNING.basePayoutDurationMs +
+          totalPoints * LEVEL_BONUS_TUNING.perPointDurationMs,
+      ),
+      LEVEL_BONUS_TUNING.payoutDurationRangeMs[0],
+      LEVEL_BONUS_TUNING.payoutDurationRangeMs[1],
+    );
+
+    const minX = LEVEL_BONUS_TUNING.fireworkXPadding;
+    const maxX = GAME_WIDTH - LEVEL_BONUS_TUNING.fireworkXPadding;
+    const minY = Math.round(GAME_HEIGHT * LEVEL_BONUS_TUNING.fireworkYRangeRatio[0]);
+    const maxY = Math.round(GAME_HEIGHT * LEVEL_BONUS_TUNING.fireworkYRangeRatio[1]);
+    let burstIndex = 0;
+    const burstCount = Math.max(
+      4,
+      Math.ceil(duration / LEVEL_BONUS_TUNING.fireworkBurstIntervalMs),
+    );
+    const fireworkEvent = this.time.addEvent({
+      delay: LEVEL_BONUS_TUNING.fireworkBurstIntervalMs,
+      repeat: burstCount,
+      callback: () => {
+        if (!this.isLevelTransition || !this.scene.isActive(this.scene.key)) return;
+        const fxX = Phaser.Math.Between(minX, maxX);
+        const fxY = Phaser.Math.Between(minY, maxY);
+        this.explosionManager.triggerExplosion(fxX, fxY);
+        const ringPalette = [0xffe066, 0x8cf8ff, 0xff9be8, 0x9ef8ff];
+        const ringColor = ringPalette[burstIndex % ringPalette.length];
+        this.spawnImpactRing(fxX, fxY, ringColor, 12, Phaser.Math.Between(52, 94), 220);
+        if (burstIndex % LEVEL_BONUS_TUNING.fireworkExplosionSfxModulo === 0) {
+          this.audio.playExplosion();
+        }
+        burstIndex += 1;
+      },
+    });
+    this.levelTransitionEvents.push(fireworkEvent);
+
+    let awarded = 0;
+    let lastCoinTickAt = -100000;
+    const tickerState = { value: 0 };
+    this.levelBonusPayoutTween = this.tweens.add({
+      targets: tickerState,
+      value: totalPoints,
+      duration,
+      ease: 'Cubic.easeOut',
+      onUpdate: () => {
+        if (!this.isLevelTransition || !this.scene.isActive(this.scene.key)) return;
+        const targetValue = Math.floor(tickerState.value);
+        if (targetValue <= awarded) return;
+        const delta = targetValue - awarded;
+        this.addFlatScore(delta);
+        awarded = targetValue;
+        this.levelTransitionCountdown.setText(`+${awarded}`);
+        if (this.time.now - lastCoinTickAt >= LEVEL_BONUS_TUNING.coinTickIntervalMs) {
+          this.audio.playCoin();
+          lastCoinTickAt = this.time.now;
+        }
+      },
+      onComplete: () => {
+        this.levelBonusPayoutTween = undefined;
+        const remainder = totalPoints - awarded;
+        if (remainder > 0) {
+          this.addFlatScore(remainder);
+          awarded = totalPoints;
+          this.levelTransitionCountdown.setText(`+${awarded}`);
+        }
+        this.levelTransitionCountdown.setColor('#66ff99');
+        this.levelTransitionPrompt.setText(`${summaryLine1}\nTOTAL BONUS ${awarded}`);
+        this.audio.playPickup();
+        this.playLevelWarpPulse('hard');
+        const doneEvent = this.time.delayedCall(LEVEL_BONUS_TUNING.completionHoldMs, () => {
+          if (!this.isLevelTransition || !this.scene.isActive(this.scene.key)) return;
+          onComplete();
+        });
+        this.levelTransitionEvents.push(doneEvent);
+      },
+    });
+  }
+
+  private startLevelBonusFireworksBeforeUpgrade(
+    delayBeforeOverlayMs: number,
+    bonusPayout: LevelBonusPayout,
+    onComplete: () => void,
+  ) {
+    const beginBonus = () => {
+      if (!this.scene.isActive(this.scene.key) || this.isGameOver) return;
+      this.isLevelTransition = true;
+      this.ufo.setCombatTarget(null);
+      this.skyRaiderManager.setCombatTarget(null);
+      this.stopLevelTransitionTweens();
+      this.clearLevelTransitionEvents();
+      this.levelTransitionOverlay.setVisible(false);
+      this.levelTransitionCountdownLabel = '';
+      this.playLevelBonusCelebration(bonusPayout, () => {
+        if (!this.scene.isActive(this.scene.key) || this.isGameOver) return;
+        this.clearLevelTransitionEvents();
+        this.stopLevelTransitionTweens();
+        this.levelTransitionWarpGraphics.clear();
+        this.levelTransitionOverlay.setVisible(false);
+        this.levelTransitionCountdownLabel = '';
+        this.isLevelTransition = false;
+        onComplete();
+      });
+    };
+
+    const safeDelay = Math.max(0, delayBeforeOverlayMs);
+    if (safeDelay === 0) {
+      beginBonus();
+      return;
+    }
+    const delayEvent = this.time.delayedCall(safeDelay, beginBonus);
+    this.levelTransitionEvents.push(delayEvent);
+  }
+
   private startLevelTransitionCountdown(delayBeforeOverlayMs: number = 0) {
     if (this.isLevelTransition || this.isGameOver) return;
     this.isLevelTransition = true;
     this.ufo.setCombatTarget(null);
-    if (this.player.body) {
-      this.player.body.enable = false;
-      this.player.body.velocity.set(0, 0);
-    }
-    this.player.setActive(false).setVisible(false);
+    this.skyRaiderManager.setCombatTarget(null);
+    this.setPlayerOverlayControlLocked(true, true);
     this.preparePlayfieldForLevelTransition();
     this.physics.world.pause();
 
@@ -2216,6 +2499,10 @@ export default class MainScene extends Phaser.Scene {
       this.levelTransitionCountdown.setAlpha(1);
       this.levelTransitionCountdown.setFontSize(94);
       this.levelTransitionCountdown.setColor('#ffffff');
+      this.levelTransitionTitle.setColor('#ffd966');
+      this.levelTransitionPrompt.setText('GET READY');
+      this.levelTransitionPrompt.setFontSize(18);
+      this.levelTransitionPrompt.setColor('#7dd3fc');
       this.levelTransitionPrompt.setAlpha(1);
       this.levelTransitionOverlay.setVisible(true);
       this.levelTransitionCountdownLabel = '3';
@@ -2286,7 +2573,21 @@ export default class MainScene extends Phaser.Scene {
       this.physics.world.resume();
       this.applySpawnProtection(SPAWN_PROTECTION_TUNING.levelTransitionGraceMs, true);
       this.ufo.setCombatTarget(this.player.active ? this.player : null);
+      this.skyRaiderManager.setCombatTarget(this.player.active ? this.player : null);
+      this.skyRaiderManager.resetSpawnController(Phaser.Math.Between(1400, 2500));
     }
+  }
+
+  private setPlayerOverlayControlLocked(lock: boolean, hidePlayer: boolean) {
+    if (lock) {
+      if (this.player.body) {
+        this.player.body.enable = false;
+        this.player.body.velocity.set(0, 0);
+      }
+      this.player.setActive(false).setVisible(!hidePlayer);
+      return;
+    }
+    this.player.setActive(true).setVisible(true);
   }
 
   private getSafeRespawnPoint() {
@@ -2313,6 +2614,22 @@ export default class MainScene extends Phaser.Scene {
           const dy = shot.y - y;
           nearestDistSq = Math.min(nearestDistSq, dx * dx + dy * dy);
         }
+      }
+      const skyRaiders = this.skyRaiderManager.getRaiders().getChildren() as unknown as SkyRaider[];
+      for (const raider of skyRaiders) {
+        if (!raider.active) continue;
+        const dx = raider.x - x;
+        const dy = raider.y - y;
+        nearestDistSq = Math.min(nearestDistSq, dx * dx + dy * dy);
+      }
+      const skyRaiderShots = this.skyRaiderManager
+        .getProjectiles()
+        .getChildren() as SkyRaiderShot[];
+      for (const shot of skyRaiderShots) {
+        if (!shot.active) continue;
+        const dx = shot.x - x;
+        const dy = shot.y - y;
+        nearestDistSq = Math.min(nearestDistSq, dx * dx + dy * dy);
       }
       if (this.ufo.active) {
         const dx = this.ufo.x - x;
@@ -2342,8 +2659,27 @@ export default class MainScene extends Phaser.Scene {
       }
     }
     const projectiles = this.ufo.getProjectiles()?.getChildren() as UFOProjectile[] | undefined;
-    if (!projectiles) return;
-    for (const shot of projectiles) {
+    if (projectiles) {
+      for (const shot of projectiles) {
+        if (!shot.active) continue;
+        const dx = shot.x - px;
+        const dy = shot.y - py;
+        if (dx * dx + dy * dy <= radiusSq) {
+          shot.disableBody(true, true);
+        }
+      }
+    }
+    const skyRaiders = this.skyRaiderManager.getRaiders().getChildren() as unknown as SkyRaider[];
+    for (const raider of skyRaiders) {
+      if (!raider.active) continue;
+      const dx = raider.x - px;
+      const dy = raider.y - py;
+      if (dx * dx + dy * dy <= radiusSq) {
+        raider.deactivate();
+      }
+    }
+    const skyRaiderShots = this.skyRaiderManager.getProjectiles().getChildren() as SkyRaiderShot[];
+    for (const shot of skyRaiderShots) {
       if (!shot.active) continue;
       const dx = shot.x - px;
       const dy = shot.y - py;
@@ -2409,6 +2745,8 @@ export default class MainScene extends Phaser.Scene {
   private queueTurnSwitch(nextIndex: number) {
     this.isSwitching = true;
     this.ufo.setCombatTarget(null);
+    this.skyRaiderManager.setCombatTarget(null);
+    this.skyRaiderManager.deactivateAll();
     this.spawnProtectionTimerMs = 0;
     this.stopSpawnProtectionVisuals();
     this.physics.world.pause();
@@ -2439,6 +2777,8 @@ export default class MainScene extends Phaser.Scene {
       this.loadActivePlayerState(nextIndex);
       this.resetPlayerForTurn();
       this.ufo.setCombatTarget(this.player);
+      this.skyRaiderManager.setCombatTarget(this.player);
+      this.skyRaiderManager.resetSpawnController(Phaser.Math.Between(1400, 2400));
       this.isSwitching = false;
       this.physics.world.resume();
       this.hideTurnOverlay();
@@ -2850,6 +3190,24 @@ export default class MainScene extends Phaser.Scene {
     shot.disableBody(true, true);
   }
 
+  private handleSkyRaiderShotHitShieldBunker(obj1: any, obj2: any) {
+    const projectiles = this.skyRaiderManager.getProjectiles();
+    const shot = (projectiles.contains(obj1) ? obj1 : obj2) as SkyRaiderShot;
+    if (!shot?.active) return;
+    shot.disableBody(true, true);
+  }
+
+  private handleSkyRaiderHitShieldBunker(obj1: any, obj2: any) {
+    const raiders = this.skyRaiderManager.getRaiders();
+    const raider = (raiders.contains(obj1) ? obj1 : obj2) as SkyRaider;
+    if (!raider?.active) return;
+    const x = raider.x;
+    const y = raider.y;
+    raider.deactivate();
+    this.explosionManager.triggerExplosion(x, y);
+    this.audio.playExplosion();
+  }
+
   private handleAsteroidHitShieldBunker(obj1: any, obj2: any) {
     const enemy = (this.enemyManager.enemies.contains(obj1) ? obj1 : obj2) as Enemy;
     if (!enemy?.active) return;
@@ -2916,6 +3274,77 @@ export default class MainScene extends Phaser.Scene {
     powerUp.deactivate();
   }
 
+  private handlePlayerHitSkyRaiderShot(obj1: any, obj2: any) {
+    const shot = (obj1 === this.player ? obj2 : obj1) as SkyRaiderShot;
+    if (!shot.active) return;
+    const hitX = shot.x;
+    const hitY = shot.y;
+    shot.disableBody(true, true);
+
+    const proxyEnemy = {
+      active: true,
+      x: hitX,
+      y: hitY,
+      disableBody: () => undefined,
+    } as unknown as Enemy;
+
+    this.handlePlayerHitEnemy(this.player, proxyEnemy);
+  }
+
+  private handlePlayerHitSkyRaider(obj1: any, obj2: any) {
+    const raider = (obj1 === this.player ? obj2 : obj1) as SkyRaider;
+    if (!raider.active) return;
+    const hitX = raider.x;
+    const hitY = raider.y;
+    raider.deactivate();
+
+    const proxyEnemy = {
+      active: true,
+      x: hitX,
+      y: hitY,
+      disableBody: () => undefined,
+    } as unknown as Enemy;
+
+    this.handlePlayerHitEnemy(this.player, proxyEnemy);
+  }
+
+  private handleBulletHitSkyRaider(obj1: any, obj2: any) {
+    const raiders = this.skyRaiderManager.getRaiders();
+    const bullet = (this.bullets.contains(obj1) ? obj1 : obj2) as Bullet;
+    const raider = (raiders.contains(obj1) ? obj1 : obj2) as SkyRaider;
+    if (!bullet?.active || !raider?.active) return;
+
+    bullet.disableBody(true, true);
+    const x = raider.x;
+    const y = raider.y;
+    const variant = raider.getVariant();
+    const hitResult = raider.applyBulletHit(1);
+
+    if (!hitResult.destroyed) {
+      this.explosionManager.triggerExplosion(x, y);
+      this.audio.playExplosion();
+      this.applyImpactShake(70, 0.0027);
+      return;
+    }
+
+    this.triggerSkyRaiderDestructionFX(x, y, variant);
+    this.registerSpecialKillForLevel();
+    const basePoints = variant === 'lancer' ? 420 : 280;
+    const points = basePoints + this.level * (variant === 'lancer' ? 34 : 22);
+    this.addScore(this.comboManager.registerKill(x, y, points, this.time.now));
+  }
+
+  private triggerSkyRaiderDestructionFX(x: number, y: number, variant: SkyRaiderVariant) {
+    this.explosionManager.triggerExplosion(x, y);
+    this.explosionManager.triggerUFODebrisRing(x, y, variant === 'lancer' ? 'boss' : 'scout');
+    this.audio.playExplosion();
+    const color = variant === 'lancer' ? 0xff9be8 : 0x95f7ff;
+    const startRadius = variant === 'lancer' ? 20 : 16;
+    const endRadius = variant === 'lancer' ? 104 : 82;
+    this.spawnImpactRing(x, y, color, startRadius, endRadius, 220);
+    this.applyImpactShake(120, variant === 'lancer' ? 0.0062 : 0.0046);
+  }
+
   private handleBulletHitUFO(obj1: any, obj2: any) {
     const bullet = (obj1 === this.ufo ? obj2 : obj1) as Bullet;
     if (!this.ufo.active || !bullet.active) return;
@@ -2934,6 +3363,7 @@ export default class MainScene extends Phaser.Scene {
       this.triggerUFODestructionFX(ufoX, ufoY, 'scout');
       this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(5000));
       this.player.setMagnetic(true);
+      this.registerSpecialKillForLevel();
       const scoutPoints = 500 + this.level * 25;
       this.addScore(this.comboManager.registerKill(ufoX, ufoY, scoutPoints, this.time.now));
       this.ufoSpawnTimer = this.levelBossPendingDefeat
@@ -2962,6 +3392,7 @@ export default class MainScene extends Phaser.Scene {
     }
 
     this.triggerUFODestructionFX(ufoX, ufoY, variant);
+    this.registerSpecialKillForLevel();
 
     this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(7000));
     this.player.setMagnetic(true);
@@ -3109,6 +3540,7 @@ export default class MainScene extends Phaser.Scene {
       this.powerUpDirector.onAsteroidDestroyed(enemy.x, enemy.y);
       this.enemyManager.splitAsteroid(enemy.x, enemy.y, enemy.scaleX);
       enemy.disableBody(true, true);
+      this.registerAsteroidKillForLevel();
       if (enemy.scaleX >= JUICE_TUNING.largeAsteroidMinScale) {
         this.triggerHitStop(
           JUICE_TUNING.largeAsteroidHitStopMs,
@@ -3384,14 +3816,17 @@ export default class MainScene extends Phaser.Scene {
     this.finishLevelTransitionCountdown(false);
     this.ufo.setCombatTarget(null);
     this.ufo.deactivate();
+    this.skyRaiderManager.setCombatTarget(null);
+    this.skyRaiderManager.deactivateAll();
     this.clearWorldEvents('reset');
     this.removeShieldBunkers();
+    this.physics.world.pause();
     this.player.setActive(false).setVisible(false);
     this.saveActivePlayerState();
     statsManager.updateHighestLevel(this.level);
     statsManager.onGameEnd(this.score);
     this.switchTimer?.remove(false);
-    this.time.delayedCall(1500, () => {
+    this.time.delayedCall(LEVEL_TRANSITION_TUNING.gameOverTransitionDelayMs, () => {
       this.scene.stop('PauseScene');
       this.scene.start('GameOverScene', {
         scores: this.playerStates.map((state) => state.score),
@@ -3936,6 +4371,8 @@ export default class MainScene extends Phaser.Scene {
         active: this.isLevelTransition,
         countdown: this.levelTransitionCountdownLabel,
       },
+      minLevelDurationMs: LEVEL_PROGRESS_TUNING.minLevelDurationMs[this.difficultyKey],
+      levelTimeRemainingMs: this.getRemainingBossGateTimeMs(),
       perks: {
         lifeBonus: state?.eliteLifePerkCount ?? 0,
         coolingLevel: state?.eliteCoolingPerkLevel ?? 0,
@@ -3944,6 +4381,8 @@ export default class MainScene extends Phaser.Scene {
       worldEvents: {
         wormholeActive: Boolean(this.wormhole?.active),
         eliteDroneActive: Boolean(this.eliteDrone?.active),
+        topRaidersActive: this.skyRaiderManager.getActiveRaiderCount(),
+        topRaiderShotsActive: this.skyRaiderManager.getActiveProjectileCount(),
         shieldBunkerActive: this.activePowerUps.has(PowerUpType.SHIELD_BUNKER),
         shieldBunkerCount: this.shieldBunkers?.countActive(true) ?? 0,
         backgroundDecorTier: this.backgroundDecorTier,
