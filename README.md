@@ -10,11 +10,17 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
   - runtime gameplay scenes are lazy-loaded from `BootScene` on first start,
   - Phaser is bundled with the Arcade-focused build (`phaser-arcade-physics.min.js`) to trim engine payload.
 - Difficulty presets: `EASY`, `NORMAL`, `HARD` (affects enemies, drops, UFO pressure, and level curve).
+- Level gate: each level requires at least ~60s survival time before the boss phase can trigger.
 - Two UFO variants:
   - `Scout`: light pressure, occasional aimed shots, single-hit destroy.
   - `Boss`: procedural animated silhouette with tentacles, 3-phase escalation (attack patterns intensify as health drops), dodge AI that reads incoming bullet trajectories, multi-hit energy bar with segmented display and numeric hit label. Boss modifiers from level 3+: shielded (HP regen), summoner (spawns mini-swarms), berserk (speed scales with HP loss), armored (50% damage reduction).
+- Top-entry invaders (`SkyRaider`): two AI enemy variants intermittently dive in from above, attack the player, then retreat off-screen if not destroyed. Spawn pressure scales by difficulty and level.
 - Level progression with transition overlay between levels (`LEVEL N`, `3, 2, 1, GO!`).
 - Mandatory boss phase at level end before level can advance.
+- Level-end bonus celebration now runs before perk cards:
+  - asteroid kills: `+10` each,
+  - UFO/invader kills: `+100` each,
+  - animated score payout with coin ticks + fireworks.
 - Rogue-lite perk system: pick 1 of 3 perks after each boss defeat (fire rate, extra life, score multiplier, shield-on-level, and more).
 - Score milestone feedback: camera flash + shake + ascending arpeggio at 5K/10K/25K/50K/100K.
 - Asteroid swarms: V-formation groups of 5-8 small asteroids from level 2+, bonus for full swarm wipe.
@@ -66,6 +72,7 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 - Boot: `SOUND (S)`, `START (ENTER/SPACE)` (desktop tries fullscreen on start).
 - Pause scene: `RESUME (P)`, `EXIT (X)`, `SOUND (S)`, volume sliders (MASTER/SFX/BGM).
 - Help scene: `BACK (ESC/H)`.
+- Help scene readability: darkened backdrop + opaque content panel for higher text contrast.
 - Game Over: `HELP (H)`, `SETTINGS (O)`, `1 PLAYER (1)`, `2 PLAYER (2)`, `INSERT COIN (I)`.
 
 ### Attract / Game Over
@@ -76,6 +83,7 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 - Open settings: `O`.
 - Settings overlay controls:
   - Sound: `S`
+  - Volume sliders: `MASTER`, `SFX`, `BGM` (pointer/touch)
   - Fullscreen: `F` (desktop)
   - Difficulty: `A/D` or `Left/Right`
   - Scan/CRT toggle: `C` (only when supported)
@@ -152,9 +160,12 @@ Automation helpers are exposed on `window`:
 - Attract-mode UFO occasionally fires demo shots.
 - In-game background loop (`gameloop.mp3`) is audible but quieter than gameplay SFX.
 - Perk selection overlay appears after boss defeat (pick 1 of 3 upgrades).
+- Level bonus fireworks + score payout appears before perk selection.
 - Score milestones trigger camera effects and ascending arpeggio.
+- Top-entry invaders (stalker/lancer) appear from above, shoot, and retreat if left alive.
 - Asteroid swarm formations spawn from level 2+ with bonus for full wipe.
 - Daily challenge mode with seeded runs and separate leaderboard.
 - Tutorial hints shown on first play.
 - Volume sliders (master/SFX/BGM) available in pause menu.
+- Volume sliders (master/SFX/BGM) available in attract/game-over settings overlays.
 - Pause menu exit path returns to attract screen (`EXIT (X)` / `X`).

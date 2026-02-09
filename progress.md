@@ -1070,3 +1070,100 @@ TODOs for next agent
   - `npm run lint` pass
   - `npm run build` pass
   - Build output confirms JPG asset bundling: `dist/assets/background-*.jpg` (~349 kB in current build)
+
+## 2026-02-09 - Boot/Attract layout + level-end flow refinement
+- `src/BootScene.ts`
+  - Added clearer install/uninstall guidance block with explicit `INSTALL / UNINSTALL APP` heading and separate instructions.
+  - Guidance is platform-aware (`touch` vs desktop paths).
+- `src/AttractScene.ts`
+  - Added deterministic layout pass (`layoutAttractUi`) for vertical composition.
+  - Rotating attract block (`INSERT COIN` info / `TOP SCORES` / `DAILY CHALLENGE`) is now centered between title bottom edge and player-button top edge.
+  - Footer elements (`HELP`, `SETTINGS`, `COLLECT THESE`, `CREDITS`) are now distributed evenly from player-button bottom edge to screen bottom area.
+  - Power-up preview switched to a dedicated container so it can be positioned as a single layout element.
+- `src/MainSceneTuning.ts`
+  - Increased post-boss celebration delay to ~2s (`bossDefeatCelebrationDelayMs: 2000`) before upgrade/level-end overlay flow starts.
+- `src/MainScene.ts`
+  - During perk-upgrade overlay launch, player control/shooting is now locked (`setPlayerOverlayControlLocked(true, false)`).
+  - Level-transition overlay lock remains enforced and now uses the same control-lock helper (`setPlayerOverlayControlLocked(true, true)`).
+  - This prevents ship movement/shooting while upgrade and level-end overlays are visible.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - Playwright verification run:
+    - artifacts: `output/web-game/five-point-pass-1`
+    - checks: boot hints visible, attract layout captured, perk overlay control lock active, level-end overlay flow captured
+    - measured post-boss delay before overlay: `2131ms`
+    - control-lock check during perk overlay: `dx = 0`, bullets `0 -> 0`
+    - `errors.json` is `[]`
+- Follow-up UX pass completed (2026-02-09):
+  - BootScreen install/uninstall guidance enlarged again for readability (`src/BootScene.ts`).
+  - MainScene transition pacing increased:
+    - boss->perk/level overlay celebration delay now 2600ms,
+    - game-over transition delay now 2300ms (`src/MainSceneTuning.ts`, `src/MainScene.ts`).
+  - Added settings volume sliders (MASTER/SFX/BGM) to both Attract and GameOver settings overlays (`src/AttractScene.ts`, `src/GameOverScene.ts`).
+  - Locked player controls + paused physics before level-up/perk overlay and before game-over transition to prevent movement/shooting during overlays.
+- Verification:
+  - `npm run lint` pass
+  - `npm run build` pass
+- Settings follow-up (2026-02-09):
+  - Settings layout in Attract and GameOver reworked to clean vertical ordering:
+    SOUND -> MASTER/SFX/BGM sliders -> FULLSCREEN -> DIFFICULTY -> CRT (optional).
+  - Fixed slider audio impact by wiring MusicManager to SoundManager volume updates:
+    menu/gameplay music now scale with `getEffectiveBgmVolume()` at runtime.
+- Verification:
+  - `npm run lint` pass
+  - `npm run build` pass
+- Feature pass (2026-02-09): Added top-entry AI enemy subsystem (`SkyRaider`) with two variants:
+  - `stalker`: lateral hunter behavior + aimed fire,
+  - `lancer`: aggressive strafe/dive behavior + burst fire.
+- Integration in `MainScene`:
+  - spawn/update lifecycle, bullet/player/shield collisions, score + FX handling,
+  - retreat/despawn handling (leaves screen if not destroyed),
+  - difficulty/level scaling via preset + level + runtime intensity,
+  - pause/transition/game-over/turn-switch safety cleanup.
+- Runtime telemetry:
+  - Added `skyRaiders` + `skyRaiderStats` to `render_game_to_text` (`src/main.ts`),
+  - Added top-raider counters to difficulty world events and debug stats line.
+- Stability fix:
+  - hardened `SkyRaiderManager` group access guards to avoid shutdown race (`children.entries` undefined).
+- Validation:
+  - develop-web-game Playwright run `output/web-game/sky-raider-pass-2`:
+    - states show active top raiders and projectile counts,
+    - screenshots visually confirm top-entry raider + shots,
+    - no `errors-*.json` emitted.
+  - `npm run lint` pass
+  - `npm run build` pass
+- Level-transition bonus fireworks pass completed:
+  - Added `LEVEL_BONUS_TUNING` in `src/MainSceneTuning.ts` (10 points per asteroid kill, 100 points per UFO/invader kill, payout/FX timing constants).
+  - `src/MainScene.ts` now tracks per-level kill counters (`levelAsteroidKillCount`, `levelSpecialKillCount`) and consumes them on boss-clear into a `LevelBonusPayout` snapshot.
+  - Hooked kill tracking into destruction handlers:
+    - asteroids (`handleBulletHitEnemy`)
+    - sky raiders/invaders (`handleBulletHitSkyRaider`)
+    - UFO scout + boss kills (`handleBulletHitUFO`)
+  - Added transition-time celebration sequence before countdown:
+    - overlay breakdown lines for asteroid and UFO/invader bonus math,
+    - animated score ticker that increments the real HUD score in-flight,
+    - coin ticks during payout + pickup sting at completion,
+    - repeated explosion/ring fireworks during payout.
+  - Transition flow now passes bonus payload into `startLevelTransitionCountdown(...)` after boss clear and optional perk selection.
+  - Added flat score path (`addFlatScore`) so bonus payout applies exact configured points (no perk multiplier distortion).
+- Validation:
+  - `npm run lint` passed
+  - `npm run build` passed
+- Flow update (2026-02-09): bonus fireworks now play *before* perk/upgrade cards.
+  - `completeLevelAfterBossDefeat` now triggers `startLevelBonusFireworksBeforeUpgrade(...)`, then launches perk select, then starts level countdown.
+  - `startLevelTransitionCountdown(...)` reverted to pure countdown (no embedded bonus stage).
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+- Documentation refresh (2026-02-09):
+  - Updated `README.md` highlights and smoke checklist to reflect:
+    - 60s minimum level duration gate before boss,
+    - top-entry SkyRaider invaders,
+    - level-end bonus fireworks payout (10 asteroid / 100 UFO-invader) before perk cards,
+    - settings overlay volume sliders in attract/game-over,
+    - improved help-screen readability backdrop.
+- Flow adjustment confirmed:
+  - bonus fireworks now run before perk/upgrade cards.
+- Help scene UX update confirmed:
+  - non-transparent dark backing added for better text contrast.
