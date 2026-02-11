@@ -105,6 +105,15 @@ npm install
 npm run dev
 ```
 
+## Browser Language / Translation
+
+- The game UI is intentionally English-first (`lang="en"`).
+- To reduce Microsoft Edge/Chromium translation popups on restart, `index.html` includes:
+  - `translate="no"` on `<html>` and `<body>`,
+  - `meta name="google" content="notranslate"`.
+- `Content-Language` is declared as `en,de` for mixed deployment context metadata without changing in-game UI language.
+- PWA manifest also declares `"lang": "en"`.
+
 ## Optional Server Stats API
 
 To enable shared highscores/coins/users on your web server:

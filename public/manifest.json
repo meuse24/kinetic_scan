@@ -2,6 +2,7 @@
   "name": "MEUSE24 Kinetic-Scan",
   "short_name": "Kinetic-Scan",
   "description": "Retro arcade space shooter",
+  "lang": "en",
   "start_url": "./",
   "display": "fullscreen",
   "orientation": "any",

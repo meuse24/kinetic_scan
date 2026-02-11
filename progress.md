@@ -1536,3 +1536,13 @@ TODOs for next agent
 - Validation:
   - `npm run lint` pass
   - `npm run build` pass
+- 2026-02-11: Edge translation prompt suppression metadata added.
+  - Updated `index.html` with explicit no-translate hints while keeping English UI as source language:
+    - `<html lang="en" translate="no">`
+    - `<body class="notranslate" translate="no">`
+    - `<meta name="google" content="notranslate">`
+    - `<meta http-equiv="Content-Language" content="en,de">`
+  - Updated PWA manifest with `"lang": "en"` (`public/manifest.json`).
+  - Updated README with a new "Browser Language / Translation" section documenting the behavior and intent.
+- Validation:
+  - `npm run build` pass
