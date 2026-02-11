@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 import { performanceMonitor } from './PerformanceMonitor';
 
+const REFLECTION_UPDATE_INTERVAL_FRAMES = 3;
+
 export default class BezelScene extends Phaser.Scene {
   private frameGraphics!: Phaser.GameObjects.Graphics;
   private reflectionRT: Phaser.GameObjects.RenderTexture | null = null;
@@ -31,7 +33,7 @@ export default class BezelScene extends Phaser.Scene {
       this.reflectionRT.setAlpha(0.22);
       this.reflectionRT.setTint(0x888888);
       this.reflectionRT.initPostPipeline(true);
-      this.reflectionRT.preFX?.addBlur(2, 8, 8, 1.5, 0x000000, 6);
+      this.reflectionRT.preFX?.addBlur(1, 5, 5, 1.15, 0x000000, 4);
       this.reflectionRT.setDepth(1001);
     }
 
@@ -61,6 +63,11 @@ export default class BezelScene extends Phaser.Scene {
       this.reflectionRT.clear();
       return;
     }
+
+    if (this.game.loop.frame % REFLECTION_UPDATE_INTERVAL_FRAMES !== 0) {
+      return;
+    }
+
     this.reflectionRT.clear();
     this.reflectionRT.draw(mainScene.children.list);
   }

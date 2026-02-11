@@ -1167,3 +1167,111 @@ TODOs for next agent
   - bonus fireworks now run before perk/upgrade cards.
 - Help scene UX update confirmed:
   - non-transparent dark backing added for better text contrast.
+
+## 2026-02-10 - Kinetic scan graphics optimization pass (quick wins)
+- Reviewed `kinetic_scan_graphics_optimizations.md` and implemented three low-risk/high-impact items:
+  1) CRT shader low-end path optimization (`src/CRTPipeline.ts`):
+     - Low-end now uses a single `uMainSampler` sample (removed RGB multi-sample path for non-high-end).
+     - Reduced low-end scanline intensity/frequency to lighter, cheaper pass.
+  2) Bezel reflection throttling (`src/BezelScene.ts`):
+     - Reflection RenderTexture update now runs every 3rd frame (`REFLECTION_UPDATE_INTERVAL_FRAMES = 3`).
+     - Reflection blur settings reduced (`addBlur(1, 5, 5, 1.15, ..., 4)`).
+  3) Impact ring VFX moved from per-frame Graphics redraw to texture-sprite scaling (`src/MainScene.ts`):
+     - Added generated ring texture (`impact_ring`) in `createGraphics()`.
+     - `spawnImpactRing(...)` now spawns a tinted image and tweens `scale + alpha` only.
+
+### Validation
+- `npm run lint` pass.
+- `npm run build` pass.
+- Playwright smoke run (capture mode) via skill client:
+  - output: `output/web-game/kinetic-scan-opt-pass`
+  - files: `shot-0..3.png`, `state-0..3.json`
+  - no `errors-0.json` emitted
+  - screenshots visually inspected; gameplay and HUD rendered without regressions.
+- Follow-up fix in same pass:
+  - `spawnImpactRing(...)` tween now animates `scaleX/scaleY` explicitly (instead of generic `scale`) for deterministic Phaser transform updates.
+- Re-validation after follow-up:
+  - `npm run lint` pass.
+  - `npm run build` pass.
+- Additional smoke re-run after tween follow-up:
+  - Playwright output: `output/web-game/kinetic-scan-opt-pass-2`
+  - files: `shot-0..1.png`, `state-0..1.json`
+  - no `errors-0.json` emitted
+  - screenshots visually inspected; no new regression observed.
+
+## 2026-02-10 - Additional pooling pass (object reuse audit + implementation)
+- Audit result:
+  - Already pooled: bullets (`Player` group), enemies (`EnemyManager` group), power-ups (group get/spawn), UFO projectiles, SkyRaider units/projectiles, muzzle flashes.
+  - Remaining optimization gaps were mainly reset paths that still destroyed pool members and one high-frequency VFX path.
+
+### Implemented pooling optimizations
+1) Keep core gameplay pools alive across playfield/level resets (`src/MainScene.ts`):
+   - Replaced destructive clears for bullets/enemies with deactivation-only helpers:
+     - `deactivateAllBullets()`
+     - `deactivateAllEnemies()`
+   - Updated `resetPlayfield()` and `preparePlayfieldForLevelTransition()` to use deactivation instead of `clear(true, true)`.
+
+2) Power-up pool reuse on resets (`src/PowerUpDirector.ts`):
+   - Added `deactivateAllPowerUps()`.
+   - `reset()` and `resetForLevelStart()` now deactivate existing power-ups instead of destroying pool members.
+
+3) Impact ring VFX now fully pooled (`src/MainScene.ts`):
+   - Added ring pool (`impactRingPool`) and tween tracking map (`impactRingTweens`).
+   - Added `createImpactRingPool()` called once in scene setup.
+   - `spawnImpactRing(...)` now reuses pooled ring images and resets tween/state instead of create/destroy each ring.
+
+4) Shield bunker reuse (`src/MainScene.ts`):
+   - `spawnShieldBunkers()` now uses `shieldBunkers.get(...)` reuse path instead of always `create(...)`.
+   - `removeShieldBunkers()` now deactivates bunkers (disable body + hide) instead of group clear+destroy.
+
+5) Drone reuse while scene is active (`src/MainScene.ts`):
+   - `spawnDrones()` now lazily creates the 2 graphics once and reactivates/repositions them on subsequent activations.
+   - `removeDrones()` now deactivates/hides instead of destroying.
+   - Scene shutdown still destroys drone objects once (normal lifecycle cleanup).
+
+### Validation
+- `npm run lint` pass.
+- `npm run build` pass.
+- Playwright smoke run (capture mode):
+  - output: `output/web-game/pooling-pass-1`
+  - files: `shot-0..2.png`, `state-0..2.json`
+  - no `errors-0.json` emitted
+  - screenshots visually inspected; no gameplay/HUD regression observed.
+
+## 2026-02-10 - Pooling benchmark (before/after, measured)
+- Goal: quantify impact of the new pooling changes (object reuse instead of destroy/recreate in reset paths + pooled impact rings).
+- Method:
+  - Created a temporary baseline worktree at pre-pooling `HEAD` and built both versions.
+  - Ran identical automated Playwright benchmark script (`temp/pooling_benchmark.js`) against both builds in capture mode:
+    - URL format: `?renderer=canvas&capture=1`
+    - 6 boss-transition cycles per run (force boss encounter/defeat via `window.__debug_gameplay`) to stress reset paths.
+    - Collected FPS snapshots, memory snapshots (`performance.memory`), transition success, and console/page errors.
+  - Runs:
+    - Baseline reports: `output/web-game/pooling-benchmark-baseline/report.json`, `report-2.json`, `report-3.json`
+    - Current reports: `output/web-game/pooling-benchmark-current/report.json`, `report-2.json`, `report-3.json`
+
+### Aggregate result (3 runs each)
+- FPS mean (avg across runs):
+  - baseline: `46.38`
+  - current pooling: `47.13`
+  - delta: `+0.75` FPS
+- FPS p10 (low-end frame stability indicator):
+  - baseline: `34.33`
+  - current pooling: `35.33`
+  - delta: `+1.0` FPS
+- FPS min (run-averaged minima):
+  - baseline: `32.33`
+  - current pooling: `34.67`
+  - delta: `+2.34` FPS
+- Heap delta (max-min used JS heap per run, MB):
+  - baseline avg: `2.96 MB`
+  - current pooling avg: `3.04 MB`
+  - delta: `+0.08 MB` (effectively noise-level in this environment)
+- Stability/errors:
+  - baseline errors: `0`
+  - current errors: `0`
+  - transition success avg per run: baseline `6.0/6`, current `5.67/6` (one run had one scripted force-defeat miss; subsequent runs were 6/6).
+
+### Interpretation
+- In this headless capture benchmark, pooling gives a small but consistent FPS gain and better low-end FPS floor.
+- Memory swing was effectively neutral in this setup (high run-to-run variance from gameplay randomness and capture environment).

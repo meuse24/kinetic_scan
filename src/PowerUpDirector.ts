@@ -90,7 +90,7 @@ export class PowerUpDirector {
     this.nearMisses = 0;
     this.damageFreeTime = 0;
     this.lastPowerUpTime = this.scene.time.now;
-    this.powerUps.clear(true, true);
+    this.deactivateAllPowerUps();
     const scoreStride = Math.max(1, this.scoreInterval);
     this.lastScoreThreshold = Math.floor(score / scoreStride) * scoreStride;
   }
@@ -105,7 +105,15 @@ export class PowerUpDirector {
     this.hits = 0;
     this.lastScoreThreshold = 0;
     this.lastPowerUpTime = this.scene.time.now;
-    this.powerUps.clear(true, true);
+    this.deactivateAllPowerUps();
+  }
+
+  private deactivateAllPowerUps() {
+    const children = this.powerUps.getChildren() as PowerUp[];
+    for (const powerUp of children) {
+      if (!powerUp) continue;
+      powerUp.deactivate();
+    }
   }
 
   public setDifficultyLevel(level: number) {

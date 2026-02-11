@@ -27,26 +27,30 @@ void main() {
         return;
     }
 
-    // Chromatic Aberration (RGB Shift)
-    float shift = 0.0015;
-    vec4 color;
-    color.r = texture2D(uMainSampler, vec2(uv.x + shift, uv.y)).r;
-    color.g = texture2D(uMainSampler, uv).g;
-    color.b = texture2D(uMainSampler, vec2(uv.x - shift, uv.y)).b;
-    color.a = 1.0;
+    vec4 color = texture2D(uMainSampler, uv);
 
-    // Scanlines
-    float scanline = sin(uv.y * 800.0) * 0.04;
-    color.rgb -= scanline;
-
-    // Flimmern (leichtes Rauschen)
-    float noise = (fract(sin(dot(uv, vec2(12.9898, 78.233) * uTime)) * 43758.5453)) * 0.02;
-    color.rgb += noise;
-
-    // Vignette
     if (uHighEnd) {
+        // Chromatic Aberration (RGB Shift) - only on high-end path.
+        float shift = 0.0015;
+        color.r = texture2D(uMainSampler, vec2(uv.x + shift, uv.y)).r;
+        color.b = texture2D(uMainSampler, vec2(uv.x - shift, uv.y)).b;
+        color.a = 1.0;
+
+        // Scanlines
+        float scanline = sin(uv.y * 800.0) * 0.04;
+        color.rgb -= scanline;
+
+        // Flimmern (leichtes Rauschen)
+        float noise = (fract(sin(dot(uv, vec2(12.9898, 78.233) * uTime)) * 43758.5453)) * 0.02;
+        color.rgb += noise;
+
+        // Vignette
         float dist = length(uv - 0.5);
         color.rgb *= smoothstep(0.8, 0.4, dist);
+    } else {
+        // Low-end path: keep only a light scanline pass (single texture sample total).
+        float scanline = sin(uv.y * 400.0) * 0.02;
+        color.rgb -= scanline;
     }
 
     gl_FragColor = color;

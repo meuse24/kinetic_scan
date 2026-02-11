@@ -126,6 +126,11 @@ interface CollisionPressureMetrics {
   lastFlushSourceMix: CollisionSourceMix;
 }
 
+const IMPACT_RING_TEXTURE_KEY = 'impact_ring';
+const IMPACT_RING_TEXTURE_SIZE = 256;
+const IMPACT_RING_TEXTURE_RADIUS = 120;
+const IMPACT_RING_POOL_SIZE = 96;
+
 export default class MainScene extends Phaser.Scene {
   private player!: Player;
   private bullets!: Phaser.Physics.Arcade.Group;
@@ -195,6 +200,8 @@ export default class MainScene extends Phaser.Scene {
   private isGameOver: boolean = false;
 
   private drones: Phaser.GameObjects.Group | null = null;
+  private impactRingPool!: Phaser.GameObjects.Group;
+  private impactRingTweens: Map<Phaser.GameObjects.Image, Phaser.Tweens.Tween> = new Map();
   private blackHole: {
     x: number;
     y: number;
@@ -421,6 +428,7 @@ export default class MainScene extends Phaser.Scene {
       maxOffsetY: 28,
     });
     this.createGraphics();
+    this.createImpactRingPool();
     this.createStarfield();
     this.createProjectileTrailEmitters();
     this.input.addPointer(2);
@@ -615,7 +623,12 @@ export default class MainScene extends Phaser.Scene {
       this.ufo.deactivate();
       this.skyRaiderManager.deactivateAll();
       this.removeDrones();
+      this.drones?.destroy(true);
+      this.drones = null;
       this.removeBlackHole();
+      this.impactRingTweens.forEach((tween) => tween.stop());
+      this.impactRingTweens.clear();
+      this.impactRingPool?.clear(true, true);
       this.audio.destroy();
       musicManager.stopGameplay();
       this.clearWorldEvents('reset');
@@ -2088,10 +2101,24 @@ export default class MainScene extends Phaser.Scene {
     this.powerUpListText.setText('');
   }
 
+  private deactivateAllBullets() {
+    const bullets = this.bullets.getChildren() as Bullet[];
+    for (const bullet of bullets) {
+      if (bullet.active) bullet.disableBody(true, true);
+    }
+  }
+
+  private deactivateAllEnemies() {
+    const enemies = this.enemyManager.enemies.getChildren() as Enemy[];
+    for (const enemy of enemies) {
+      if (enemy.active) enemy.disableBody(true, true);
+    }
+  }
+
   private resetPlayfield() {
     this.pendingEnemyHits.length = 0;
-    this.bullets.clear(true, true);
-    this.enemyManager.enemies.clear(true, true);
+    this.deactivateAllBullets();
+    this.deactivateAllEnemies();
     this.powerUpDirector.reset();
     this.ufo.deactivate();
     this.skyRaiderManager.deactivateAll();
@@ -2129,8 +2156,8 @@ export default class MainScene extends Phaser.Scene {
     this.hitStopTimer?.remove(false);
     this.hitStopTimer = undefined;
     this.physics.world.timeScale = this.getBaselinePhysicsTimeScale();
-    this.bullets.clear(true, true);
-    this.enemyManager.enemies.clear(true, true);
+    this.deactivateAllBullets();
+    this.deactivateAllEnemies();
     this.ufo.deactivate();
     this.skyRaiderManager.deactivateAll();
     this.powerUpDirector.resetForLevelStart(this.progressionScore);
@@ -2911,6 +2938,14 @@ export default class MainScene extends Phaser.Scene {
     });
   }
 
+  private createImpactRingPool() {
+    this.impactRingPool = this.add.group({
+      classType: Phaser.GameObjects.Image,
+      maxSize: IMPACT_RING_POOL_SIZE,
+      runChildUpdate: false,
+    });
+  }
+
   private spawnImpactRing(
     x: number,
     y: number,
@@ -2919,22 +2954,41 @@ export default class MainScene extends Phaser.Scene {
     endRadius: number,
     durationMs: number,
   ) {
-    const ring = this.add.graphics().setDepth(146);
-    const state = { radius: startRadius, alpha: 0.92 };
-    this.tweens.add({
-      targets: state,
-      radius: endRadius,
+    const startScale = Math.max(0.02, startRadius / IMPACT_RING_TEXTURE_RADIUS);
+    const endScale = Math.max(0.02, endRadius / IMPACT_RING_TEXTURE_RADIUS);
+    const ring = this.impactRingPool.get(
+      x,
+      y,
+      IMPACT_RING_TEXTURE_KEY,
+    ) as Phaser.GameObjects.Image | null;
+    if (!ring) return;
+
+    this.impactRingTweens.get(ring)?.stop();
+    this.impactRingTweens.delete(ring);
+
+    ring
+      .setPosition(x, y)
+      .setDepth(146)
+      .setAlpha(0.92)
+      .setTint(color)
+      .setScale(startScale)
+      .setActive(true)
+      .setVisible(true);
+
+    const tween = this.tweens.add({
+      targets: ring,
+      scaleX: endScale,
+      scaleY: endScale,
       alpha: 0,
       duration: durationMs,
       ease: 'Quart.easeOut',
-      onUpdate: () => {
-        if (!ring.active) return;
-        ring.clear();
-        ring.lineStyle(2, color, state.alpha);
-        ring.strokeCircle(x, y, state.radius);
+      onComplete: () => {
+        this.impactRingTweens.delete(ring);
+        ring.setActive(false);
+        ring.setVisible(false);
       },
-      onComplete: () => ring.destroy(),
     });
+    this.impactRingTweens.set(ring, tween);
   }
 
   private triggerEMP() {
@@ -2986,27 +3040,32 @@ export default class MainScene extends Phaser.Scene {
 
   private spawnDrones() {
     this.audio.playDrones();
-    this.removeDrones();
-    this.drones = this.add.group();
-
-    [-60, 60].forEach((offset) => {
-      // Small wireframe V-shape ship
-      const g = this.add.graphics();
-      g.lineStyle(2, 0x00ff00, 1);
-      g.beginPath();
-      g.moveTo(0, -10);
-      g.lineTo(10, 10);
-      g.lineTo(0, 5);
-      g.lineTo(-10, 10);
-      g.closePath();
-      g.strokePath();
-
-      // Since it's a graphic, we create a container or sprite from it
-      // For simplicity, we can just use the graphics object directly in the group
-      g.x = this.player.x + offset;
-      g.y = this.player.y + 20;
-      this.drones?.add(g);
-    });
+    if (!this.drones) {
+      this.drones = this.add.group({ maxSize: 2 });
+      for (let i = 0; i < 2; i++) {
+        const g = this.add.graphics();
+        g.lineStyle(2, 0x00ff00, 1);
+        g.beginPath();
+        g.moveTo(0, -10);
+        g.lineTo(10, 10);
+        g.lineTo(0, 5);
+        g.lineTo(-10, 10);
+        g.closePath();
+        g.strokePath();
+        g.setActive(false);
+        g.setVisible(false);
+        this.drones.add(g);
+      }
+    }
+    const children = this.drones.getChildren() as Phaser.GameObjects.Graphics[];
+    for (let i = 0; i < children.length; i++) {
+      const drone = children[i];
+      const offset = i === 0 ? -60 : 60;
+      drone.x = this.player.x + offset;
+      drone.y = this.player.y + 20;
+      drone.setActive(true);
+      drone.setVisible(true);
+    }
 
     this.player.setDrones(this.drones);
   }
@@ -3031,13 +3090,12 @@ export default class MainScene extends Phaser.Scene {
 
   private removeDrones() {
     this.player.setDrones(null);
-    if (this.drones) {
-      const children = (this.drones as any).children;
-      if (children && typeof children.size === 'number') {
-        this.drones.clear(true, true);
-      }
+    if (!this.drones) return;
+    const children = this.drones.getChildren() as Phaser.GameObjects.Graphics[];
+    for (const drone of children) {
+      drone.setActive(false);
+      drone.setVisible(false);
     }
-    this.drones = null;
   }
 
   private spawnBlackHole() {
@@ -3099,13 +3157,16 @@ export default class MainScene extends Phaser.Scene {
     const positions = layoutRatios.map((ratio) => Math.round(this.scale.width * ratio));
 
     for (const x of positions) {
-      const bunker = this.shieldBunkers.create(
-        x,
-        y,
-        'shield_bunker',
-      ) as Phaser.Physics.Arcade.Image;
+      const bunker = this.shieldBunkers.get(x, y, 'shield_bunker') as Phaser.Physics.Arcade.Image;
+      if (!bunker) continue;
+      bunker.setTexture('shield_bunker');
+      bunker.setActive(true);
+      bunker.setVisible(true);
       bunker.setDepth(66);
       bunker.setAlpha(SHIELD_BUNKER_TUNING.idleAlpha);
+      const body = bunker.body as Phaser.Physics.Arcade.StaticBody | Phaser.Physics.Arcade.Body;
+      if (body) body.enable = true;
+      bunker.setPosition(x, y);
       bunker.refreshBody();
       this.tweens.add({
         targets: bunker,
@@ -3171,9 +3232,9 @@ export default class MainScene extends Phaser.Scene {
       this.tweens.killTweensOf(bunkers);
     }
     this.stopShieldBunkerWarning(false);
-    const bunkerGroup = this.shieldBunkers as any;
-    if (!bunkerGroup?.children || typeof bunkerGroup.clear !== 'function') return;
-    bunkerGroup.clear(true, true);
+    for (const bunker of bunkers) {
+      bunker.disableBody(true, true);
+    }
   }
 
   private handleBulletHitShieldBunker(obj1: any, obj2: any) {
@@ -4068,6 +4129,23 @@ export default class MainScene extends Phaser.Scene {
     bulletG.fillRect(0, 0, 8, 20);
     bulletG.generateTexture('bullet', 8, 20);
     bulletG.destroy();
+
+    if (!this.textures.exists(IMPACT_RING_TEXTURE_KEY)) {
+      const ringG = this.add.graphics();
+      ringG.setVisible(false);
+      ringG.lineStyle(8, 0xffffff, 1);
+      ringG.strokeCircle(
+        IMPACT_RING_TEXTURE_SIZE / 2,
+        IMPACT_RING_TEXTURE_SIZE / 2,
+        IMPACT_RING_TEXTURE_RADIUS,
+      );
+      ringG.generateTexture(
+        IMPACT_RING_TEXTURE_KEY,
+        IMPACT_RING_TEXTURE_SIZE,
+        IMPACT_RING_TEXTURE_SIZE,
+      );
+      ringG.destroy();
+    }
 
     if (!this.textures.exists('ufo_shard')) {
       const shardG = this.add.graphics();
