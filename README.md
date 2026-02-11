@@ -32,6 +32,7 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
   - adaptive bullet cap,
   - collision-hit coalescing for mass scenes.
 - Enhanced ship visuals and power-up readability (thruster + effect overlays).
+- Mine-layer tactical ability: collect charges and deploy 5 proximity mines (`M` or double-click/double-tap).
 - Attract mode now includes occasional UFO live-fire for a more dynamic demo screen.
 
 ## Audio
@@ -54,6 +55,7 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
   - Base duration: ~18s (difficulty-scaled).
   - Compact/mobile layouts spawn 2 bunkers instead of 3.
   - Bunkers blink 4x shortly before deactivation.
+- `MNE` (Mine Layer): grants a mine-field charge; each activation deploys 5 proximity mines that arm, pulse, and destroy enemies on contact.
 
 ## Controls
 
@@ -63,9 +65,9 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 - Fire: hold `Space` or pointer.
 - Pause: UI button `PAUSE (P)` / `P` or `Esc`.
 - Help: UI button `HELP (H)` / `H`.
+- Deploy mine field (requires `MNE` charge): `M` or double-click (mouse) / double-tap (touch).
 - Debug overlay (off by default): `D`.
 - Test spawn (debug): `B` activates shield bunkers.
-- Quick bunker trigger (debug/test): double-click (mouse) or double-tap (touch) when bunkers are currently inactive.
 
 ### UI Button Hotkeys
 
@@ -135,7 +137,7 @@ Automation helpers are exposed on `window`:
 
 - `src/main.ts`: entry + automation hooks.
 - `src/gameConfig.ts`: renderer/scaling configuration.
-- `src/MainScene.ts`: core gameplay loop (player, enemies, level/boss flow, overlays).
+- `src/MainScene.ts`: core gameplay loop (player, enemies, level/boss flow, overlays, mine-layer ability).
 - `src/UFO.ts`: scout/boss UFO logic, procedural visuals (animated tentacles, hull, energy bar), projectile volleys.
 - `src/Player.ts`: player movement/fire/heat + visual indicators.
 - `src/EnemyManager.ts`: asteroid spawning/splitting/difficulty scaling.
@@ -164,6 +166,7 @@ Automation helpers are exposed on `window`:
 - Score milestones trigger camera effects and ascending arpeggio.
 - Top-entry invaders (stalker/lancer) appear from above, shoot, and retreat if left alive.
 - Asteroid swarm formations spawn from level 2+ with bonus for full wipe.
+- Mine Layer pickup increases HUD mine count; mine deployment (`M` or double-click/double-tap) launches 5 pulsing mines that destroy asteroids/UFOs/invaders on contact.
 - Daily challenge mode with seeded runs and separate leaderboard.
 - Tutorial hints shown on first play.
 - Volume sliders (master/SFX/BGM) available in pause menu.

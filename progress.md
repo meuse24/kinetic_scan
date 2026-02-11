@@ -1448,3 +1448,17 @@ TODOs for next agent
 - Validation:
   - `npm run lint` pass
   - `npm run build` pass
+- 2026-02-11: Documentation sync for Mine Layer controls and pooling status.
+  - Updated `README.md`:
+    - added `MNE` power-up entry,
+    - corrected mine deploy inputs (`M`, double-click, double-tap),
+    - added mine-layer feature mention in highlights, structure, and smoke-test checklist.
+  - Updated `CLAUDE.md`:
+    - corrected `MainScene` input description (mine deploy + debug bunker split),
+    - extended `PowerUpType` enum docs with `MINE_LAYER`.
+  - Updated `gemini.md`:
+    - added tactical mine deploy notes to combat mechanics,
+    - expanded power-up and pooling documentation to include proximity mines.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass

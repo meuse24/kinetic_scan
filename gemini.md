@@ -34,6 +34,7 @@
 
 ### 3. Combat Mechanics
 - **Platform-Specific Control:** Desktop uses manual fire via Space/left-click with a short tap buffer; mobile uses "Touch-to-Fire" (auto-fires only when the screen is touched).
+- **Tactical Mine Deploy:** After collecting **MINE_LAYER** charges, the player can deploy a 5-mine field via `M` (keyboard) or double-click/double-tap.
 - **Heat & Overheat:** Each shot raises heat (0–100). At 100, the ship overheats and cannot fire for 2 seconds. Heat cools down gradually when not firing.
 - **Mobile Balancing:** On mobile devices, the heat decay rate is increased by ~60% to compensate for the continuous firing while moving, allowing for tactical cooling during short movement pauses.
 - **Contextual UI:** The heat bar follows the ship and sits just below it for quick peripheral readability, blinking red on overheat.
@@ -44,7 +45,7 @@
     - `MainScene`: Core gameplay loop and HUD.
     - `GameOverScene`: Score summary and restart logic.
 - **Highscore System:** Persisted via `localStorage`.
-- **Object Pooling:** Efficient bullet and enemy management using Phaser Groups.
+- **Object Pooling:** Efficient Phaser Group pooling for bullets, enemies, power-ups, drones, and proximity mines.
 
 ### 5. Typography
 - **Font:** Google Font 'Press Start 2P' for a classic 8-bit arcade aesthetic.
@@ -88,6 +89,8 @@ The game features a highly dynamic power-up system that reacts to both player sk
     - **GHOST_PHASE:** Der Spieler wird physisch immateriell (keine Kollisionen) und flackert transparent.
     - **WINGMAN_DRONES:** Zwei Drohnen begleiten den Spieler und verdoppeln die Feuerkraft.
     - **BLACK_HOLE:** Ein lokales Gravitationsfeld zieht Asteroiden in sein Zentrum.
+    - **SHIELD_BUNKER:** Zeitlich begrenzte, unzerstoerbare Bunker als taktische Deckung.
+    - **MINE_LAYER:** Gibt Minenladungen; jede Ausloesung setzt 5 pulsierende Naeherungsminen gegen Asteroiden/UFOs/Invader.
 - **Smart Triggers (Stats Module):**
     - **Combo Spawn:** Based on kill rate. Increment combo by 1 per kill if time since the previous kill is `< 3000ms`.
     - **Near-Miss Trigger:** If the player survives 3 close encounters with asteroids, an **EMP_WAVE** is spawned as a rescue.
