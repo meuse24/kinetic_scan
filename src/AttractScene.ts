@@ -419,6 +419,15 @@ export default class AttractScene extends Phaser.Scene {
     this.applyAttractAudioVolume();
 
     this.events.once('shutdown', () => {
+      const safeDestroyGroup = (group: any) => {
+        if (!group || typeof group.destroy !== 'function') return;
+        try {
+          group.destroy(true);
+        } catch {
+          // Ignore teardown races during scene shutdown.
+        }
+      };
+
       this.sceneBackground?.destroy();
       this.sceneBackground = undefined;
       this.settingsOverlay?.destroy(true);
@@ -436,7 +445,7 @@ export default class AttractScene extends Phaser.Scene {
       this.heartbeatActive = false;
       this.heartbeatTimer?.remove(false);
       this.heartbeatTimer = null;
-      this.enemyManager.enemies.destroy(true);
+      safeDestroyGroup((this.enemyManager as any)?.enemies);
       this.ufo.setCombatTarget(null);
       this.ufo.deactivate();
       this.attractCombatTarget?.destroy();

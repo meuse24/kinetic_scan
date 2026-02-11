@@ -1275,3 +1275,120 @@ TODOs for next agent
 ### Interpretation
 - In this headless capture benchmark, pooling gives a small but consistent FPS gain and better low-end FPS floor.
 - Memory swing was effectively neutral in this setup (high run-to-run variance from gameplay randomness and capture environment).
+- 2026-02-11: Crash fix for "last ship destroyed" during scene teardown.
+  - Root cause: Phaser `Group.clear()` could be called after internal `children` container was already unavailable during `MainScene` shutdown, causing `Cannot read properties of undefined (reading 'size')`.
+  - Change in `src/MainScene.ts` shutdown handler:
+    - Added guarded `safeClearGroup(...)` and `safeDestroyGroup(...)` helpers.
+    - Replaced direct teardown calls for `drones`, `impactRingPool`, and `shieldBunkers` with guarded calls.
+  - Validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+- 2026-02-11: Asteroid visual upgrade (more plastic/realistic look) in `src/EnemyManager.ts`.
+  - Replaced flat Graphics fill with procedural CanvasTexture rendering for asteroids.
+  - New texture pipeline per asteroid:
+    - irregular contour generation,
+    - directional + radial base shading,
+    - layered geological strata,
+    - granular surface noise,
+    - volumetric craters with local highlight/shadow,
+    - rim occlusion + contour strokes for depth.
+  - Kept gameplay behavior and collider setup unchanged.
+  - Validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+- 2026-02-11: Player ship + wingman drone visual overhaul (plastic/realistic style).
+  - `src/Player.ts`:
+    - Replaced simple wireframe ship texture generation with layered CanvasTexture rendering (hull gradient, inner panels, canopy glow/core, light strips, vent details, rivets).
+    - Upgraded thruster rendering with nozzle housing, multi-layer plume, hotter core, and side micro-thruster glow.
+  - `src/MainScene.ts`:
+    - Added procedural `wingman_drone` texture generation in `createGraphics()` (shaded hull, cockpit glow, panel lines, rear emitters).
+    - `spawnDrones()` now instantiates image-based wingman drones using pooled objects.
+    - `updateDrones()` adds subtle hover bob, roll, scale, and alpha breathing for more lifelike motion.
+  - Validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+- 2026-02-11: UFO visual pass upgraded to Phaser-3 hybrid rendering (realistic/plastic look while keeping animated tentacles).
+  - `src/UFO.ts`:
+    - Added procedural CanvasTexture generation for layered UFO assets:
+      - `ufo_scout_hull`, `ufo_scout_dome`, `ufo_boss_hull`, `ufo_boss_dome`.
+    - UFO now uses dedicated image layers (`hullSprite`, `domeSprite`) for metallic body/depth.
+    - Existing `Graphics` path now focuses on animated elements (tentacles, glows, telegraph, muzzle FX, HUD bar).
+    - Added `syncHullLayers(...)` to animate roll/bob/scale and apply reactive tinting (damage/phase/hit flash).
+    - Kept combat, movement, hitbox, and projectile behavior intact.
+  - Validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+- 2026-02-11: "hard sci-fi metal" style pass extended to invader ships + powerups.
+  - `src/SkyRaider.ts`:
+    - Replaced flat Graphics textures with layered CanvasTextures for:
+      - `sky_raider_stalker`
+      - `sky_raider_lancer`
+      - `sky_raider_shot`
+    - Added metallic hull gradients, panel segmentation, cockpit/engine glow, and rim highlights.
+  - `src/MainScene.ts`:
+    - Upgraded `elite_drone` texture to metallic shaded CanvasTexture for visual consistency with invader fleet.
+  - `src/PowerUp.ts`:
+    - Reworked all power-up textures into metallic badge tokens with per-type sci-fi glyphs.
+    - Added shared metal base renderer + accent glow colors per power-up type.
+  - Validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+- 2026-02-11: Explosion particle system realism/performance pass (`src/ExplosionManager.ts`).
+  - Confirmed previous core explosion particles were circle sprites (`particle_flare` from `MainScene.preload`) and looked generic.
+  - Rebuilt explosion VFX to layered best-practice setup with pre-rendered lightweight textures:
+    - core fireball (`explosion_core_particle`),
+    - sparks/streaks (`explosion_spark_particle`),
+    - debris chips (`explosion_debris_particle`),
+    - smoke puffs (`explosion_smoke_particle`).
+  - Added quality-aware layered emitters (core/spark/debris/smoke) and reused existing UFO shard emitter.
+  - Kept performance safeguards:
+    - all textures generated once and reused,
+    - no per-particle update callbacks,
+    - counts scaled through `performanceMonitor.scaleFxCount(...)`,
+    - smoke disabled in reduced-particle mode / when smoke quality is off.
+  - Updated burst composition for:
+    - normal explosions,
+    - player death explosions,
+    - UFO debris ring explosions.
+  - Validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+- 2026-02-11: Added explosion style presets (`competitive` / `cinematic`) in `ExplosionManager`.
+  - New style model:
+    - `setExplosionStyle('auto' | 'cinematic' | 'competitive')`
+    - auto chooses profile from runtime quality (`reducedParticles`, smoke availability, FX budget).
+  - Added preset table `EXPLOSION_PRESETS` controlling:
+    - burst counts per scenario (asteroid / player death / UFO ring),
+    - emitter dynamics (lifespan, speed, gravity, smoke scale, UFO debris tuning).
+  - Added one-time profile application with `applyPresetIfNeeded(...)` to avoid per-frame overhead.
+  - Kept smoke gated by quality conditions to preserve performance.
+  - Validation:
+    - `npm run lint` pass
+    - `npm run build` pass
+- 2026-02-11: Shield bunker visual upgrade (hard sci-fi metal) in `src/MainScene.ts`.
+  - Replaced simple `Graphics` rounded-rect texture with one-time CanvasTexture render for `shield_bunker`.
+  - Added layered metallic hull shading, beveled inner plate, panel segmentation, vent slots, rivets, and subtle cyan tech glow.
+  - Kept gameplay behavior unchanged (same texture key, object pooling path, bunker spawn/remove logic, and physics body flow).
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+- 2026-02-11: Teardown-race hotfix for scene shutdown errors reported in browser console.
+  - `src/MainScene.ts`:
+    - Hardened `removeDrones()` against destroyed/partially-destroyed Phaser Group internals.
+    - It now reads children defensively and ignores teardown races instead of calling `getChildren()` unguarded.
+  - `src/BezelScene.ts`:
+    - Added safe reflection RenderTexture clear path (`canSafelyUseReflectionRt` + `safeClearReflectionRt`).
+    - Guarded `clear()/draw()/destroy()` with renderer/WebGL `gl` checks and try/catch during shutdown and runtime disable paths.
+    - Prevents `Cannot read properties of null (reading 'gl')` when scenes stop during renderer teardown.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+- 2026-02-11: Bullet visual upgrade (realistic yellow-orange + premium homing look) in `src/Player.ts`.
+  - Replaced old simple wireframe bullet textures with pre-rendered CanvasTextures:
+    - `bullet_wireframe`: metallic/plasma slug in yellow-orange hard-sci-fi palette.
+    - `bullet_magnetic`: upgraded homing projectile with plasma core, cool guidance fins/halo accents.
+  - Added lightweight magnetic visual pulse (`scale` + `alpha`) in `Bullet.preUpdate(...)` for stronger tracking readability.
+  - Kept pooling/physics/homing logic intact (no extra emitters, no per-particle callbacks).
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass

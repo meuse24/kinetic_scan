@@ -9,64 +9,271 @@ const SKY_RAIDER_STALKER_TEXTURE = 'sky_raider_stalker';
 const SKY_RAIDER_LANCER_TEXTURE = 'sky_raider_lancer';
 const SKY_RAIDER_SHOT_TEXTURE = 'sky_raider_shot';
 
+function colorToRgba(color: number, alpha: number) {
+  const c = Phaser.Display.Color.IntegerToColor(color);
+  return `rgba(${c.red}, ${c.green}, ${c.blue}, ${alpha})`;
+}
+
+function createCanvasTexture(
+  scene: Phaser.Scene,
+  key: string,
+  width: number,
+  height: number,
+  draw: (ctx: CanvasRenderingContext2D, width: number, height: number) => void,
+) {
+  if (scene.textures.exists(key)) return;
+  const texture = scene.textures.createCanvas(key, width, height);
+  if (!texture) return;
+  const ctx = texture.getContext();
+  ctx.clearRect(0, 0, width, height);
+  draw(ctx, width, height);
+  texture.refresh();
+}
+
+function drawStalkerTexture(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const points = [
+    { x: width * 0.5, y: 6 },
+    { x: width * 0.88, y: height * 0.58 },
+    { x: width * 0.72, y: height * 0.82 },
+    { x: width * 0.5, y: height * 0.72 },
+    { x: width * 0.28, y: height * 0.82 },
+    { x: width * 0.12, y: height * 0.58 },
+  ];
+  const traceHull = (offsetX: number = 0, offsetY: number = 0) => {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x + offsetX, points[0].y + offsetY);
+    for (let i = 1; i < points.length; i++)
+      ctx.lineTo(points[i].x + offsetX, points[i].y + offsetY);
+    ctx.closePath();
+  };
+
+  traceHull(0.6, 1.6);
+  ctx.fillStyle = 'rgba(0,0,0,0.36)';
+  ctx.fill();
+
+  traceHull();
+  const hullGrad = ctx.createLinearGradient(width * 0.18, 8, width * 0.82, height * 0.86);
+  hullGrad.addColorStop(0, '#6f7e95');
+  hullGrad.addColorStop(0.45, '#2b3a50');
+  hullGrad.addColorStop(1, '#101722');
+  ctx.fillStyle = hullGrad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(214,233,255,0.9)';
+  ctx.lineWidth = 1.8;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(width * 0.5, 11);
+  ctx.lineTo(width * 0.72, height * 0.56);
+  ctx.lineTo(width * 0.62, height * 0.7);
+  ctx.lineTo(width * 0.5, height * 0.63);
+  ctx.lineTo(width * 0.38, height * 0.7);
+  ctx.lineTo(width * 0.28, height * 0.56);
+  ctx.closePath();
+  const panelGrad = ctx.createLinearGradient(width * 0.5, 11, width * 0.5, height * 0.7);
+  panelGrad.addColorStop(0, '#111b29');
+  panelGrad.addColorStop(1, '#080d14');
+  ctx.fillStyle = panelGrad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(120, 160, 205, 0.45)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  const cockpitGlow = ctx.createRadialGradient(
+    width * 0.5,
+    height * 0.42,
+    0.7,
+    width * 0.5,
+    height * 0.42,
+    10,
+  );
+  cockpitGlow.addColorStop(0, 'rgba(236,249,255,1)');
+  cockpitGlow.addColorStop(0.42, 'rgba(134,220,255,0.85)');
+  cockpitGlow.addColorStop(1, 'rgba(30,119,201,0)');
+  ctx.fillStyle = cockpitGlow;
+  ctx.beginPath();
+  ctx.moveTo(width * 0.5, height * 0.22);
+  ctx.lineTo(width * 0.62, height * 0.5);
+  ctx.lineTo(width * 0.38, height * 0.5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(163, 235, 255, 0.9)';
+  ctx.lineWidth = 1.1;
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(205,228,255,0.28)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(width * 0.32, height * 0.36);
+  ctx.lineTo(width * 0.68, height * 0.36);
+  ctx.moveTo(width * 0.28, height * 0.58);
+  ctx.lineTo(width * 0.72, height * 0.58);
+  ctx.moveTo(width * 0.5, 10);
+  ctx.lineTo(width * 0.5, height * 0.72);
+  ctx.stroke();
+
+  for (const engineX of [width * 0.3, width * 0.7]) {
+    const engineGlow = ctx.createRadialGradient(
+      engineX,
+      height * 0.63,
+      0.6,
+      engineX,
+      height * 0.63,
+      6.5,
+    );
+    engineGlow.addColorStop(0, 'rgba(201,248,255,1)');
+    engineGlow.addColorStop(1, 'rgba(67,190,255,0)');
+    ctx.fillStyle = engineGlow;
+    ctx.beginPath();
+    ctx.arc(engineX, height * 0.63, 5.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = colorToRgba(0x6af0ff, 0.85);
+  ctx.beginPath();
+  ctx.arc(width * 0.3, height * 0.63, 3.2, 0, Math.PI * 2);
+  ctx.arc(width * 0.7, height * 0.63, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawLancerTexture(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const points = [
+    { x: width * 0.5, y: 4 },
+    { x: width * 0.92, y: height * 0.54 },
+    { x: width * 0.76, y: height * 0.9 },
+    { x: width * 0.5, y: height * 0.76 },
+    { x: width * 0.24, y: height * 0.9 },
+    { x: width * 0.08, y: height * 0.54 },
+  ];
+  const traceHull = (offsetX: number = 0, offsetY: number = 0) => {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x + offsetX, points[0].y + offsetY);
+    for (let i = 1; i < points.length; i++)
+      ctx.lineTo(points[i].x + offsetX, points[i].y + offsetY);
+    ctx.closePath();
+  };
+
+  traceHull(0.7, 1.7);
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fill();
+
+  traceHull();
+  const hullGrad = ctx.createLinearGradient(width * 0.2, 6, width * 0.82, height * 0.9);
+  hullGrad.addColorStop(0, '#8f6a95');
+  hullGrad.addColorStop(0.45, '#482a58');
+  hullGrad.addColorStop(1, '#170f24');
+  ctx.fillStyle = hullGrad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 202, 248, 0.92)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(width * 0.5, 10);
+  ctx.lineTo(width * 0.74, height * 0.52);
+  ctx.lineTo(width * 0.64, height * 0.73);
+  ctx.lineTo(width * 0.5, height * 0.64);
+  ctx.lineTo(width * 0.36, height * 0.73);
+  ctx.lineTo(width * 0.26, height * 0.52);
+  ctx.closePath();
+  const centerPlate = ctx.createLinearGradient(width * 0.5, 10, width * 0.5, height * 0.74);
+  centerPlate.addColorStop(0, '#220f31');
+  centerPlate.addColorStop(1, '#0b0612');
+  ctx.fillStyle = centerPlate;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(208, 164, 222, 0.42)';
+  ctx.lineWidth = 1.1;
+  ctx.stroke();
+
+  const spearGlow = ctx.createRadialGradient(
+    width * 0.5,
+    height * 0.42,
+    0.8,
+    width * 0.5,
+    height * 0.42,
+    12,
+  );
+  spearGlow.addColorStop(0, 'rgba(255,246,209,1)');
+  spearGlow.addColorStop(0.35, 'rgba(255,195,146,0.88)');
+  spearGlow.addColorStop(1, 'rgba(255,130,170,0)');
+  ctx.fillStyle = spearGlow;
+  ctx.beginPath();
+  ctx.moveTo(width * 0.5, height * 0.16);
+  ctx.lineTo(width * 0.62, height * 0.52);
+  ctx.lineTo(width * 0.38, height * 0.52);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 223, 179, 0.9)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255, 228, 246, 0.3)';
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(width * 0.5, 8);
+  ctx.lineTo(width * 0.5, height * 0.76);
+  ctx.moveTo(width * 0.28, height * 0.53);
+  ctx.lineTo(width * 0.72, height * 0.53);
+  ctx.moveTo(width * 0.26, height * 0.72);
+  ctx.lineTo(width * 0.74, height * 0.72);
+  ctx.stroke();
+
+  for (const engineX of [width * 0.24, width * 0.76]) {
+    const engineGlow = ctx.createRadialGradient(
+      engineX,
+      height * 0.6,
+      0.5,
+      engineX,
+      height * 0.6,
+      7,
+    );
+    engineGlow.addColorStop(0, 'rgba(255,223,245,1)');
+    engineGlow.addColorStop(1, 'rgba(255,111,220,0)');
+    ctx.fillStyle = engineGlow;
+    ctx.beginPath();
+    ctx.arc(engineX, height * 0.6, 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = colorToRgba(0xff9fd8, 0.84);
+  ctx.beginPath();
+  ctx.arc(width * 0.24, height * 0.6, 3.2, 0, Math.PI * 2);
+  ctx.arc(width * 0.76, height * 0.6, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSkyRaiderShotTexture(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const cx = width * 0.5;
+  const cy = height * 0.5;
+  const outer = ctx.createRadialGradient(cx, cy, 0.5, cx, cy, width * 0.5);
+  outer.addColorStop(0, 'rgba(226,255,249,1)');
+  outer.addColorStop(0.35, 'rgba(153,255,228,0.82)');
+  outer.addColorStop(1, 'rgba(54,176,170,0)');
+  ctx.fillStyle = outer;
+  ctx.beginPath();
+  ctx.arc(cx, cy, width * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(224,255,246,0.92)';
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, width * 0.35, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(188,255,236,0.65)';
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(cx - width * 0.18, cy);
+  ctx.lineTo(cx + width * 0.18, cy);
+  ctx.moveTo(cx, cy - width * 0.18);
+  ctx.lineTo(cx, cy + width * 0.18);
+  ctx.stroke();
+}
+
 function ensureSkyRaiderTextures(scene: Phaser.Scene) {
-  if (!scene.textures.exists(SKY_RAIDER_STALKER_TEXTURE)) {
-    const g = scene.make.graphics({ x: 0, y: 0 });
-    g.fillStyle(0x11253b, 0.96);
-    g.lineStyle(2, 0x79dcff, 1);
-    g.beginPath();
-    g.moveTo(32, 6);
-    g.lineTo(54, 40);
-    g.lineTo(44, 52);
-    g.lineTo(32, 46);
-    g.lineTo(20, 52);
-    g.lineTo(10, 40);
-    g.closePath();
-    g.fillPath();
-    g.strokePath();
-    g.fillStyle(0x89f7ff, 0.85);
-    g.fillTriangle(32, 14, 39, 31, 25, 31);
-    g.fillStyle(0x6af0ff, 0.7);
-    g.fillCircle(19, 40, 4);
-    g.fillCircle(45, 40, 4);
-    g.generateTexture(SKY_RAIDER_STALKER_TEXTURE, 64, 64);
-    g.destroy();
-  }
-
-  if (!scene.textures.exists(SKY_RAIDER_LANCER_TEXTURE)) {
-    const g = scene.make.graphics({ x: 0, y: 0 });
-    g.fillStyle(0x2d123d, 0.96);
-    g.lineStyle(2, 0xff9df5, 1);
-    g.beginPath();
-    g.moveTo(32, 4);
-    g.lineTo(58, 36);
-    g.lineTo(48, 58);
-    g.lineTo(32, 50);
-    g.lineTo(16, 58);
-    g.lineTo(6, 36);
-    g.closePath();
-    g.fillPath();
-    g.strokePath();
-    g.fillStyle(0xfff2a6, 0.85);
-    g.fillTriangle(32, 12, 40, 31, 24, 31);
-    g.fillStyle(0xff9fd8, 0.78);
-    g.fillCircle(15, 38, 4);
-    g.fillCircle(49, 38, 4);
-    g.generateTexture(SKY_RAIDER_LANCER_TEXTURE, 64, 64);
-    g.destroy();
-  }
-
-  if (!scene.textures.exists(SKY_RAIDER_SHOT_TEXTURE)) {
-    const g = scene.make.graphics({ x: 0, y: 0 });
-    g.fillStyle(0x7cffe1, 0.35);
-    g.fillCircle(8, 8, 8);
-    g.fillStyle(0xb2fff1, 0.92);
-    g.fillCircle(8, 8, 4);
-    g.lineStyle(1, 0xffffff, 0.95);
-    g.strokeCircle(8, 8, 6);
-    g.generateTexture(SKY_RAIDER_SHOT_TEXTURE, 16, 16);
-    g.destroy();
-  }
+  createCanvasTexture(scene, SKY_RAIDER_STALKER_TEXTURE, 64, 64, drawStalkerTexture);
+  createCanvasTexture(scene, SKY_RAIDER_LANCER_TEXTURE, 64, 64, drawLancerTexture);
+  createCanvasTexture(scene, SKY_RAIDER_SHOT_TEXTURE, 16, 16, drawSkyRaiderShotTexture);
 }
 
 export class SkyRaiderShot extends Phaser.Physics.Arcade.Sprite {

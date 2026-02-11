@@ -11,6 +11,19 @@ const ACTIVE_ENEMY_CAP_REDUCED = 36;
 const FRAGMENT_CAP_BUFFER = 8;
 const OFFSCREEN_CULL_INTERVAL_MS = 64;
 
+type AsteroidPoint = {
+  x: number;
+  y: number;
+};
+
+type AsteroidPalette = {
+  base: Phaser.Display.Color;
+  shadow: Phaser.Display.Color;
+  highlight: Phaser.Display.Color;
+  ridgeLight: Phaser.Display.Color;
+  ridgeDark: Phaser.Display.Color;
+};
+
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
   public swarmId: number = 0;
   public swarmTotal: number = 0;
@@ -229,58 +242,266 @@ export class EnemyManager {
 
     const size = 64;
     const center = size / 2;
-    const baseRadius = 30;
+    const radius = size * 0.46;
+    const contour = this.buildAsteroidContour(center, center, radius, Phaser.Math.Between(10, 14));
+    const polygon = new Phaser.Geom.Polygon(contour.map((p) => new Phaser.Geom.Point(p.x, p.y)));
+    const palette = this.getAsteroidPalette();
+    const texture = this.scene.textures.createCanvas(key, size, size);
+    if (!texture) return;
+    const ctx = texture.getContext();
 
-    const graphics = this.scene.make.graphics({ x: 0, y: 0 });
+    ctx.clearRect(0, 0, size, size);
+    this.traceContourPath(ctx, contour);
+    ctx.save();
+    ctx.clip();
+    this.paintAsteroidBase(ctx, size, radius, palette);
+    this.paintAsteroidStrata(ctx, size, radius, palette);
+    this.paintAsteroidNoise(ctx, size, polygon, palette);
+    this.paintAsteroidCraters(ctx, size, polygon, palette);
+    this.paintAsteroidRimOcclusion(ctx, contour);
+    ctx.restore();
 
-    const strokeColor = this.getAsteroidPaletteColor();
-    graphics.fillStyle(strokeColor, 0.45);
-    graphics.lineStyle(2, strokeColor, 1);
+    this.traceContourPath(ctx, contour);
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = this.toRgba(this.mixColors(palette.ridgeDark, palette.shadow, 0.5), 0.9);
+    ctx.stroke();
 
-    graphics.beginPath();
+    this.traceContourPath(ctx, contour);
+    ctx.lineWidth = 0.9;
+    ctx.strokeStyle = this.toRgba(this.mixColors(palette.highlight, palette.ridgeLight, 0.5), 0.28);
+    ctx.stroke();
 
-    const points = Phaser.Math.Between(8, 12);
+    texture.refresh();
+  }
+
+  private buildAsteroidContour(
+    centerX: number,
+    centerY: number,
+    baseRadius: number,
+    points: number,
+  ): AsteroidPoint[] {
+    const contour: AsteroidPoint[] = [];
     const angleStep = (Math.PI * 2) / points;
+    const phaseA = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    const phaseB = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    const wobbleA = Phaser.Math.FloatBetween(0.08, 0.15);
+    const wobbleB = Phaser.Math.FloatBetween(0.05, 0.11);
 
     for (let i = 0; i < points; i++) {
       const angle = i * angleStep;
-      const radius = Phaser.Math.FloatBetween(baseRadius * 0.6, baseRadius);
-
-      const x = center + Math.cos(angle) * radius;
-      const y = center + Math.sin(angle) * radius;
-
-      if (i === 0) {
-        graphics.moveTo(x, y);
-      } else {
-        graphics.lineTo(x, y);
-      }
+      const wave =
+        1 + Math.sin(angle * 3 + phaseA) * wobbleA + Math.cos(angle * 5 + phaseB) * wobbleB;
+      const noise = Phaser.Math.FloatBetween(0.84, 1.12);
+      const radius = baseRadius * Phaser.Math.Clamp(wave * noise, 0.7, 1.16);
+      contour.push({
+        x: centerX + Math.cos(angle) * radius,
+        y: centerY + Math.sin(angle) * radius,
+      });
     }
 
-    graphics.closePath();
-    graphics.fillPath();
-    graphics.strokePath();
-
-    this.addCraterDetails(graphics, size);
-
-    graphics.generateTexture(key, size, size);
-    graphics.destroy();
+    return contour;
   }
 
-  private addCraterDetails(graphics: Phaser.GameObjects.Graphics, size: number) {
-    const craterCount = Phaser.Math.Between(3, 6);
-    const darkColor = 0x000000;
+  private traceContourPath(ctx: CanvasRenderingContext2D, contour: AsteroidPoint[]) {
+    if (contour.length === 0) return;
+    ctx.beginPath();
+    ctx.moveTo(contour[0].x, contour[0].y);
+    for (let i = 1; i < contour.length; i++) {
+      ctx.lineTo(contour[i].x, contour[i].y);
+    }
+    ctx.closePath();
+  }
+
+  private paintAsteroidBase(
+    ctx: CanvasRenderingContext2D,
+    size: number,
+    radius: number,
+    palette: AsteroidPalette,
+  ) {
+    const center = size / 2;
+    const litX = center - radius * 0.38;
+    const litY = center - radius * 0.34;
+    const baseGradient = ctx.createRadialGradient(
+      litX,
+      litY,
+      radius * 0.08,
+      center,
+      center,
+      radius * 1.14,
+    );
+    baseGradient.addColorStop(
+      0,
+      this.toRgba(this.mixColors(palette.highlight, palette.base, 0.15), 1),
+    );
+    baseGradient.addColorStop(0.45, this.toRgba(palette.base, 1));
+    baseGradient.addColorStop(1, this.toRgba(palette.shadow, 1));
+    ctx.fillStyle = baseGradient;
+    ctx.fillRect(0, 0, size, size);
+
+    const directionalShade = ctx.createLinearGradient(
+      center - radius * 1.1,
+      center - radius * 1.2,
+      center + radius * 1.05,
+      center + radius * 1.15,
+    );
+    directionalShade.addColorStop(0, this.toRgba(palette.ridgeLight, 0));
+    directionalShade.addColorStop(0.52, this.toRgba(palette.base, 0.08));
+    directionalShade.addColorStop(
+      1,
+      this.toRgba(this.mixColors(palette.shadow, palette.ridgeDark, 0.65), 0.45),
+    );
+    ctx.fillStyle = directionalShade;
+    ctx.fillRect(0, 0, size, size);
+  }
+
+  private paintAsteroidStrata(
+    ctx: CanvasRenderingContext2D,
+    size: number,
+    radius: number,
+    palette: AsteroidPalette,
+  ) {
+    const center = size / 2;
+    const strataCount = Phaser.Math.Between(6, 10);
+    for (let i = 0; i < strataCount; i++) {
+      const y = center + Phaser.Math.FloatBetween(-radius * 0.55, radius * 0.68);
+      const slope = Phaser.Math.FloatBetween(-radius * 0.16, radius * 0.16);
+      const arcY = y + Phaser.Math.FloatBetween(-radius * 0.15, radius * 0.15);
+      const thickness = Phaser.Math.FloatBetween(0.8, 2.2);
+      const tone =
+        Phaser.Math.FloatBetween(0, 1) < 0.58
+          ? this.mixColors(palette.base, palette.ridgeLight, Phaser.Math.FloatBetween(0.25, 0.58))
+          : this.mixColors(palette.base, palette.ridgeDark, Phaser.Math.FloatBetween(0.35, 0.68));
+      ctx.lineWidth = thickness;
+      ctx.strokeStyle = this.toRgba(tone, Phaser.Math.FloatBetween(0.08, 0.2));
+      ctx.beginPath();
+      ctx.moveTo(center - radius * 1.18, y - slope);
+      ctx.quadraticCurveTo(
+        center + Phaser.Math.FloatBetween(-radius * 0.35, radius * 0.35),
+        arcY,
+        center + radius * 1.2,
+        y + slope,
+      );
+      ctx.stroke();
+    }
+  }
+
+  private paintAsteroidNoise(
+    ctx: CanvasRenderingContext2D,
+    size: number,
+    polygon: Phaser.Geom.Polygon,
+    palette: AsteroidPalette,
+  ) {
+    const speckCount = 210;
+    for (let i = 0; i < speckCount; i++) {
+      const x = Phaser.Math.FloatBetween(0, size);
+      const y = Phaser.Math.FloatBetween(0, size);
+      if (!Phaser.Geom.Polygon.Contains(polygon, x, y)) continue;
+
+      const isLight = Phaser.Math.FloatBetween(0, 1) < 0.44;
+      const color = isLight
+        ? this.mixColors(palette.base, palette.ridgeLight, Phaser.Math.FloatBetween(0.25, 0.7))
+        : this.mixColors(palette.base, palette.ridgeDark, Phaser.Math.FloatBetween(0.35, 0.82));
+      const radius = Phaser.Math.FloatBetween(0.3, 1.3);
+      const alpha = isLight
+        ? Phaser.Math.FloatBetween(0.08, 0.2)
+        : Phaser.Math.FloatBetween(0.06, 0.16);
+
+      ctx.beginPath();
+      ctx.fillStyle = this.toRgba(color, alpha);
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  private paintAsteroidCraters(
+    ctx: CanvasRenderingContext2D,
+    size: number,
+    polygon: Phaser.Geom.Polygon,
+    palette: AsteroidPalette,
+  ) {
+    const craterCount = Phaser.Math.Between(7, 11);
     for (let i = 0; i < craterCount; i++) {
-      const radius = Phaser.Math.Between(2, 5);
-      const x = Phaser.Math.Between(12, size - 12);
-      const y = Phaser.Math.Between(12, size - 12);
-      graphics.fillStyle(darkColor, 0.45);
-      graphics.fillCircle(x, y, radius);
-      graphics.lineStyle(1, darkColor, 0.8);
-      graphics.strokeCircle(x, y, radius);
+      const point = this.samplePointInPolygon(polygon, size, 26);
+      if (!point) continue;
+      const radius = Phaser.Math.FloatBetween(2.2, 6.4);
+      const angle = Phaser.Math.FloatBetween(-Math.PI * 0.35, Math.PI * 0.35);
+      const craterWidth = radius * Phaser.Math.FloatBetween(0.78, 1.1);
+      const craterHeight = radius * Phaser.Math.FloatBetween(0.64, 0.96);
+
+      ctx.beginPath();
+      ctx.fillStyle = this.toRgba(this.mixColors(palette.shadow, palette.ridgeDark, 0.5), 0.4);
+      ctx.ellipse(
+        point.x + radius * 0.24,
+        point.y + radius * 0.2,
+        craterWidth * 1.04,
+        craterHeight * 0.92,
+        angle,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+
+      const craterFill = ctx.createRadialGradient(
+        point.x - radius * 0.24,
+        point.y - radius * 0.28,
+        radius * 0.22,
+        point.x,
+        point.y,
+        radius * 1.24,
+      );
+      craterFill.addColorStop(
+        0,
+        this.toRgba(
+          this.mixColors(palette.base, palette.ridgeLight, Phaser.Math.FloatBetween(0.2, 0.42)),
+          0.95,
+        ),
+      );
+      craterFill.addColorStop(
+        1,
+        this.toRgba(this.mixColors(palette.shadow, palette.base, 0.2), 0.98),
+      );
+      ctx.fillStyle = craterFill;
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y, craterWidth, craterHeight, angle, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = this.toRgba(this.mixColors(palette.ridgeLight, palette.base, 0.44), 0.33);
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.ellipse(
+        point.x - radius * 0.11,
+        point.y - radius * 0.1,
+        craterWidth * 0.84,
+        craterHeight * 0.74,
+        angle,
+        Math.PI * 1.05,
+        Math.PI * 1.92,
+      );
+      ctx.stroke();
     }
   }
 
-  private getAsteroidPaletteColor() {
+  private paintAsteroidRimOcclusion(ctx: CanvasRenderingContext2D, contour: AsteroidPoint[]) {
+    this.traceContourPath(ctx, contour);
+    ctx.lineWidth = 4.8;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.18)';
+    ctx.stroke();
+  }
+
+  private samplePointInPolygon(
+    polygon: Phaser.Geom.Polygon,
+    size: number,
+    maxAttempts: number,
+  ): AsteroidPoint | null {
+    for (let i = 0; i < maxAttempts; i++) {
+      const x = Phaser.Math.FloatBetween(6, size - 6);
+      const y = Phaser.Math.FloatBetween(6, size - 6);
+      if (Phaser.Geom.Polygon.Contains(polygon, x, y)) return { x, y };
+    }
+    return null;
+  }
+
+  private getAsteroidPalette(): AsteroidPalette {
     const palettes = [
       { hMin: 205, hMax: 225 }, // slate blue
       { hMin: 210, hMax: 240 }, // anthracite
@@ -289,10 +510,48 @@ export class EnemyManager {
     ];
     const pick = Phaser.Utils.Array.GetRandom(palettes);
     const h = Phaser.Math.FloatBetween(pick.hMin, pick.hMax) / 360;
-    const s = Phaser.Math.FloatBetween(0.05, 0.14);
-    const l = Phaser.Math.FloatBetween(0.4, 0.6);
-    const color = Phaser.Display.Color.HSLToColor(h, s, l);
-    return color.color;
+    const s = Phaser.Math.FloatBetween(0.1, 0.2);
+    const l = Phaser.Math.FloatBetween(0.34, 0.48);
+    return {
+      base: Phaser.Display.Color.HSLToColor(h, s, l),
+      shadow: Phaser.Display.Color.HSLToColor(
+        h,
+        Phaser.Math.Clamp(s + 0.08, 0, 1),
+        Phaser.Math.Clamp(l * 0.52, 0, 1),
+      ),
+      highlight: Phaser.Display.Color.HSLToColor(
+        h,
+        Phaser.Math.Clamp(s - 0.04, 0, 1),
+        Phaser.Math.Clamp(l + 0.24, 0, 1),
+      ),
+      ridgeLight: Phaser.Display.Color.HSLToColor(
+        h,
+        Phaser.Math.Clamp(s - 0.06, 0, 1),
+        Phaser.Math.Clamp(l + 0.17, 0, 1),
+      ),
+      ridgeDark: Phaser.Display.Color.HSLToColor(
+        h,
+        Phaser.Math.Clamp(s + 0.1, 0, 1),
+        Phaser.Math.Clamp(l * 0.65, 0, 1),
+      ),
+    };
+  }
+
+  private mixColors(
+    first: Phaser.Display.Color,
+    second: Phaser.Display.Color,
+    factor: number,
+  ): Phaser.Display.Color {
+    const t = Phaser.Math.Clamp(factor, 0, 1);
+    return new Phaser.Display.Color(
+      Math.round(Phaser.Math.Linear(first.red, second.red, t)),
+      Math.round(Phaser.Math.Linear(first.green, second.green, t)),
+      Math.round(Phaser.Math.Linear(first.blue, second.blue, t)),
+    );
+  }
+
+  private toRgba(color: Phaser.Display.Color, alpha: number) {
+    return `rgba(${color.red}, ${color.green}, ${color.blue}, ${alpha})`;
   }
 
   update(_time: number, delta: number) {

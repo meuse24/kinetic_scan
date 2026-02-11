@@ -12,6 +12,26 @@ export default class BezelScene extends Phaser.Scene {
   private useReflection: boolean = false;
   private bezelThickness: number = 32;
 
+  private canSafelyUseReflectionRt() {
+    const rendererAny = this.game?.renderer as any;
+    return Boolean(
+      rendererAny &&
+      rendererAny.type === Phaser.WEBGL &&
+      rendererAny.gl &&
+      this.reflectionRT &&
+      this.reflectionRT.active,
+    );
+  }
+
+  private safeClearReflectionRt() {
+    if (!this.canSafelyUseReflectionRt()) return;
+    try {
+      this.reflectionRT?.clear();
+    } catch {
+      // Ignore renderer teardown races during scene shutdown.
+    }
+  }
+
   constructor() {
     super('BezelScene');
   }
@@ -40,7 +60,19 @@ export default class BezelScene extends Phaser.Scene {
     this.drawFrame();
 
     this.events.once('shutdown', () => {
-      this.reflectionRT?.clear();
+      this.safeClearReflectionRt();
+      try {
+        this.reflectionMask?.destroy();
+      } catch {
+        // Ignore teardown races during scene shutdown.
+      }
+      this.reflectionMask = null;
+      try {
+        this.reflectionRT?.destroy();
+      } catch {
+        // Ignore teardown races during scene shutdown.
+      }
+      this.reflectionRT = null;
     });
 
     this.scene.bringToTop('BezelScene');
@@ -51,8 +83,12 @@ export default class BezelScene extends Phaser.Scene {
 
     // Performance monitor disabled reflection — tear down the RenderTexture
     if (!performanceMonitor.reflectionEnabled) {
-      this.reflectionRT.clear();
-      this.reflectionRT.destroy();
+      this.safeClearReflectionRt();
+      try {
+        this.reflectionRT.destroy();
+      } catch {
+        // Ignore teardown races during scene shutdown.
+      }
       this.reflectionRT = null;
       this.useReflection = false;
       return;
@@ -60,7 +96,7 @@ export default class BezelScene extends Phaser.Scene {
 
     const mainScene = this.scene.get('MainScene');
     if (!mainScene || !mainScene.scene.isActive()) {
-      this.reflectionRT.clear();
+      this.safeClearReflectionRt();
       return;
     }
 
@@ -68,8 +104,12 @@ export default class BezelScene extends Phaser.Scene {
       return;
     }
 
-    this.reflectionRT.clear();
-    this.reflectionRT.draw(mainScene.children.list);
+    this.safeClearReflectionRt();
+    try {
+      this.reflectionRT.draw(mainScene.children.list);
+    } catch {
+      // Ignore renderer teardown races during scene shutdown.
+    }
   }
 
   private drawFrame() {

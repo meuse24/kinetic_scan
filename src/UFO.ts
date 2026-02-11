@@ -15,6 +15,276 @@ type UFOSpawnConfig = {
   level?: number;
 };
 
+function createCanvasTexture(
+  scene: Phaser.Scene,
+  key: string,
+  width: number,
+  height: number,
+  draw: (ctx: CanvasRenderingContext2D, width: number, height: number) => void,
+) {
+  if (scene.textures.exists(key)) return;
+  const texture = scene.textures.createCanvas(key, width, height);
+  if (!texture) return;
+  const ctx = texture.getContext();
+  ctx.clearRect(0, 0, width, height);
+  draw(ctx, width, height);
+  texture.refresh();
+}
+
+function drawScoutHullTexture(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const cx = width * 0.5;
+  const cy = height * 0.54;
+  const w = width * 0.9;
+  const h = height * 0.48;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.34)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + h * 0.24, w * 0.48, h * 0.48, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const hullGrad = ctx.createLinearGradient(
+    cx - w * 0.35,
+    cy - h * 0.5,
+    cx + w * 0.4,
+    cy + h * 0.42,
+  );
+  hullGrad.addColorStop(0, '#65758f');
+  hullGrad.addColorStop(0.42, '#2f3d55');
+  hullGrad.addColorStop(1, '#111823');
+  ctx.fillStyle = hullGrad;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(232,243,255,0.86)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const bandGrad = ctx.createLinearGradient(cx, cy - h * 0.28, cx, cy + h * 0.36);
+  bandGrad.addColorStop(0, 'rgba(22, 36, 56, 0.12)');
+  bandGrad.addColorStop(0.55, 'rgba(7, 11, 18, 0.52)');
+  bandGrad.addColorStop(1, 'rgba(3, 5, 9, 0.72)');
+  ctx.fillStyle = bandGrad;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + h * 0.06, w * 0.44, h * 0.28, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(130, 167, 210, 0.5)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + h * 0.02, w * 0.42, h * 0.24, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(194, 222, 255, 0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, w * 0.22, Math.PI * 0.2, Math.PI * 0.8);
+  ctx.moveTo(cx - w * 0.2, cy + h * 0.08);
+  ctx.lineTo(cx + w * 0.2, cy + h * 0.08);
+  ctx.moveTo(cx - w * 0.27, cy - h * 0.03);
+  ctx.lineTo(cx + w * 0.27, cy - h * 0.03);
+  ctx.stroke();
+
+  const lightCount = 7;
+  for (let i = 0; i < lightCount; i++) {
+    const t = i / (lightCount - 1);
+    const lx = cx - w * 0.34 + t * w * 0.68;
+    const ly = cy + h * 0.18 + Math.sin(t * Math.PI * 2) * 1.4;
+    const lightGrad = ctx.createRadialGradient(lx, ly, 0.2, lx, ly, 2.6);
+    lightGrad.addColorStop(0, i % 2 === 0 ? 'rgba(160,236,255,1)' : 'rgba(255,168,232,1)');
+    lightGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = lightGrad;
+    ctx.beginPath();
+    ctx.arc(lx, ly, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const topRim = ctx.createLinearGradient(
+    cx - w * 0.45,
+    cy - h * 0.36,
+    cx + w * 0.45,
+    cy - h * 0.22,
+  );
+  topRim.addColorStop(0, 'rgba(245,250,255,0.8)');
+  topRim.addColorStop(0.5, 'rgba(199,223,255,0.22)');
+  topRim.addColorStop(1, 'rgba(245,250,255,0.72)');
+  ctx.strokeStyle = topRim;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.arc(cx, cy - h * 0.03, w * 0.45, Math.PI * 1.12, Math.PI * 1.88);
+  ctx.stroke();
+}
+
+function drawScoutDomeTexture(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const cx = width * 0.5;
+  const cy = height * 0.62;
+  const w = width * 0.78;
+  const h = height * 0.62;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + h * 0.22, w * 0.48, h * 0.26, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const domeGrad = ctx.createRadialGradient(
+    cx - w * 0.18,
+    cy - h * 0.22,
+    h * 0.04,
+    cx,
+    cy,
+    w * 0.56,
+  );
+  domeGrad.addColorStop(0, 'rgba(224,248,255,0.98)');
+  domeGrad.addColorStop(0.45, 'rgba(127,225,255,0.74)');
+  domeGrad.addColorStop(1, 'rgba(37,119,186,0.26)');
+  ctx.fillStyle = domeGrad;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(174,238,255,0.86)';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(236,253,255,0.42)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx - w * 0.06, cy - h * 0.08, w * 0.2, Math.PI * 1.08, Math.PI * 1.78);
+  ctx.stroke();
+}
+
+function drawBossHullTexture(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const cx = width * 0.5;
+  const cy = height * 0.56;
+  const w = width * 0.93;
+  const h = height * 0.5;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.38)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + h * 0.24, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const hullGrad = ctx.createLinearGradient(
+    cx - w * 0.42,
+    cy - h * 0.52,
+    cx + w * 0.4,
+    cy + h * 0.42,
+  );
+  hullGrad.addColorStop(0, '#7e437a');
+  hullGrad.addColorStop(0.34, '#41234f');
+  hullGrad.addColorStop(1, '#170d26');
+  ctx.fillStyle = hullGrad;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255, 180, 243, 0.92)';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const armorBand = ctx.createLinearGradient(cx, cy - h * 0.18, cx, cy + h * 0.38);
+  armorBand.addColorStop(0, 'rgba(26, 12, 35, 0.18)');
+  armorBand.addColorStop(0.55, 'rgba(10, 5, 16, 0.6)');
+  armorBand.addColorStop(1, 'rgba(5, 2, 11, 0.78)');
+  ctx.fillStyle = armorBand;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + h * 0.08, w * 0.45, h * 0.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(158, 230, 255, 0.7)';
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + h * 0.02, w * 0.43, h * 0.26, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const segmentCount = 6;
+  for (let i = 0; i < segmentCount; i++) {
+    const t = i / (segmentCount - 1);
+    const sx = cx - w * 0.33 + t * w * 0.66;
+    ctx.strokeStyle = 'rgba(219, 237, 255, 0.28)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(sx, cy - h * 0.03);
+    ctx.lineTo(sx + Math.sin(t * Math.PI) * 2.2, cy + h * 0.24);
+    ctx.stroke();
+  }
+
+  const orbitLights = 11;
+  for (let i = 0; i < orbitLights; i++) {
+    const angle = (i / orbitLights) * Math.PI * 2;
+    const lx = cx + Math.cos(angle) * (w * 0.38);
+    const ly = cy + h * 0.08 + Math.sin(angle) * (h * 0.21);
+    const lightGrad = ctx.createRadialGradient(lx, ly, 0.2, lx, ly, 3);
+    lightGrad.addColorStop(0, i % 2 === 0 ? 'rgba(173,247,255,1)' : 'rgba(255,145,241,1)');
+    lightGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = lightGrad;
+    ctx.beginPath();
+    ctx.arc(lx, ly, 2.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const topRim = ctx.createLinearGradient(
+    cx - w * 0.48,
+    cy - h * 0.38,
+    cx + w * 0.48,
+    cy - h * 0.24,
+  );
+  topRim.addColorStop(0, 'rgba(255,229,248,0.86)');
+  topRim.addColorStop(0.5, 'rgba(255,204,244,0.26)');
+  topRim.addColorStop(1, 'rgba(255,229,248,0.78)');
+  ctx.strokeStyle = topRim;
+  ctx.lineWidth = 1.7;
+  ctx.beginPath();
+  ctx.arc(cx, cy - h * 0.03, w * 0.46, Math.PI * 1.1, Math.PI * 1.9);
+  ctx.stroke();
+}
+
+function drawBossDomeTexture(ctx: CanvasRenderingContext2D, width: number, height: number) {
+  const cx = width * 0.5;
+  const cy = height * 0.63;
+  const w = width * 0.8;
+  const h = height * 0.65;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + h * 0.22, w * 0.5, h * 0.24, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const domeGrad = ctx.createRadialGradient(
+    cx - w * 0.14,
+    cy - h * 0.23,
+    h * 0.03,
+    cx,
+    cy,
+    w * 0.58,
+  );
+  domeGrad.addColorStop(0, 'rgba(255,236,255,0.98)');
+  domeGrad.addColorStop(0.38, 'rgba(225,143,255,0.8)');
+  domeGrad.addColorStop(1, 'rgba(104,59,179,0.3)');
+  ctx.fillStyle = domeGrad;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255, 194, 245, 0.92)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, w * 0.5, h * 0.5, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255, 235, 250, 0.38)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx - w * 0.04, cy - h * 0.08, w * 0.22, Math.PI * 1.05, Math.PI * 1.82);
+  ctx.stroke();
+}
+
 function ensureUFOTextures(scene: Phaser.Scene) {
   if (!scene.textures.exists('ufo_hitbox')) {
     const g = scene.make.graphics({ x: 0, y: 0 });
@@ -37,6 +307,11 @@ function ensureUFOTextures(scene: Phaser.Scene) {
     g.generateTexture('ufo_plasma', 18, 18);
     g.destroy();
   }
+
+  createCanvasTexture(scene, 'ufo_scout_hull', 136, 88, drawScoutHullTexture);
+  createCanvasTexture(scene, 'ufo_scout_dome', 86, 52, drawScoutDomeTexture);
+  createCanvasTexture(scene, 'ufo_boss_hull', 178, 104, drawBossHullTexture);
+  createCanvasTexture(scene, 'ufo_boss_dome', 112, 62, drawBossDomeTexture);
 }
 
 export class UFOProjectile extends Phaser.Physics.Arcade.Sprite {
@@ -85,6 +360,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
   private retreatAt: number = 0;
   private audioManager: AudioManager;
   private visualGraphics: Phaser.GameObjects.Graphics;
+  private hullSprite: Phaser.GameObjects.Image;
+  private domeSprite: Phaser.GameObjects.Image;
   private bossHitsText: Phaser.GameObjects.Text;
   private combatEnabled: boolean = false;
   private combatTarget: Phaser.Physics.Arcade.Sprite | null = null;
@@ -127,8 +404,15 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.setCircle(24, 8, 8);
     this.setAlpha(0.001);
 
+    this.hullSprite = scene.add.image(-999, -999, 'ufo_scout_hull').setVisible(false);
+    this.domeSprite = scene.add
+      .image(-999, -999, 'ufo_scout_dome')
+      .setVisible(false)
+      .setAlpha(0.95);
     this.visualGraphics = scene.add.graphics();
-    this.visualGraphics.setDepth(this.depth + 1);
+    this.hullSprite.setDepth(this.depth + 1);
+    this.domeSprite.setDepth(this.depth + 1.2);
+    this.visualGraphics.setDepth(this.depth + 2);
     this.bossHitsText = scene.add
       .text(-999, -999, '', {
         fontFamily: '"Press Start 2P"',
@@ -150,6 +434,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     }
 
     this.once(Phaser.GameObjects.Events.DESTROY, () => {
+      this.hullSprite.destroy();
+      this.domeSprite.destroy();
       this.visualGraphics.destroy();
       this.bossHitsText.destroy();
     });
@@ -159,8 +445,10 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
 
   public override setDepth(value: number): this {
     super.setDepth(value);
-    this.visualGraphics.setDepth(value + 1);
-    this.bossHitsText.setDepth(value + 2);
+    this.hullSprite.setDepth(value + 1);
+    this.domeSprite.setDepth(value + 1.2);
+    this.visualGraphics.setDepth(value + 2);
+    this.bossHitsText.setDepth(value + 3);
     return this;
   }
 
@@ -224,6 +512,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     if (!this.active) this.setActive(true);
     if (!this.visible) this.setVisible(true);
     if (this.body && !this.body.enable) this.body.enable = true;
+    if (!this.hullSprite.visible) this.hullSprite.setVisible(true);
+    if (!this.domeSprite.visible) this.domeSprite.setVisible(true);
     if (!this.visualGraphics.visible) this.visualGraphics.setVisible(true);
     this.forceVisualRefresh = true;
   }
@@ -282,6 +572,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
       this.nextShotAt = this.scene.time.now + Phaser.Math.Between(900, 1700);
       this.retreatAt = this.scene.time.now + Phaser.Math.Between(18000, 24000);
       this.bossHitsText.setVisible(true);
+      this.hullSprite.setTexture('ufo_boss_hull');
+      this.domeSprite.setTexture('ufo_boss_dome');
     } else {
       this.maxHitPoints = 1;
       this.hitPoints = 1;
@@ -292,9 +584,15 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
       this.nextShotAt = this.scene.time.now + Phaser.Math.Between(900, 2000);
       this.retreatAt = this.scene.time.now + Phaser.Math.Between(11000, 16000);
       this.bossHitsText.setVisible(false);
+      this.hullSprite.setTexture('ufo_scout_hull');
+      this.domeSprite.setTexture('ufo_scout_dome');
     }
 
     this.setScale(1);
+    this.hullSprite.setVisible(true);
+    this.domeSprite.setVisible(true);
+    this.hullSprite.setAlpha(1);
+    this.domeSprite.setAlpha(0.95);
     this.visualGraphics.setVisible(true);
     this.audioManager.startUFOSound();
   }
@@ -416,6 +714,10 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     if (this.body) this.disableBody(true, true);
     else this.setActive(false).setVisible(false);
 
+    this.hullSprite.setVisible(false);
+    this.domeSprite.setVisible(false);
+    this.hullSprite.clearTint();
+    this.domeSprite.clearTint();
     this.visualGraphics.clear();
     this.visualGraphics.setVisible(false);
     this.bossHitsText.setVisible(false);
@@ -534,7 +836,64 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     }
   }
 
+  private syncHullLayers(time: number) {
+    if (!this.hullSprite.visible || !this.domeSprite.visible) return;
+
+    const bob = Math.sin(time * 0.003 + this.movementSeed) * 1.6;
+    if (this.variant === 'boss') {
+      const hpRatio = Phaser.Math.Clamp(this.hitPoints / Math.max(1, this.maxHitPoints), 0, 1);
+      const phase = this.resolveBossPhase();
+      const pulse = 0.5 + Math.sin(time * 0.005 + this.movementSeed) * 0.5;
+      const berserkBoost =
+        this.bossModifier === 'berserk'
+          ? 1 + (1 - hpRatio) * (this.reducedVisualDetail ? 0.03 : 0.06)
+          : 1;
+      const baseScale = (1 + (phase - 1) * 0.045) * berserkBoost;
+      const roll = Math.sin(time * 0.0018 + this.movementSeed) * 1.9;
+      const hullY = this.y + 5 + bob;
+      const domeY = this.y - 10 + bob * 0.6;
+      this.hullSprite.setPosition(this.x, hullY);
+      this.hullSprite.setScale(baseScale, baseScale * 0.98);
+      this.hullSprite.setAngle(roll);
+      this.domeSprite.setPosition(this.x, domeY);
+      this.domeSprite.setScale(baseScale * (0.95 + pulse * 0.025));
+      this.domeSprite.setAngle(roll * 0.42);
+
+      if (time < this.hitFlashUntil) {
+        this.hullSprite.setTintFill(0xffffff);
+        this.domeSprite.setTintFill(0xffffff);
+      } else {
+        const damage = 1 - hpRatio;
+        const hullR = Math.round(232 + damage * 23);
+        const hullG = Math.round(210 - damage * 78);
+        const hullB = Math.round(255 - damage * 30);
+        const domeR = Math.round(255 - damage * 10);
+        const domeG = Math.round(220 - damage * 62);
+        const domeB = Math.round(255 - damage * 14);
+        this.hullSprite.setTint((hullR << 16) | (hullG << 8) | hullB);
+        this.domeSprite.setTint((domeR << 16) | (domeG << 8) | domeB);
+      }
+      return;
+    }
+
+    const roll = Math.sin(time * 0.0024 + this.movementSeed) * 1.3;
+    this.hullSprite.setPosition(this.x, this.y + 3 + bob);
+    this.hullSprite.setScale(1, 1);
+    this.hullSprite.setAngle(roll);
+    this.domeSprite.setPosition(this.x, this.y - 6 + bob * 0.52);
+    this.domeSprite.setScale(1);
+    this.domeSprite.setAngle(roll * 0.4);
+    if (time < this.hitFlashUntil) {
+      this.hullSprite.setTintFill(0xffffff);
+      this.domeSprite.setTintFill(0xffffff);
+    } else {
+      this.hullSprite.setTint(0xf1f7ff);
+      this.domeSprite.setTint(0xe1f7ff);
+    }
+  }
+
   private drawScoutBody(time: number) {
+    this.syncHullLayers(time);
     if (this.bossHitsText.visible) {
       this.bossHitsText.setVisible(false);
     }
@@ -545,17 +904,17 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     const tentaclePulse = 0.6 + Math.sin(time * 0.01) * 0.4;
 
     g.clear();
-    g.setDepth(this.depth + 1);
+    g.setDepth(this.depth + 2);
 
     const tentacleStep = this.reducedVisualDetail ? 2 : 1;
     for (let i = 0; i < this.tentaclePhases.length; i += tentacleStep) {
       const phase = this.tentaclePhases[i];
       const rootX = x - 34 + i * 14;
-      const rootY = y + 14;
+      const rootY = y + 17;
       const sway = Math.sin(time * 0.006 + phase) * 12 * tentaclePulse;
       const curl = Math.cos(time * 0.009 + phase) * 10;
-      const tipY = rootY + 20 + Math.sin(time * 0.01 + phase) * 9;
-      g.lineStyle(2, 0x5dd2ff, 0.45 + pulse * 0.3);
+      const tipY = rootY + 18 + Math.sin(time * 0.01 + phase) * 9;
+      g.lineStyle(2, 0x6addff, 0.32 + pulse * 0.22);
       g.beginPath();
       g.moveTo(rootX, rootY);
       for (let s = 1; s <= 6; s++) {
@@ -569,17 +928,10 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
       g.fillCircle(rootX + sway + curl * 0.35, tipY, 1.6);
     }
 
-    g.fillStyle(0x13081f, 0.82);
-    g.lineStyle(2, 0xff8ef7, 0.95);
-    g.fillEllipse(x, y + 3, 108, 36);
-    g.strokeEllipse(x, y + 3, 108, 36);
-    g.lineStyle(1, 0x6df1ff, 0.55);
-    g.strokeEllipse(x, y + 6, 86, 20);
-
-    g.fillStyle(0x4ad9ff, 0.24 + pulse * 0.16);
-    g.lineStyle(2, 0x83ebff, 0.95);
-    g.fillEllipse(x, y - 6, 48, 24);
-    g.strokeEllipse(x, y - 6, 48, 24);
+    g.lineStyle(1.2, 0x6ef0ff, 0.52 + pulse * 0.18);
+    g.strokeEllipse(x, y + 7, 112, 28);
+    g.lineStyle(1, 0xb6d7ff, 0.3 + pulse * 0.16);
+    g.strokeEllipse(x, y + 2, 98, 22);
 
     const lightCount = this.reducedVisualDetail ? 5 : 8;
     for (let i = 0; i < lightCount; i++) {
@@ -596,12 +948,13 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.drawCannonGlow(g, time, [x], y + 17, 0xffd96b);
 
     if (time < this.hitFlashUntil) {
-      g.lineStyle(2, 0xffffff, 0.85);
+      g.lineStyle(2.4, 0xffffff, 0.8);
       g.strokeEllipse(x, y + 3, 114, 40);
     }
   }
 
   private drawBossBody(time: number) {
+    this.syncHullLayers(time);
     const g = this.visualGraphics;
     const x = this.x;
     const y = this.y;
@@ -614,15 +967,15 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     const energyAccent = phase === 3 ? 0xff91ff : phase === 2 ? 0x9df6ff : 0x5ee1ff;
 
     g.clear();
-    g.setDepth(this.depth + 1);
+    g.setDepth(this.depth + 2);
 
     for (let i = 0; i < tentacleCount; i++) {
       const phase = i * 0.75 + this.movementSeed;
       const rootX = x - 52 + i * 15;
-      const rootY = y + 21;
+      const rootY = y + 24;
       const wave = Math.sin(time * 0.008 + phase) * 14;
       const tipY = rootY + 34 + Math.cos(time * 0.01 + phase) * 11;
-      g.lineStyle(2.4, energyAccent, 0.45 + pulse * 0.35);
+      g.lineStyle(2.4, energyAccent, 0.35 + pulse * 0.28);
       g.beginPath();
       g.moveTo(rootX, rootY);
       for (let s = 1; s <= 8; s++) {
@@ -636,19 +989,12 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
       g.fillCircle(rootX + wave * 0.8, tipY, 2.2);
     }
 
-    g.fillStyle(0x1d0b2e, 0.88);
-    g.lineStyle(3, hullAccent, 0.98);
-    g.fillEllipse(x, y + 5, 146, 48);
-    g.strokeEllipse(x, y + 5, 146, 48);
-
-    g.lineStyle(2, energyAccent, 0.6);
+    g.lineStyle(2, energyAccent, 0.52 + pulse * 0.2);
     g.strokeEllipse(x, y + 8, 118, 28);
-    g.strokeEllipse(x, y + 1, 132, 36);
-
-    g.fillStyle(0x66e8ff, 0.3 + pulse * 0.14);
-    g.lineStyle(2, 0x9cf7ff, 0.95);
-    g.fillEllipse(x, y - 10, 74, 34);
-    g.strokeEllipse(x, y - 10, 74, 34);
+    g.lineStyle(1.4, hullAccent, 0.42 + pulse * 0.2);
+    g.strokeEllipse(x, y + 2, 136, 34);
+    g.lineStyle(1, 0xbbe6ff, 0.24 + pulse * 0.14);
+    g.strokeEllipse(x, y - 8, 84, 26);
 
     this.drawAntennaSet(g, x - 8, y - 24, 2, 12, time, 0x9dfdff);
     this.drawAntennaSet(g, x + 18, y - 21, 2, 10, time + 240, 0xff99ef);

@@ -130,6 +130,7 @@ const IMPACT_RING_TEXTURE_KEY = 'impact_ring';
 const IMPACT_RING_TEXTURE_SIZE = 256;
 const IMPACT_RING_TEXTURE_RADIUS = 120;
 const IMPACT_RING_POOL_SIZE = 96;
+const WINGMAN_DRONE_TEXTURE_KEY = 'wingman_drone';
 
 export default class MainScene extends Phaser.Scene {
   private player!: Player;
@@ -617,27 +618,44 @@ export default class MainScene extends Phaser.Scene {
     // Cleanup on scene shutdown
 
     this.events.once('shutdown', () => {
+      const safeClearGroup = (group: any) => {
+        if (!group || typeof group.clear !== 'function') return;
+        if (!group.children || typeof group.children.size !== 'number') return;
+        try {
+          group.clear(true, true);
+        } catch {
+          // Ignore teardown races during scene shutdown.
+        }
+      };
+
+      const safeDestroyGroup = (group: any) => {
+        if (!group || typeof group.destroy !== 'function') return;
+        try {
+          group.destroy(true);
+        } catch {
+          // Ignore teardown races during scene shutdown.
+        }
+      };
+
       this.sceneBackground?.destroy();
       this.sceneBackground = undefined;
       this.finishLevelTransitionCountdown(false);
       this.ufo.deactivate();
       this.skyRaiderManager.deactivateAll();
       this.removeDrones();
-      this.drones?.destroy(true);
+      safeDestroyGroup(this.drones as any);
       this.drones = null;
       this.removeBlackHole();
       this.impactRingTweens.forEach((tween) => tween.stop());
       this.impactRingTweens.clear();
-      this.impactRingPool?.clear(true, true);
+      safeClearGroup(this.impactRingPool as any);
       this.audio.destroy();
       musicManager.stopGameplay();
       this.clearWorldEvents('reset');
       this.pendingEnemyHits.length = 0;
       this.stopShieldBunkerWarning(false);
       const bunkerGroup = this.shieldBunkers as any;
-      if (bunkerGroup?.children && typeof bunkerGroup.clear === 'function') {
-        bunkerGroup.clear(true, true);
-      }
+      safeClearGroup(bunkerGroup);
       this.comboManager.destroy();
       this.powerUpBar.destroy();
       this.heatBar.destroy();
@@ -661,9 +679,7 @@ export default class MainScene extends Phaser.Scene {
       this.perkText.destroy();
       this.empGraphics.destroy();
       this.slowMoOverlay.destroy();
-      if (bunkerGroup?.scene && typeof bunkerGroup.destroy === 'function') {
-        bunkerGroup.destroy(true);
-      }
+      safeDestroyGroup(bunkerGroup);
       this.switchTimer?.remove(false);
       this.hitStopTimer?.remove(false);
       this.levelTransitionWarpTween?.stop();
@@ -3043,26 +3059,24 @@ export default class MainScene extends Phaser.Scene {
     if (!this.drones) {
       this.drones = this.add.group({ maxSize: 2 });
       for (let i = 0; i < 2; i++) {
-        const g = this.add.graphics();
-        g.lineStyle(2, 0x00ff00, 1);
-        g.beginPath();
-        g.moveTo(0, -10);
-        g.lineTo(10, 10);
-        g.lineTo(0, 5);
-        g.lineTo(-10, 10);
-        g.closePath();
-        g.strokePath();
-        g.setActive(false);
-        g.setVisible(false);
-        this.drones.add(g);
+        const drone = this.add.image(this.player.x, this.player.y, WINGMAN_DRONE_TEXTURE_KEY);
+        drone.setDepth(this.player.depth + 0.2);
+        drone.setScale(1);
+        drone.setAlpha(0.95);
+        drone.setActive(false);
+        drone.setVisible(false);
+        this.drones.add(drone);
       }
     }
-    const children = this.drones.getChildren() as Phaser.GameObjects.Graphics[];
+    const children = this.drones.getChildren() as Phaser.GameObjects.Image[];
     for (let i = 0; i < children.length; i++) {
       const drone = children[i];
       const offset = i === 0 ? -60 : 60;
       drone.x = this.player.x + offset;
       drone.y = this.player.y + 20;
+      drone.rotation = 0;
+      drone.setScale(1);
+      drone.setAlpha(0.95);
       drone.setActive(true);
       drone.setVisible(true);
     }
@@ -3082,8 +3096,14 @@ export default class MainScene extends Phaser.Scene {
       }
       drone.setVisible(true);
       const offset = i === 0 ? -60 : 60;
-      drone.x = Phaser.Math.Linear(drone.x, this.player.x + offset, 0.1);
-      drone.y = Phaser.Math.Linear(drone.y, this.player.y + 20, 0.1);
+      const phase = this.time.now * 0.006 + i * 1.2;
+      const hover = Math.sin(phase) * 2.4;
+      const targetY = this.player.y + 20 + hover;
+      drone.x = Phaser.Math.Linear(drone.x, this.player.x + offset, 0.12);
+      drone.y = Phaser.Math.Linear(drone.y, targetY, 0.12);
+      drone.rotation = Math.sin(phase * 0.85) * 0.08;
+      drone.setScale(1 + Math.sin(phase * 1.35) * 0.03);
+      drone.setAlpha(0.88 + (Math.sin(phase) * 0.5 + 0.5) * 0.16);
       return null;
     });
   }
@@ -3091,7 +3111,18 @@ export default class MainScene extends Phaser.Scene {
   private removeDrones() {
     this.player.setDrones(null);
     if (!this.drones) return;
-    const children = this.drones.getChildren() as Phaser.GameObjects.Graphics[];
+    const groupAny = this.drones as any;
+    let children: Phaser.GameObjects.Image[] = [];
+    try {
+      if (groupAny.children && Array.isArray(groupAny.children.entries)) {
+        children = groupAny.children.entries as Phaser.GameObjects.Image[];
+      } else if (typeof groupAny.getChildren === 'function') {
+        children = groupAny.getChildren() as Phaser.GameObjects.Image[];
+      }
+    } catch {
+      // Ignore teardown races during scene shutdown.
+      return;
+    }
     for (const drone of children) {
       drone.setActive(false);
       drone.setVisible(false);
@@ -4165,37 +4196,289 @@ export default class MainScene extends Phaser.Scene {
     }
 
     if (!this.textures.exists('elite_drone')) {
-      const droneG = this.add.graphics();
-      droneG.fillStyle(0x103f2a, 0.95);
-      droneG.lineStyle(2, 0xa2ffd8, 1);
-      droneG.fillRoundedRect(2, 6, 28, 16, 8);
-      droneG.strokeRoundedRect(2, 6, 28, 16, 8);
-      droneG.lineStyle(1, 0xd6fff1, 0.9);
-      droneG.strokeCircle(16, 14, 4);
-      droneG.beginPath();
-      droneG.moveTo(6, 14);
-      droneG.lineTo(26, 14);
-      droneG.strokePath();
-      droneG.fillStyle(0x8affef, 0.95);
-      droneG.fillCircle(16, 4, 2.4);
-      droneG.generateTexture('elite_drone', 32, 28);
-      droneG.destroy();
+      const texture = this.textures.createCanvas('elite_drone', 32, 28);
+      if (texture) {
+        const ctx = texture.getContext();
+        ctx.clearRect(0, 0, 32, 28);
+
+        const bodyGradient = ctx.createLinearGradient(4, 6, 28, 22);
+        bodyGradient.addColorStop(0, '#63778d');
+        bodyGradient.addColorStop(0.45, '#2a394d');
+        bodyGradient.addColorStop(1, '#10161f');
+        ctx.fillStyle = bodyGradient;
+        ctx.beginPath();
+        ctx.moveTo(8, 6);
+        ctx.lineTo(24, 6);
+        ctx.quadraticCurveTo(30, 6, 30, 12);
+        ctx.lineTo(30, 16);
+        ctx.quadraticCurveTo(30, 22, 24, 22);
+        ctx.lineTo(8, 22);
+        ctx.quadraticCurveTo(2, 22, 2, 16);
+        ctx.lineTo(2, 12);
+        ctx.quadraticCurveTo(2, 6, 8, 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(226, 241, 255, 0.88)';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(13, 20, 31, 0.92)';
+        ctx.beginPath();
+        ctx.moveTo(9, 9);
+        ctx.lineTo(23, 9);
+        ctx.lineTo(25, 14);
+        ctx.lineTo(23, 19);
+        ctx.lineTo(9, 19);
+        ctx.lineTo(7, 14);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(123, 162, 199, 0.45)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        const eyeGlow = ctx.createRadialGradient(16, 14, 0.7, 16, 14, 6.3);
+        eyeGlow.addColorStop(0, 'rgba(236, 251, 255, 1)');
+        eyeGlow.addColorStop(0.35, 'rgba(142, 240, 255, 0.82)');
+        eyeGlow.addColorStop(1, 'rgba(76, 191, 255, 0)');
+        ctx.fillStyle = eyeGlow;
+        ctx.beginPath();
+        ctx.arc(16, 14, 6.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(214, 248, 255, 0.95)';
+        ctx.beginPath();
+        ctx.arc(16, 14, 2.6, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(188, 224, 255, 0.35)';
+        ctx.lineWidth = 0.85;
+        ctx.beginPath();
+        ctx.moveTo(6.5, 14);
+        ctx.lineTo(25.5, 14);
+        ctx.moveTo(9, 18.5);
+        ctx.lineTo(23, 18.5);
+        ctx.stroke();
+
+        const topBeacon = ctx.createRadialGradient(16, 4, 0.4, 16, 4, 3.3);
+        topBeacon.addColorStop(0, 'rgba(241, 255, 255, 1)');
+        topBeacon.addColorStop(0.5, 'rgba(154, 255, 238, 0.9)');
+        topBeacon.addColorStop(1, 'rgba(90, 205, 175, 0)');
+        ctx.fillStyle = topBeacon;
+        ctx.beginPath();
+        ctx.arc(16, 4, 3.1, 0, Math.PI * 2);
+        ctx.fill();
+
+        texture.refresh();
+      }
+    }
+
+    if (!this.textures.exists(WINGMAN_DRONE_TEXTURE_KEY)) {
+      const texture = this.textures.createCanvas(WINGMAN_DRONE_TEXTURE_KEY, 34, 26);
+      if (texture) {
+        const ctx = texture.getContext();
+        const hullPoints = [
+          { x: 17, y: 2 },
+          { x: 30, y: 8 },
+          { x: 27, y: 21 },
+          { x: 17, y: 24 },
+          { x: 7, y: 21 },
+          { x: 4, y: 8 },
+        ];
+        const traceHull = (xOffset: number = 0, yOffset: number = 0) => {
+          ctx.beginPath();
+          ctx.moveTo(hullPoints[0].x + xOffset, hullPoints[0].y + yOffset);
+          for (let i = 1; i < hullPoints.length; i++) {
+            ctx.lineTo(hullPoints[i].x + xOffset, hullPoints[i].y + yOffset);
+          }
+          ctx.closePath();
+        };
+        ctx.clearRect(0, 0, 34, 26);
+
+        traceHull(0.4, 1.2);
+        ctx.fillStyle = 'rgba(0,0,0,0.36)';
+        ctx.fill();
+
+        traceHull();
+        const bodyGradient = ctx.createLinearGradient(6, 3, 28, 22);
+        bodyGradient.addColorStop(0, '#58677c');
+        bodyGradient.addColorStop(0.45, '#253246');
+        bodyGradient.addColorStop(1, '#0d121a');
+        ctx.fillStyle = bodyGradient;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(212, 233, 255, 0.88)';
+        ctx.lineWidth = 1.35;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(17, 5);
+        ctx.lineTo(25, 9);
+        ctx.lineTo(23.5, 17.5);
+        ctx.lineTo(17, 20);
+        ctx.lineTo(10.5, 17.5);
+        ctx.lineTo(9, 9);
+        ctx.closePath();
+        const panelGradient = ctx.createLinearGradient(17, 5, 17, 20);
+        panelGradient.addColorStop(0, '#111a28');
+        panelGradient.addColorStop(1, '#080c12');
+        ctx.fillStyle = panelGradient;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(124, 159, 194, 0.45)';
+        ctx.lineWidth = 0.9;
+        ctx.stroke();
+
+        const eyeGlow = ctx.createRadialGradient(17, 12, 0.6, 17, 12, 5.2);
+        eyeGlow.addColorStop(0, 'rgba(206, 244, 255, 1)');
+        eyeGlow.addColorStop(0.4, 'rgba(110, 217, 255, 0.82)');
+        eyeGlow.addColorStop(1, 'rgba(36, 145, 220, 0)');
+        ctx.beginPath();
+        ctx.arc(17, 12, 5, 0, Math.PI * 2);
+        ctx.fillStyle = eyeGlow;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(17, 12, 2.2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(235, 250, 255, 0.94)';
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(8, 10.5);
+        ctx.lineTo(14, 9);
+        ctx.moveTo(26, 10.5);
+        ctx.lineTo(20, 9);
+        ctx.moveTo(9.5, 17.5);
+        ctx.lineTo(14.5, 16.7);
+        ctx.moveTo(24.5, 16.7);
+        ctx.lineTo(19.5, 17.5);
+        ctx.strokeStyle = 'rgba(222, 240, 255, 0.42)';
+        ctx.lineWidth = 0.85;
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(145, 190, 228, 0.66)';
+        ctx.fillRect(8.5, 21.2, 17, 1);
+        ctx.fillStyle = 'rgba(255, 187, 108, 0.78)';
+        ctx.beginPath();
+        ctx.arc(11.2, 22.4, 1.15, 0, Math.PI * 2);
+        ctx.arc(22.8, 22.4, 1.15, 0, Math.PI * 2);
+        ctx.fill();
+
+        texture.refresh();
+      }
     }
 
     if (!this.textures.exists('shield_bunker')) {
-      const bunkerG = this.add.graphics();
-      bunkerG.fillStyle(0x103026, 0.95);
-      bunkerG.lineStyle(3, 0x98ffd0, 1);
-      bunkerG.fillRoundedRect(0, 0, 140, 52, 9);
-      bunkerG.strokeRoundedRect(0, 0, 140, 52, 9);
-      bunkerG.fillStyle(0x050a08, 1);
-      bunkerG.fillRect(24, 24, 18, 28);
-      bunkerG.fillRect(61, 24, 18, 28);
-      bunkerG.fillRect(98, 24, 18, 28);
-      bunkerG.lineStyle(1, 0xb6ffe2, 0.55);
-      bunkerG.strokeLineShape(new Phaser.Geom.Line(10, 14, 130, 14));
-      bunkerG.generateTexture('shield_bunker', 140, 52);
-      bunkerG.destroy();
+      const texture = this.textures.createCanvas('shield_bunker', 140, 52);
+      if (texture) {
+        const ctx = texture.getContext();
+        ctx.clearRect(0, 0, 140, 52);
+
+        const traceRoundedRect = (
+          x: number,
+          y: number,
+          width: number,
+          height: number,
+          radius: number,
+        ) => {
+          const r = Math.min(radius, width * 0.5, height * 0.5);
+          ctx.beginPath();
+          ctx.moveTo(x + r, y);
+          ctx.lineTo(x + width - r, y);
+          ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+          ctx.lineTo(x + width, y + height - r);
+          ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+          ctx.lineTo(x + r, y + height);
+          ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+          ctx.lineTo(x, y + r);
+          ctx.quadraticCurveTo(x, y, x + r, y);
+          ctx.closePath();
+        };
+
+        traceRoundedRect(5, 5, 130, 42, 10);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.33)';
+        ctx.fill();
+
+        traceRoundedRect(4, 3, 132, 44, 10);
+        const hullGradient = ctx.createLinearGradient(6, 3, 132, 47);
+        hullGradient.addColorStop(0, '#8f9dac');
+        hullGradient.addColorStop(0.38, '#4c5868');
+        hullGradient.addColorStop(1, '#1f2935');
+        ctx.fillStyle = hullGradient;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(219, 235, 255, 0.82)';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+
+        traceRoundedRect(8, 7, 124, 36, 8);
+        const innerPlateGradient = ctx.createLinearGradient(8, 7, 8, 43);
+        innerPlateGradient.addColorStop(0, 'rgba(21, 30, 41, 0.93)');
+        innerPlateGradient.addColorStop(1, 'rgba(8, 12, 18, 0.95)');
+        ctx.fillStyle = innerPlateGradient;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(124, 148, 174, 0.58)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        const topGlow = ctx.createLinearGradient(0, 8, 0, 18);
+        topGlow.addColorStop(0, 'rgba(175, 234, 255, 0.54)');
+        topGlow.addColorStop(1, 'rgba(175, 234, 255, 0)');
+        ctx.fillStyle = topGlow;
+        ctx.fillRect(14, 9, 112, 8);
+
+        ctx.strokeStyle = 'rgba(210, 226, 244, 0.32)';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(24, 14);
+        ctx.lineTo(116, 14);
+        ctx.moveTo(44, 8);
+        ctx.lineTo(44, 42);
+        ctx.moveTo(96, 8);
+        ctx.lineTo(96, 42);
+        ctx.stroke();
+
+        const ventXs = [24, 61, 98];
+        for (const x of ventXs) {
+          const ventGradient = ctx.createLinearGradient(x, 22, x, 50);
+          ventGradient.addColorStop(0, 'rgba(2, 6, 11, 0.95)');
+          ventGradient.addColorStop(1, 'rgba(0, 0, 0, 1)');
+          ctx.fillStyle = ventGradient;
+          ctx.fillRect(x, 22, 18, 28);
+
+          ctx.strokeStyle = 'rgba(145, 168, 198, 0.44)';
+          ctx.lineWidth = 0.9;
+          ctx.strokeRect(x + 0.5, 22.5, 17, 27);
+
+          ctx.strokeStyle = 'rgba(102, 122, 152, 0.5)';
+          ctx.lineWidth = 0.7;
+          ctx.beginPath();
+          ctx.moveTo(x + 6, 23);
+          ctx.lineTo(x + 6, 49);
+          ctx.moveTo(x + 12, 23);
+          ctx.lineTo(x + 12, 49);
+          ctx.stroke();
+
+          const diodeGlow = ctx.createRadialGradient(x + 9, 21, 0.6, x + 9, 21, 4.8);
+          diodeGlow.addColorStop(0, 'rgba(153, 241, 255, 0.95)');
+          diodeGlow.addColorStop(1, 'rgba(45, 175, 225, 0)');
+          ctx.fillStyle = diodeGlow;
+          ctx.beginPath();
+          ctx.arc(x + 9, 21, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.strokeStyle = 'rgba(154, 203, 227, 0.75)';
+        ctx.lineWidth = 1.35;
+        ctx.beginPath();
+        ctx.moveTo(13, 17);
+        ctx.lineTo(127, 17);
+        ctx.stroke();
+
+        const rivets = [18, 33, 48, 63, 78, 93, 108, 123];
+        ctx.fillStyle = 'rgba(218, 235, 255, 0.72)';
+        for (const x of rivets) {
+          ctx.beginPath();
+          ctx.arc(x, 6.8, 0.9, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        texture.refresh();
+      }
     }
   }
 
