@@ -5,6 +5,7 @@ import {
   applyPendingResize,
   FORCE_CANVAS_CAPTURE,
 } from './gameConfig';
+import { remoteStatsService } from './RemoteStatsService';
 import './style.css';
 
 declare global {
@@ -29,6 +30,7 @@ declare global {
 }
 
 const game = new Phaser.Game(config);
+remoteStatsService.warmupUserRegistration();
 
 let resizeTimeout: number | undefined;
 

@@ -4,6 +4,48 @@ import type { DifficultyPreset } from './Difficulty';
 import { PowerUp, PowerUpType } from './PowerUp';
 
 const SHIELD_BUNKER_REROLL_PERCENT = 45;
+const MAX_ACTIVE_POWER_UPS = 15;
+const MAX_DROPS_PER_ENEMY = 3;
+
+type EnemyDropTier = 'asteroid' | 'skyRaider' | 'ufoScout' | 'ufoBoss';
+type EnemyDropProfile = {
+  guaranteedDrops: number;
+  firstDropChance: number;
+  secondDropChance: number;
+  thirdDropChance: number;
+  spreadRadius: number;
+};
+
+const ENEMY_DROP_PROFILES: Record<EnemyDropTier, EnemyDropProfile> = {
+  asteroid: {
+    guaranteedDrops: 0,
+    firstDropChance: 0.22,
+    secondDropChance: 0.06,
+    thirdDropChance: 0.02,
+    spreadRadius: 34,
+  },
+  skyRaider: {
+    guaranteedDrops: 1,
+    firstDropChance: 1,
+    secondDropChance: 0.32,
+    thirdDropChance: 0.12,
+    spreadRadius: 42,
+  },
+  ufoScout: {
+    guaranteedDrops: 1,
+    firstDropChance: 1,
+    secondDropChance: 0.5,
+    thirdDropChance: 0.22,
+    spreadRadius: 50,
+  },
+  ufoBoss: {
+    guaranteedDrops: 2,
+    firstDropChance: 1,
+    secondDropChance: 1,
+    thirdDropChance: 0.68,
+    spreadRadius: 62,
+  },
+};
 
 export class PowerUpDirector {
   private scene: Phaser.Scene;
@@ -26,26 +68,12 @@ export class PowerUpDirector {
     PowerUpType.MINE_LAYER,
   ];
 
-  // Combo Logic
+  // Combo logic for asteroid chain kills (bonus drop chance)
   private comboCount: number = 0;
   private lastKillTime: number = 0;
   private comboThreshold: number = 5;
   private comboTimeLimit: number = 3000;
 
-  // Stats for Smart Trigger
-  private misses: number = 0;
-  private nearMisses: number = 0;
-  private damageFreeTime: number = 0;
-  private totalShots: number = 0;
-  private hits: number = 0;
-
-  // Score Logic
-  private lastScoreThreshold: number = 0;
-  private scoreInterval: number = 2500;
-
-  // Time Logic
-  private lastPowerUpTime: number = 0;
-  private idleSpawnTime: number = 60000;
   private difficultyLevel: number = 1;
   private spawnRollChance: number = 1;
   private preset: DifficultyPreset = getDifficultyPreset('normal');
@@ -54,9 +82,8 @@ export class PowerUpDirector {
     this.scene = scene;
     this.powerUps = scene.physics.add.group({
       classType: PowerUp,
-      maxSize: 10,
+      maxSize: MAX_ACTIVE_POWER_UPS,
     });
-    this.lastPowerUpTime = scene.time.now;
     this.setDifficultyLevel(1);
   }
 
@@ -64,48 +91,19 @@ export class PowerUpDirector {
     return this.powerUps;
   }
 
-  public trackShot() {
-    this.totalShots++;
-  }
-  public trackHit() {
-    this.hits++;
-  }
-  public trackMiss() {
-    this.misses++;
-  }
-  public trackNearMiss() {
-    this.nearMisses++;
-    if (this.nearMisses >= 3) {
-      this.spawnPowerUp(this.scene.scale.width / 2, -50, PowerUpType.EMP_WAVE);
-      this.nearMisses = 0;
-    }
-  }
-
   public resetDamageFreeTime() {
-    this.damageFreeTime = 0;
+    // Intentionally left as a no-op: drops are now kill-event based only.
   }
 
-  public resetForLevelStart(score: number) {
+  public resetForLevelStart(_score: number) {
     this.comboCount = 0;
     this.lastKillTime = 0;
-    this.nearMisses = 0;
-    this.damageFreeTime = 0;
-    this.lastPowerUpTime = this.scene.time.now;
     this.deactivateAllPowerUps();
-    const scoreStride = Math.max(1, this.scoreInterval);
-    this.lastScoreThreshold = Math.floor(score / scoreStride) * scoreStride;
   }
 
   public reset() {
     this.comboCount = 0;
     this.lastKillTime = 0;
-    this.misses = 0;
-    this.nearMisses = 0;
-    this.damageFreeTime = 0;
-    this.totalShots = 0;
-    this.hits = 0;
-    this.lastScoreThreshold = 0;
-    this.lastPowerUpTime = this.scene.time.now;
     this.deactivateAllPowerUps();
   }
 
@@ -122,9 +120,7 @@ export class PowerUpDirector {
     const ramp = this.difficultyLevel - 1;
     this.comboThreshold = Phaser.Math.Clamp(5 + Math.floor(ramp / 2), 5, 10);
     const dropScale = this.preset.powerUpDropScale;
-    this.scoreInterval = Math.round((2500 + ramp * 300) / dropScale);
-    this.idleSpawnTime = Math.round((60000 + ramp * 2600) / dropScale);
-    this.spawnRollChance = Phaser.Math.Clamp((1 - ramp * 0.06) * dropScale, 0.38, 1);
+    this.spawnRollChance = Phaser.Math.Clamp((1 - ramp * 0.045) * dropScale, 0.4, 1);
   }
 
   public setDifficultyPreset(preset: DifficultyPreset) {
@@ -133,84 +129,105 @@ export class PowerUpDirector {
   }
 
   public onAsteroidDestroyed(x: number, y: number) {
-    this.trackHit();
     const now = this.scene.time.now;
     if (now - this.lastKillTime < this.comboTimeLimit) this.comboCount++;
     else this.comboCount = 1;
     this.lastKillTime = now;
 
-    if (this.comboCount >= this.comboThreshold) {
-      this.spawnPowerUp(x, y);
+    const comboBonus = this.comboCount >= this.comboThreshold;
+    if (comboBonus) {
       this.comboCount = 0;
     }
+
+    this.spawnDropsFromEnemyKill(x, y, 'asteroid', comboBonus);
   }
 
-  public update(score: number, delta: number) {
-    const now = this.scene.time.now;
-    this.damageFreeTime += delta;
-
-    const w = this.scene.scale.width;
-    const margin = Math.round(w * 0.1);
-
-    // Smart Trigger: high accuracy yields support power-ups (more cooling than drones)
-    const accuracy = this.hits / Math.max(1, this.totalShots);
-    const supportStride = Phaser.Math.Clamp(
-      Math.round((20 + (this.difficultyLevel - 1) * 6) / this.preset.powerUpDropScale),
-      16,
-      66,
-    );
-    if (accuracy > 0.82 && this.hits % supportStride === 0 && this.hits > 0) {
-      const supportType =
-        Phaser.Math.Between(0, 99) < 35 ? PowerUpType.WINGMAN_DRONES : PowerUpType.CANNON_COOLING;
-      this.spawnPowerUp(Phaser.Math.Between(margin, w - margin), -50, supportType);
-    }
-
-    // Ghost Phase if taking too much heat (conceptual damage-free time check)
-    if (this.damageFreeTime > 30000) {
-      // 30s without damage
-      // Maybe reward something else or spawn a Black Hole for challenge
-    }
-
-    if (score >= this.lastScoreThreshold + this.scoreInterval) {
-      this.lastScoreThreshold = score;
-      this.spawnPowerUp(Phaser.Math.Between(margin, w - margin), -50);
-    }
-
-    if (now - this.lastPowerUpTime > this.idleSpawnTime) {
-      this.spawnPowerUp(Phaser.Math.Between(margin, w - margin), -50);
-    }
+  public onSkyRaiderDestroyed(x: number, y: number) {
+    this.spawnDropsFromEnemyKill(x, y, 'skyRaider');
   }
 
-  public spawnGuaranteedSupportDrop(preferredX?: number, y: number = -50): PowerUpType | null {
-    const width = this.scene.scale.width;
-    const margin = Math.round(width * 0.1);
-    const fallbackX = Phaser.Math.Between(margin, width - margin);
-    const x = Phaser.Math.Clamp(Math.round(preferredX ?? fallbackX), margin, width - margin);
-    const supportPool: PowerUpType[] = [
-      PowerUpType.SHIELD,
-      PowerUpType.CANNON_COOLING,
-      PowerUpType.CANNON_COOLING,
-      PowerUpType.WINGMAN_DRONES,
-    ];
+  public onUfoDestroyed(x: number, y: number, variant: 'scout' | 'boss') {
+    this.spawnDropsFromEnemyKill(x, y, variant === 'boss' ? 'ufoBoss' : 'ufoScout');
+  }
 
-    for (let attempt = 0; attempt < supportPool.length; attempt++) {
-      const type = Phaser.Utils.Array.GetRandom(supportPool);
-      if (this.spawnPowerUp(x, y, type)) {
-        return type;
-      }
-    }
+  public update(_score: number, _delta: number) {
+    // No timed/score-based drops: pickups only come from destroyed enemies.
+  }
+
+  public spawnGuaranteedSupportDrop(_preferredX?: number, _y: number = -50): PowerUpType | null {
+    // Disabled by design to keep drop sources limited to enemy-destruction events.
     return null;
   }
 
-  private spawnPowerUp(x: number, y: number, forcedType?: PowerUpType) {
-    if (!forcedType && Phaser.Math.FloatBetween(0, 1) > this.spawnRollChance) {
-      this.lastPowerUpTime = this.scene.time.now;
-      return false;
+  private spawnDropsFromEnemyKill(
+    x: number,
+    y: number,
+    tier: EnemyDropTier,
+    comboBonus: boolean = false,
+  ) {
+    const profile = ENEMY_DROP_PROFILES[tier];
+    let dropCount = this.rollDropCount(profile);
+    if (comboBonus) {
+      dropCount = Math.min(MAX_DROPS_PER_ENEMY, dropCount + 1);
     }
-    const spawnPool = this.getSpawnPool();
-    let type = forcedType || Phaser.Utils.Array.GetRandom(spawnPool);
+    if (dropCount <= 0) return 0;
+
+    const width = this.scene.scale.width;
+    const height = this.scene.scale.height;
+    const margin = Math.round(width * 0.08);
+    const maxY = Math.round(height * 0.84);
+    let spawned = 0;
+
+    for (let i = 0; i < dropCount; i++) {
+      if (this.powerUps.countActive(true) >= MAX_ACTIVE_POWER_UPS) break;
+      const jitterX = Phaser.Math.Between(-profile.spreadRadius, profile.spreadRadius);
+      const jitterY = Phaser.Math.Between(
+        -Math.round(profile.spreadRadius * 0.45),
+        Math.round(profile.spreadRadius * 0.35),
+      );
+      const dropX = Phaser.Math.Clamp(Math.round(x + jitterX), margin, width - margin);
+      const dropY = Phaser.Math.Clamp(Math.round(y + jitterY), -50, maxY);
+      if (this.spawnPowerUp(dropX, dropY)) {
+        spawned++;
+      }
+    }
+
+    return spawned;
+  }
+
+  private rollDropCount(profile: EnemyDropProfile) {
+    const chanceScale = Phaser.Math.Clamp(this.spawnRollChance, 0.4, 1.05);
+    let drops = profile.guaranteedDrops;
     if (
-      !forcedType &&
+      drops < 1 &&
+      Phaser.Math.FloatBetween(0, 1) <=
+        Phaser.Math.Clamp(profile.firstDropChance * chanceScale, 0, 1)
+    ) {
+      drops = 1;
+    }
+    if (
+      drops < 2 &&
+      Phaser.Math.FloatBetween(0, 1) <=
+        Phaser.Math.Clamp(profile.secondDropChance * chanceScale, 0, 1)
+    ) {
+      drops = 2;
+    }
+    if (
+      drops < 3 &&
+      Phaser.Math.FloatBetween(0, 1) <=
+        Phaser.Math.Clamp(profile.thirdDropChance * chanceScale, 0, 1)
+    ) {
+      drops = 3;
+    }
+    return Phaser.Math.Clamp(drops, 0, MAX_DROPS_PER_ENEMY);
+  }
+
+  private spawnPowerUp(x: number, y: number) {
+    if (this.powerUps.countActive(true) >= MAX_ACTIVE_POWER_UPS) return false;
+
+    const spawnPool = this.getSpawnPool();
+    let type = Phaser.Utils.Array.GetRandom(spawnPool);
+    if (
       type === PowerUpType.SHIELD_BUNKER &&
       Phaser.Math.Between(0, 99) < SHIELD_BUNKER_REROLL_PERCENT
     ) {
@@ -219,13 +236,11 @@ export class PowerUpDirector {
         type = Phaser.Utils.Array.GetRandom(fallbackPool);
       }
     }
+
     const powerUp = this.powerUps.get(x, y) as PowerUp;
-    if (powerUp) {
-      powerUp.spawn(x, y, type);
-      this.lastPowerUpTime = this.scene.time.now;
-      return true;
-    }
-    return false;
+    if (!powerUp) return false;
+    powerUp.spawn(x, y, type);
+    return true;
   }
 
   private getSpawnPool() {

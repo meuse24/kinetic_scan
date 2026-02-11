@@ -1462,3 +1462,77 @@ TODOs for next agent
 - Validation:
   - `npm run lint` pass
   - `npm run build` pass
+- 2026-02-11: Added compact PHP REST sync for highscores + coins + unique users.
+  - New backend endpoint: `public/api/stats.php` with JSON-file persistence (`public/api/data/stats.json`).
+    - `GET`: returns snapshot (`highscores`, `coinsSpent`, `uniqueUsers`, `updatedAt`) by mode (`normal`/`daily`).
+    - `POST` actions:
+      - `register_user`
+      - `consume_coins`
+      - `submit_highscore`
+    - Uses file locking (`flock`) for safe concurrent updates and sanitizes all inputs.
+  - New client service: `src/RemoteStatsService.ts`.
+    - Lazy snapshot fetch with cache/inflight dedupe.
+    - Immediate highscore submission on initials confirm.
+    - Coin-consumption event reporting on run start.
+    - User registration warmup with local stable client id.
+  - Scene integration:
+    - `src/AttractScene.ts`:
+      - local highscores shown immediately,
+      - lazy remote refresh updates rows in background,
+      - reports spent credits on start.
+    - `src/GameOverScene.ts`:
+      - lazy remote refresh on scene show,
+      - submits new highscore immediately after initials are committed,
+      - reports spent credits on start.
+    - `src/main.ts`: early background user-registration warmup.
+  - Robustness:
+    - API failures never block flow; local leaderboard remains fallback source.
+    - Fixed JSON-parse failure path so non-JSON API responses are safely ignored.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - Playwright smoke run after integration: no new console errors in client flow (fallback path confirmed when PHP endpoint is not executed by Vite dev server).
+- 2026-02-11: Deployment-path fix for hosted subdirectory installs (`/apps/kineticScan/`).
+  - Changed default API endpoint from absolute `/api/stats.php` to relative `api/stats.php` in `src/RemoteStatsService.ts`.
+  - This makes API calls resolve correctly when the game is served from a subpath (e.g. `.../apps/kineticScan/index.html`).
+  - Updated API persistence target to `public/api/data/stats.runtime.json` so redeploying `dist` does not reset live stats.
+  - Confirmed build output already contains API artifacts via Vite public copy (`dist/api/stats.php`, `dist/api/data/stats.json`).
+- 2026-02-11: Attract screen rotation extended with server statistics block.
+  - Added a new rotating `LIVE STATS` block in `src/AttractScene.ts` showing:
+    - `UNIQUE USERS`
+    - `COINS USED`
+  - Rotation cycle expanded from 3 to 4 states:
+    - info -> top scores -> daily challenge -> live stats.
+  - Reused existing lazy remote snapshot refresh to update the stats block without blocking gameplay/UI flow.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - Playwright attract smoke run: no console errors captured.
+- 2026-02-11: Remote stats hardening for total-user semantics + offline behavior.
+  - Kept API model split between:
+    - `users` (last 30 recently seen users, pruned server-side),
+    - `totalUsersEver` (all-time counter), with `knownUsers` for dedupe so the counter is independent from the 30-user rolling list.
+  - Attract `LIVE STATS` block now displays `TOTAL USERS` (instead of `UNIQUE USERS`) and uses `snapshot.totalUsers`.
+  - Added explicit Attract fallback labels when snapshot fetch fails:
+    - online but unavailable: `N/A`,
+    - offline: `OFFLINE`.
+  - `src/RemoteStatsService.ts` now short-circuits network calls when `navigator.onLine === false`, keeps event queueing in localStorage, and retries automatically when connection returns.
+- Validation:
+  - `php -l public/api/stats.php` pass
+  - `npm run lint` pass
+  - `npm run build` pass
+- 2026-02-11: Mine-layer start stock + perk-upgrade integration.
+  - Gameplay now starts with `2` mine deploy charges per player (`INITIAL_MINE_DEPLOY_CHARGES` in `MainScene`).
+  - Added new perk-card option in `PerkSystem`: `MINE STOCK` (`mine_stock`, up to 4 stacks).
+  - Selecting `MINE STOCK` grants +1 mine charge immediately per newly acquired stack (tracked per player to avoid duplicate grants).
+  - Updated Help screen text:
+    - explicitly documents start with 2 mine charges,
+    - explains mine deployment input again (`M` / double-click / double-tap),
+    - explains that boss-upgrade cards can include Mine Stock.
+  - Updated README documentation to reflect:
+    - start stock of 2 mines,
+    - mine stock perk availability,
+    - revised mine-layer and perk descriptions.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass

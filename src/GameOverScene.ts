@@ -19,6 +19,8 @@ import {
 import { performanceMonitor } from './PerformanceMonitor';
 import { musicManager } from './MusicManager';
 import { soundManager } from './SoundManager';
+import { isDebugOverlayEnabled, toggleDebugOverlayEnabled } from './DebugSettings';
+import { mergeLeaderboardEntries, remoteStatsService } from './RemoteStatsService';
 import SceneBackground from './SceneBackground';
 
 interface GameOverData {
@@ -77,6 +79,7 @@ export default class GameOverScene extends Phaser.Scene {
   private settingsSoundValue?: Phaser.GameObjects.Text;
   private settingsFullscreenValue?: Phaser.GameObjects.Text;
   private settingsDifficultyValue?: Phaser.GameObjects.Text;
+  private settingsDebugValue?: Phaser.GameObjects.Text;
   private settingsCrtValue?: Phaser.GameObjects.Text;
   private settingsHint?: Phaser.GameObjects.Text;
   private settingsVolumeSliders: SettingsVolumeSlider[] = [];
@@ -197,6 +200,7 @@ export default class GameOverScene extends Phaser.Scene {
 
     this.createPlayerButtons(centerX, GAME_HEIGHT - 220);
     this.buildSettingsOverlay(120);
+    this.time.delayedCall(120, () => this.refreshLeaderboardFromServerLazy());
 
     this.coinText = this.add
       .text(centerX, GAME_HEIGHT - 140, 'INSERT COIN (I)', {
@@ -309,6 +313,7 @@ export default class GameOverScene extends Phaser.Scene {
       this.settingsSoundValue = undefined;
       this.settingsFullscreenValue = undefined;
       this.settingsDifficultyValue = undefined;
+      this.settingsDebugValue = undefined;
       this.settingsCrtValue = undefined;
       this.settingsHint = undefined;
       this.settingsVolumeSliders.length = 0;
@@ -382,6 +387,8 @@ export default class GameOverScene extends Phaser.Scene {
         this.toggleFullscreen();
       } else if (event.code === 'KeyC') {
         this.toggleCrt();
+      } else if (event.code === 'KeyG') {
+        this.toggleDebugSetting();
       } else if (event.code === 'KeyA' || event.code === 'ArrowLeft') {
         this.changeDifficulty(-1);
       } else if (event.code === 'KeyD' || event.code === 'ArrowRight') {
@@ -449,6 +456,21 @@ export default class GameOverScene extends Phaser.Scene {
     if (this.highlightIndex !== null) {
       this.leaderboardEntries[this.highlightIndex].name = this.name.join('');
       this.saveScores(this.leaderboardEntries);
+      const submitName = this.name.join('');
+      const mode = this.dailySeed ? 'daily' : 'normal';
+      void remoteStatsService
+        .submitHighscore(submitName, this.finalScore, mode)
+        .then((snapshot) => {
+          if (!snapshot || !this.scene.isActive(this.scene.key)) return;
+          const merged = mergeLeaderboardEntries(
+            this.loadScores(),
+            snapshot.highscores,
+            LEADERBOARD_SIZE,
+          );
+          this.saveScores(merged);
+          this.buildLeaderboard(merged, false);
+          this.refreshLeaderboardRows();
+        });
     }
     this.initialsHint?.setVisible(false);
     this.controlHint?.setVisible(false);
@@ -516,6 +538,23 @@ export default class GameOverScene extends Phaser.Scene {
     });
   }
 
+  private refreshLeaderboardFromServerLazy() {
+    const mode = this.dailySeed ? 'daily' : 'normal';
+    remoteStatsService.warmupUserRegistration();
+    void remoteStatsService.fetchSnapshotLazy(mode).then((snapshot) => {
+      if (!snapshot || !this.scene.isActive(this.scene.key)) return;
+      const merged = mergeLeaderboardEntries(
+        this.loadScores(),
+        snapshot.highscores,
+        LEADERBOARD_SIZE,
+      );
+      this.saveScores(merged);
+      if (this.awaitingInitials) return;
+      this.buildLeaderboard(merged, false);
+      this.refreshLeaderboardRows();
+    });
+  }
+
   private async insertCoin() {
     if (this.settingsOverlayOpen) return;
     await this.audio.resume();
@@ -564,6 +603,7 @@ export default class GameOverScene extends Phaser.Scene {
   private startGame(requiredCredits: number) {
     if (this.settingsOverlayOpen) return;
     if (!creditManager.spendCredits(requiredCredits)) return;
+    remoteStatsService.reportCoinsSpent(requiredCredits);
     void this.audio.resume();
     recalculateDimensions();
     setCurrentDifficultyKey(this.difficultyKey);
@@ -574,8 +614,17 @@ export default class GameOverScene extends Phaser.Scene {
     return `DIFFICULTY: ${getDifficultyPreset(this.difficultyKey).label} (A/D)`;
   }
 
+  private getDebugLabel() {
+    return `DEBUG INFO: ${isDebugOverlayEnabled() ? 'ON' : 'OFF'} (G)`;
+  }
+
   private changeDifficulty(direction: 1 | -1) {
     this.difficultyKey = cycleDifficulty(direction);
+    this.refreshSettingsOverlayLabels();
+  }
+
+  private toggleDebugSetting() {
+    toggleDebugOverlayEnabled();
     this.refreshSettingsOverlayLabels();
   }
 
@@ -708,7 +757,7 @@ export default class GameOverScene extends Phaser.Scene {
     const showCrtToggle = performanceMonitor.isCrtSupported();
     const panelWidth = Math.min(760, GAME_WIDTH - 120);
     const panelHeight = Math.min(560, GAME_HEIGHT - 140);
-    const settingsItemCount = showCrtToggle ? 7 : 6;
+    const settingsItemCount = showCrtToggle ? 8 : 7;
     const layoutTopY = centerY - panelHeight * 0.24;
     const layoutBottomY = centerY + panelHeight * 0.22;
     const layoutStep =
@@ -721,6 +770,7 @@ export default class GameOverScene extends Phaser.Scene {
     const bgmSliderY = nextLayoutY();
     const fullscreenY = nextLayoutY();
     const difficultyY = nextLayoutY();
+    const debugY = nextLayoutY();
     const crtY = showCrtToggle ? nextLayoutY() : 0;
     const valueStyle: Phaser.Types.GameObjects.Text.TextStyle = {
       fontFamily: '"Press Start 2P"',
@@ -765,6 +815,13 @@ export default class GameOverScene extends Phaser.Scene {
       .setDepth(depth + 2)
       .setInteractive({ useHandCursor: true });
     this.settingsDifficultyValue.on('pointerdown', () => this.changeDifficulty(1));
+
+    this.settingsDebugValue = this.add
+      .text(centerX, debugY, '', valueStyle)
+      .setOrigin(0.5)
+      .setDepth(depth + 2)
+      .setInteractive({ useHandCursor: true });
+    this.settingsDebugValue.on('pointerdown', () => this.toggleDebugSetting());
 
     if (showCrtToggle) {
       this.settingsCrtValue = this.add
@@ -815,7 +872,9 @@ export default class GameOverScene extends Phaser.Scene {
       .text(
         centerX,
         centerY + panelHeight * 0.33,
-        showCrtToggle ? 'SOUND[S]  FS[F]  DIFF[A/D]  CRT[C]' : 'SOUND[S]  FS[F]  DIFF[A/D]',
+        showCrtToggle
+          ? 'SOUND[S]  FS[F]  DIFF[A/D]  DEBUG[G]  CRT[C]'
+          : 'SOUND[S]  FS[F]  DIFF[A/D]  DEBUG[G]',
         {
           fontFamily: '"Press Start 2P"',
           fontSize: '10px',
@@ -843,6 +902,7 @@ export default class GameOverScene extends Phaser.Scene {
       this.settingsSoundValue,
       this.settingsFullscreenValue,
       this.settingsDifficultyValue,
+      this.settingsDebugValue,
       this.settingsHint,
       backText,
       ...sliderObjects,
@@ -858,6 +918,7 @@ export default class GameOverScene extends Phaser.Scene {
     this.settingsSoundValue?.setText(this.getSoundLabel());
     this.settingsFullscreenValue?.setText(this.getFullscreenLabel());
     this.settingsDifficultyValue?.setText(this.getDifficultyLabel());
+    this.settingsDebugValue?.setText(this.getDebugLabel());
     this.settingsCrtValue?.setText(this.getCrtLabel());
     if (this.settingsFullscreenValue?.input) {
       this.settingsFullscreenValue.input.enabled = !IS_TOUCH;

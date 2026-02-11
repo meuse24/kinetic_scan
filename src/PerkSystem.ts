@@ -104,6 +104,14 @@ export const PERK_REGISTRY: PerkDefinition[] = [
     color: '#aaffaa',
     maxStacks: 1,
   },
+  {
+    id: 'mine_stock',
+    name: 'MINE STOCK',
+    description: '+1 mine charge',
+    icon: '&',
+    color: '#ffb347',
+    maxStacks: 4,
+  },
 ];
 
 export class PerkSystem {
@@ -209,5 +217,9 @@ export class PerkSystem {
 
   hasStartShield(): boolean {
     return this.getStacks('start_shield') > 0;
+  }
+
+  getMineStockStacks(): number {
+    return this.getStacks('mine_stock');
   }
 }

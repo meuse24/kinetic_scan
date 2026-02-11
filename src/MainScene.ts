@@ -41,6 +41,7 @@ import { ComboManager } from './ComboManager';
 import type { ComboState } from './ComboManager';
 import { PerkSystem } from './PerkSystem';
 import { statsManager } from './StatsManager';
+import { isDebugOverlayEnabled, setDebugOverlayEnabled } from './DebugSettings';
 import SceneBackground from './SceneBackground';
 
 interface PlayerState {
@@ -49,6 +50,7 @@ interface PlayerState {
   activePowerUps: Map<PowerUpType, number>;
   powerUpTimer: number;
   mineDeployCharges: number;
+  mineStockPerkApplied: number;
   eliteLifePerkCount: number;
   eliteCoolingPerkLevel: number;
   eliteMagnetPerkLevel: number;
@@ -142,6 +144,7 @@ const WINGMAN_DRONE_TEXTURE_KEY = 'wingman_drone';
 const PROXIMITY_MINE_TEXTURE_KEY = 'proximity_mine';
 const PROXIMITY_MINE_POOL_SIZE = 48;
 const PROXIMITY_MINE_DEPLOY_COUNT = 5;
+const INITIAL_MINE_DEPLOY_CHARGES = 2;
 
 export default class MainScene extends Phaser.Scene {
   private player!: Player;
@@ -314,7 +317,7 @@ export default class MainScene extends Phaser.Scene {
   private spawnProtectionTween?: Phaser.Tweens.Tween;
   private shieldBunkerWarningStarted: boolean = false;
   private shieldBunkerWarningTween?: Phaser.Tweens.Tween;
-  private mineDeployCharges: number = 0;
+  private mineDeployCharges: number = INITIAL_MINE_DEPLOY_CHARGES;
   private lastMineDeployTapAt: number = -10000;
   private lastMineDeployTapX: number = -1000;
   private lastMineDeployTapY: number = -1000;
@@ -340,7 +343,7 @@ export default class MainScene extends Phaser.Scene {
       Phaser.Math.RND.sow([this.dailySeed]);
     }
     this.activePlayerIndex = 0;
-    this.debugOverlayEnabled = false;
+    this.debugOverlayEnabled = isDebugOverlayEnabled();
     this.level = 1;
     this.progressionScore = 0;
     this.nextLevelScore = this.getNextLevelScore(1);
@@ -368,7 +371,7 @@ export default class MainScene extends Phaser.Scene {
     this.spawnProtectionTween = undefined;
     this.shieldBunkerWarningStarted = false;
     this.shieldBunkerWarningTween = undefined;
-    this.mineDeployCharges = 0;
+    this.mineDeployCharges = INITIAL_MINE_DEPLOY_CHARGES;
     this.lastMineDeployTapAt = -10000;
     this.lastMineDeployTapX = -1000;
     this.lastMineDeployTapY = -1000;
@@ -392,7 +395,8 @@ export default class MainScene extends Phaser.Scene {
         lives: 3,
         activePowerUps: new Map(),
         powerUpTimer: 0,
-        mineDeployCharges: 0,
+        mineDeployCharges: INITIAL_MINE_DEPLOY_CHARGES,
+        mineStockPerkApplied: 0,
         eliteLifePerkCount: 0,
         eliteCoolingPerkLevel: 0,
         eliteMagnetPerkLevel: 0,
@@ -434,7 +438,8 @@ export default class MainScene extends Phaser.Scene {
       lives: 3,
       activePowerUps: new Map(),
       powerUpTimer: 0,
-      mineDeployCharges: 0,
+      mineDeployCharges: INITIAL_MINE_DEPLOY_CHARGES,
+      mineStockPerkApplied: 0,
       eliteLifePerkCount: 0,
       eliteCoolingPerkLevel: 0,
       eliteMagnetPerkLevel: 0,
@@ -444,7 +449,7 @@ export default class MainScene extends Phaser.Scene {
     this.score = startingState.score;
     this.lives = startingState.lives;
     this.powerUpTimer = startingState.powerUpTimer;
-    this.mineDeployCharges = startingState.mineDeployCharges ?? 0;
+    this.mineDeployCharges = startingState.mineDeployCharges ?? INITIAL_MINE_DEPLOY_CHARGES;
     this.activePowerUps = new Map(startingState.activePowerUps);
     if (!this.scene.isActive('BezelScene')) {
       this.scene.launch('BezelScene');
@@ -1240,6 +1245,16 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private applyPerkEffects() {
+    const activeState = this.playerStates[this.activePlayerIndex];
+    if (activeState) {
+      const mineStockStacks = this.perkSystem.getMineStockStacks();
+      const alreadyAppliedStacks = activeState.mineStockPerkApplied ?? 0;
+      if (mineStockStacks > alreadyAppliedStacks) {
+        this.addMineDeployCharges(mineStockStacks - alreadyAppliedStacks);
+      }
+      activeState.mineStockPerkApplied = mineStockStacks;
+    }
+
     // Apply shield-on-level-up perk
     if (this.perkSystem.hasShieldOnLevel() && !this.player.getShieldActive()) {
       this.player.setShield(true);
@@ -1320,21 +1335,8 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private triggerGuaranteedSupportDrop() {
-    const targetX = Phaser.Math.Clamp(
-      this.player.x + Phaser.Math.Between(-120, 120),
-      90,
-      this.scale.width - 90,
-    );
-    const spawnedType = this.powerUpDirector.spawnGuaranteedSupportDrop(
-      targetX,
-      EARLY_LEVEL_TUNING.supportDropSpawnY,
-    );
-    if (!spawnedType) {
-      this.earlySupportDropTimerMs = 1200;
-      return;
-    }
+    // Support drops were removed from timed flow; drops now come only from enemy kills.
     this.earlySupportDropGranted = true;
-    this.cameras.main.flash(70, 90, 255, 120, false);
   }
 
   private updateActiveMarker() {
@@ -2113,10 +2115,11 @@ export default class MainScene extends Phaser.Scene {
     this.score = state.score;
     this.lives = state.lives;
     this.powerUpTimer = state.powerUpTimer;
-    this.mineDeployCharges = state.mineDeployCharges ?? 0;
+    this.mineDeployCharges = state.mineDeployCharges ?? INITIAL_MINE_DEPLOY_CHARGES;
     this.activePowerUps = new Map(state.activePowerUps);
     this.comboManager.loadState(state.comboState);
     this.perkSystem.loadState(state.perkState);
+    state.mineStockPerkApplied = state.mineStockPerkApplied ?? this.perkSystem.getMineStockStacks();
     this.activeStateSyncMs = 0;
     this.applyPassivePerksFromActiveState();
     this.applyActivePowerUpEffects(true);
@@ -3649,6 +3652,7 @@ export default class MainScene extends Phaser.Scene {
     const y = raider.y;
     const variant = raider.getVariant();
     this.consumeMine(mine);
+    this.powerUpDirector.onSkyRaiderDestroyed(x, y);
     raider.deactivate();
     this.triggerSkyRaiderDestructionFX(x, y, variant);
     this.registerSpecialKillForLevel();
@@ -3670,6 +3674,7 @@ export default class MainScene extends Phaser.Scene {
     this.consumeMine(mine);
 
     if (variant === 'scout') {
+      this.powerUpDirector.onUfoDestroyed(ufoX, ufoY, 'scout');
       this.ufo.deactivate();
       this.triggerUFODestructionFX(ufoX, ufoY, 'scout');
       this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(5000));
@@ -3686,6 +3691,7 @@ export default class MainScene extends Phaser.Scene {
       return;
     }
 
+    this.powerUpDirector.onUfoDestroyed(ufoX, ufoY, 'boss');
     this.ufo.deactivate();
     this.triggerUFODestructionFX(ufoX, ufoY, 'boss');
     this.registerSpecialKillForLevel();
@@ -3770,6 +3776,7 @@ export default class MainScene extends Phaser.Scene {
     }
 
     this.triggerSkyRaiderDestructionFX(x, y, variant);
+    this.powerUpDirector.onSkyRaiderDestroyed(x, y);
     this.registerSpecialKillForLevel();
     const basePoints = variant === 'lancer' ? 420 : 280;
     const points = basePoints + this.level * (variant === 'lancer' ? 34 : 22);
@@ -3801,6 +3808,7 @@ export default class MainScene extends Phaser.Scene {
 
     if (variant === 'scout') {
       // Scout should always pop instantly on hit to avoid stale/frozen visual states.
+      this.powerUpDirector.onUfoDestroyed(ufoX, ufoY, 'scout');
       this.ufo.deactivate();
       this.triggerUFODestructionFX(ufoX, ufoY, 'scout');
       this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(5000));
@@ -3833,6 +3841,7 @@ export default class MainScene extends Phaser.Scene {
       return;
     }
 
+    this.powerUpDirector.onUfoDestroyed(ufoX, ufoY, 'boss');
     this.triggerUFODestructionFX(ufoX, ufoY, variant);
     this.registerSpecialKillForLevel();
 
@@ -4422,7 +4431,12 @@ export default class MainScene extends Phaser.Scene {
         .setOrigin(0.5, 0)
         .setDepth(100);
     }
-    this.setDebugOverlayVisible(false);
+    this.setDebugOverlayVisible(this.debugOverlayEnabled);
+    if (this.debugOverlayEnabled) {
+      this.debugRefreshMs = 0;
+      this.powerUpTextRefreshMs = 0;
+      this.updatePerkHUD();
+    }
     const pauseBtn = this.add
       .text(GAME_WIDTH - hudMarginX, pauseButtonY, '|| PAUSE (P)', {
         fontFamily: '"Press Start 2P"',
@@ -4471,8 +4485,9 @@ export default class MainScene extends Phaser.Scene {
     this.perkText.setVisible(visible);
   }
 
-  private toggleDebugOverlay() {
-    this.debugOverlayEnabled = !this.debugOverlayEnabled;
+  public setDebugOverlayFromSettings(enabled: boolean) {
+    this.debugOverlayEnabled = enabled;
+    setDebugOverlayEnabled(this.debugOverlayEnabled);
     this.setDebugOverlayVisible(this.debugOverlayEnabled);
     if (this.debugOverlayEnabled) {
       this.debugRefreshMs = 0;
@@ -4486,6 +4501,10 @@ export default class MainScene extends Phaser.Scene {
     this.debugText.setText('');
     this.debugStatsText.setText('');
     this.powerUpListText.setText('');
+  }
+
+  private toggleDebugOverlay() {
+    this.setDebugOverlayFromSettings(!this.debugOverlayEnabled);
   }
 
   private requestPause() {

@@ -21,12 +21,19 @@ import { UFO, UFOProjectile } from './UFO';
 import { PowerUp, PowerUpType } from './PowerUp';
 import { performanceMonitor } from './PerformanceMonitor';
 import { musicManager } from './MusicManager';
+import { isDebugOverlayEnabled, toggleDebugOverlayEnabled } from './DebugSettings';
+import { mergeLeaderboardEntries, remoteStatsService } from './RemoteStatsService';
 import SceneBackground from './SceneBackground';
 
 type PlayerButton = {
   requiredCredits: number;
   bg: Phaser.GameObjects.Rectangle;
   label: Phaser.GameObjects.Text;
+};
+
+type HighScoreEntry = {
+  score: number;
+  name: string;
 };
 
 type DemoPowerUpDrift = {
@@ -145,7 +152,10 @@ export default class AttractScene extends Phaser.Scene {
   private ambientEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   private highScoreGroup!: Phaser.GameObjects.Container;
   private dailyChallengeGroup!: Phaser.GameObjects.Container;
-  private attractDisplayState: number = 0; // 0: Info, 1: Scores, 2: Daily
+  private serverStatsGroup!: Phaser.GameObjects.Container;
+  private serverStatsUsersText?: Phaser.GameObjects.Text;
+  private serverStatsCoinsText?: Phaser.GameObjects.Text;
+  private attractDisplayState: number = 0; // 0: Info, 1: Scores, 2: Daily, 3: Stats
   private demoSplitTimer: number = 0;
   private enemyDepthRefreshMs: number = 0;
   private heartbeatActive: boolean = false;
@@ -166,11 +176,13 @@ export default class AttractScene extends Phaser.Scene {
   private settingsSoundValue?: Phaser.GameObjects.Text;
   private settingsFullscreenValue?: Phaser.GameObjects.Text;
   private settingsDifficultyValue?: Phaser.GameObjects.Text;
+  private settingsDebugValue?: Phaser.GameObjects.Text;
   private settingsCrtValue?: Phaser.GameObjects.Text;
   private settingsHint?: Phaser.GameObjects.Text;
   private settingsVolumeSliders: SettingsVolumeSlider[] = [];
   private titleLogoContainer?: Phaser.GameObjects.Container;
   private powerUpPreviewContainer?: Phaser.GameObjects.Container;
+  private highScoreRows: Phaser.GameObjects.Text[] = [];
   private creditListener?: (credits: number) => void;
   private soundListener?: (muted: boolean) => void;
   private volumeListener?: () => void;
@@ -339,6 +351,9 @@ export default class AttractScene extends Phaser.Scene {
     this.dailyChallengeGroup = this.createDailyChallengeBlock(centerX, centerY + 100, uiDepth);
     this.dailyChallengeGroup.setAlpha(0);
 
+    this.serverStatsGroup = this.createServerStatsBlock(centerX, centerY + 90, uiDepth);
+    this.serverStatsGroup.setAlpha(0);
+
     this.time.addEvent({
       delay: 5000,
       loop: true,
@@ -360,6 +375,7 @@ export default class AttractScene extends Phaser.Scene {
     this.powerUpPreviewContainer = this.createPowerUpPreview(centerX, GAME_HEIGHT - 130, uiDepth);
     this.createEventBanner(centerX, centerY + 164, uiDepth);
     this.layoutAttractUi();
+    this.time.delayedCall(120, () => this.refreshHighScoresFromServerLazy());
     this.attractBlackHoleSpawnTimer = Phaser.Math.Between(4800, 8500);
     this.demoPowerUpSpawnTimer = Phaser.Math.Between(1200, 2400);
 
@@ -390,6 +406,9 @@ export default class AttractScene extends Phaser.Scene {
     });
     this.input.keyboard?.on('keydown-C', () => {
       if (this.settingsOverlayOpen) this.toggleCrt();
+    });
+    this.input.keyboard?.on('keydown-G', () => {
+      if (this.settingsOverlayOpen) this.toggleDebugSetting();
     });
     this.input.keyboard?.on('keydown-H', () => this.openHelp());
     this.input.keyboard?.on('keydown-O', () => {
@@ -437,11 +456,13 @@ export default class AttractScene extends Phaser.Scene {
       this.settingsSoundValue = undefined;
       this.settingsFullscreenValue = undefined;
       this.settingsDifficultyValue = undefined;
+      this.settingsDebugValue = undefined;
       this.settingsCrtValue = undefined;
       this.settingsHint = undefined;
       this.settingsVolumeSliders.length = 0;
       this.titleLogoContainer = undefined;
       this.powerUpPreviewContainer = undefined;
+      this.highScoreRows.length = 0;
       this.heartbeatActive = false;
       this.heartbeatTimer?.remove(false);
       this.heartbeatTimer = null;
@@ -453,6 +474,8 @@ export default class AttractScene extends Phaser.Scene {
       this.clearDemoPowerUps();
       this.clearBackgroundDecor();
       this.clearNebulaLayers();
+      this.serverStatsUsersText = undefined;
+      this.serverStatsCoinsText = undefined;
       this.attractWarpTween?.stop();
       this.attractWarpTween = null;
       this.attractWarpGraphics?.destroy();
@@ -572,6 +595,10 @@ export default class AttractScene extends Phaser.Scene {
     return `DIFFICULTY: ${getDifficultyPreset(this.difficultyKey).label} (A/D)`;
   }
 
+  private getDebugLabel() {
+    return `DEBUG INFO: ${isDebugOverlayEnabled() ? 'ON' : 'OFF'} (G)`;
+  }
+
   private getCrtLabel() {
     if (!performanceMonitor.isCrtSupported()) return 'SCAN / CRT: N/A';
     if (!performanceMonitor.isCrtUserEnabled()) return 'SCAN / CRT: OFF (C)';
@@ -585,6 +612,11 @@ export default class AttractScene extends Phaser.Scene {
     this.audio.setDifficultyMix(this.difficultyKey);
     this.enemyManager.setDifficultyPreset(preset);
     this.ufo.setDifficultyPreset(preset);
+    this.refreshSettingsOverlayLabels();
+  }
+
+  private toggleDebugSetting() {
+    toggleDebugOverlayEnabled();
     this.refreshSettingsOverlayLabels();
   }
 
@@ -618,7 +650,7 @@ export default class AttractScene extends Phaser.Scene {
     const showCrtToggle = performanceMonitor.isCrtSupported();
     const panelWidth = Math.min(760, GAME_WIDTH - 120);
     const panelHeight = Math.min(560, GAME_HEIGHT - 140);
-    const settingsItemCount = showCrtToggle ? 7 : 6;
+    const settingsItemCount = showCrtToggle ? 8 : 7;
     const layoutTopY = centerY - panelHeight * 0.24;
     const layoutBottomY = centerY + panelHeight * 0.22;
     const layoutStep =
@@ -631,6 +663,7 @@ export default class AttractScene extends Phaser.Scene {
     const bgmSliderY = nextLayoutY();
     const fullscreenY = nextLayoutY();
     const difficultyY = nextLayoutY();
+    const debugY = nextLayoutY();
     const crtY = showCrtToggle ? nextLayoutY() : 0;
     const valueStyle: Phaser.Types.GameObjects.Text.TextStyle = {
       fontFamily: '"Press Start 2P"',
@@ -675,6 +708,13 @@ export default class AttractScene extends Phaser.Scene {
       .setDepth(depth + 2)
       .setInteractive({ useHandCursor: true });
     this.settingsDifficultyValue.on('pointerdown', () => this.cycleDifficulty(1));
+
+    this.settingsDebugValue = this.add
+      .text(centerX, debugY, '', valueStyle)
+      .setOrigin(0.5)
+      .setDepth(depth + 2)
+      .setInteractive({ useHandCursor: true });
+    this.settingsDebugValue.on('pointerdown', () => this.toggleDebugSetting());
 
     if (showCrtToggle) {
       this.settingsCrtValue = this.add
@@ -725,7 +765,9 @@ export default class AttractScene extends Phaser.Scene {
       .text(
         centerX,
         centerY + panelHeight * 0.33,
-        showCrtToggle ? 'SOUND[S]  FS[F]  DIFF[A/D]  CRT[C]' : 'SOUND[S]  FS[F]  DIFF[A/D]',
+        showCrtToggle
+          ? 'SOUND[S]  FS[F]  DIFF[A/D]  DEBUG[G]  CRT[C]'
+          : 'SOUND[S]  FS[F]  DIFF[A/D]  DEBUG[G]',
         {
           fontFamily: '"Press Start 2P"',
           fontSize: '10px',
@@ -753,6 +795,7 @@ export default class AttractScene extends Phaser.Scene {
       this.settingsSoundValue,
       this.settingsFullscreenValue,
       this.settingsDifficultyValue,
+      this.settingsDebugValue,
       this.settingsHint,
       backText,
       ...sliderObjects,
@@ -768,6 +811,7 @@ export default class AttractScene extends Phaser.Scene {
     this.settingsSoundValue?.setText(this.getSoundLabel());
     this.settingsFullscreenValue?.setText(this.getFullscreenLabel());
     this.settingsDifficultyValue?.setText(this.getDifficultyLabel());
+    this.settingsDebugValue?.setText(this.getDebugLabel());
     this.settingsCrtValue?.setText(this.getCrtLabel());
     if (this.settingsFullscreenValue?.input) {
       this.settingsFullscreenValue.input.enabled = !IS_TOUCH;
@@ -899,7 +943,7 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   private toggleAttractMessage() {
-    this.attractDisplayState = (this.attractDisplayState + 1) % 3;
+    this.attractDisplayState = (this.attractDisplayState + 1) % 4;
     this.playAttractWarpPulse(
       this.coinText?.x ?? GAME_WIDTH / 2,
       (this.coinText?.y ?? GAME_HEIGHT / 2) - 40,
@@ -909,6 +953,7 @@ export default class AttractScene extends Phaser.Scene {
     const infoAlpha = this.attractDisplayState === 0 ? 1 : 0;
     const scoresAlpha = this.attractDisplayState === 1 ? 1 : 0;
     const dailyAlpha = this.attractDisplayState === 2 ? 1 : 0;
+    const statsAlpha = this.attractDisplayState === 3 ? 1 : 0;
 
     const duration = 400;
     const ease = 'Sine.easeInOut';
@@ -925,6 +970,9 @@ export default class AttractScene extends Phaser.Scene {
 
     // Daily Challenge
     this.tweens.add({ targets: this.dailyChallengeGroup, alpha: dailyAlpha, duration, ease });
+
+    // Runtime stats (coins/users)
+    this.tweens.add({ targets: this.serverStatsGroup, alpha: statsAlpha, duration, ease });
   }
 
   private startHeartbeatPulse() {
@@ -1727,7 +1775,7 @@ export default class AttractScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const scores = this.getHighScoreRows();
-    const rows = scores.map((entry, index) =>
+    this.highScoreRows = scores.map((entry, index) =>
       this.add
         .text(centerX, centerY - 40 + index * 24, `${index + 1}. ${entry.name} ${entry.score}`, {
           fontFamily: '"Press Start 2P"',
@@ -1737,14 +1785,14 @@ export default class AttractScene extends Phaser.Scene {
         .setOrigin(0.5),
     );
 
-    const group = this.add.container(0, 0, [title, ...rows]);
+    const group = this.add.container(0, 0, [title, ...this.highScoreRows]);
     group.setDepth(depth);
     return group;
   }
 
-  private getHighScoreRows() {
+  private getHighScoreRows(): HighScoreEntry[] {
     const fallback = { score: 0, name: '---' };
-    const entries: { score: number; name: string }[] = [];
+    const entries: HighScoreEntry[] = [];
     try {
       const raw = localStorage.getItem('spaceShooterHighscore');
       if (raw) {
@@ -1765,6 +1813,40 @@ export default class AttractScene extends Phaser.Scene {
     entries.sort((a, b) => b.score - a.score);
     while (entries.length < 5) entries.push({ ...fallback });
     return entries.slice(0, 5);
+  }
+
+  private saveHighScoreRows(entries: HighScoreEntry[]) {
+    const trimmed = entries.filter((entry) => entry.score > 0 && entry.name !== '---');
+    localStorage.setItem('spaceShooterHighscore', JSON.stringify(trimmed));
+  }
+
+  private updateHighScoreRows(entries: HighScoreEntry[]) {
+    if (this.highScoreRows.length === 0) return;
+    const fallback = { score: 0, name: '---' };
+    const normalized = [...entries].sort((a, b) => b.score - a.score);
+    while (normalized.length < this.highScoreRows.length) {
+      normalized.push({ ...fallback });
+    }
+    for (let i = 0; i < this.highScoreRows.length; i++) {
+      const entry = normalized[i] ?? fallback;
+      this.highScoreRows[i].setText(`${i + 1}. ${entry.name} ${entry.score}`);
+    }
+  }
+
+  private refreshHighScoresFromServerLazy() {
+    remoteStatsService.warmupUserRegistration();
+    void remoteStatsService.fetchSnapshotLazy('normal', true).then((snapshot) => {
+      if (!this.scene.isActive(this.scene.key)) return;
+      if (!snapshot) {
+        this.updateServerStatsUnavailableRows(remoteStatsService.isNetworkOnline());
+        return;
+      }
+      const localRows = this.getHighScoreRows();
+      const mergedRows = mergeLeaderboardEntries(localRows, snapshot.highscores, 5);
+      this.saveHighScoreRows(mergedRows);
+      this.updateHighScoreRows(mergedRows);
+      this.updateServerStatsRows(snapshot.totalUsers, snapshot.coinsSpent);
+    });
   }
 
   private createPowerUpPreview(
@@ -1833,6 +1915,7 @@ export default class AttractScene extends Phaser.Scene {
     this.centerInfoBlockAtY(rotatingCenterY);
     this.centerObjectAtY(this.highScoreGroup, rotatingCenterY);
     this.centerObjectAtY(this.dailyChallengeGroup, rotatingCenterY);
+    this.centerObjectAtY(this.serverStatsGroup, rotatingCenterY);
 
     if (this.eventBanner) {
       const bannerY = Phaser.Math.Clamp(buttonTop - 24, rotatingCenterY + 60, buttonTop - 18);
@@ -1917,6 +2000,7 @@ export default class AttractScene extends Phaser.Scene {
   private startGame(requiredCredits: number) {
     if (this.settingsOverlayOpen) return;
     if (!creditManager.spendCredits(requiredCredits)) return;
+    remoteStatsService.reportCoinsSpent(requiredCredits);
     void this.audio.resume();
     recalculateDimensions();
     setCurrentDifficultyKey(this.difficultyKey);
@@ -1957,9 +2041,68 @@ export default class AttractScene extends Phaser.Scene {
     return group;
   }
 
+  private createServerStatsBlock(
+    centerX: number,
+    y: number,
+    depth: number,
+  ): Phaser.GameObjects.Container {
+    const title = this.add
+      .text(centerX, y - 42, 'LIVE STATS', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '18px',
+        color: '#8cf8ff',
+      })
+      .setOrigin(0.5);
+
+    const panel = this.add
+      .rectangle(centerX, y + 18, 360, 88, 0x0f172a, 0.84)
+      .setStrokeStyle(2, 0x3fc7ff);
+
+    this.serverStatsUsersText = this.add
+      .text(centerX, y, 'TOTAL USERS: ...', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '14px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+
+    this.serverStatsCoinsText = this.add
+      .text(centerX, y + 28, 'COINS USED: ...', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '14px',
+        color: '#ffd166',
+      })
+      .setOrigin(0.5);
+
+    const group = this.add.container(0, 0, [
+      panel,
+      title,
+      this.serverStatsUsersText,
+      this.serverStatsCoinsText,
+    ]);
+    group.setDepth(depth);
+    return group;
+  }
+
+  private updateServerStatsRows(totalUsers: number, coinsSpent: number) {
+    this.serverStatsUsersText?.setText(`TOTAL USERS: ${Math.max(0, Math.floor(totalUsers))}`);
+    this.serverStatsCoinsText?.setText(`COINS USED: ${Math.max(0, Math.floor(coinsSpent))}`);
+  }
+
+  private updateServerStatsUnavailableRows(networkOnline: boolean) {
+    if (networkOnline) {
+      this.serverStatsUsersText?.setText('TOTAL USERS: N/A');
+      this.serverStatsCoinsText?.setText('COINS USED: N/A');
+      return;
+    }
+    this.serverStatsUsersText?.setText('TOTAL USERS: OFFLINE');
+    this.serverStatsCoinsText?.setText('COINS USED: OFFLINE');
+  }
+
   private startDaily() {
     if (this.settingsOverlayOpen) return;
     if (!creditManager.spendCredits(1)) return;
+    remoteStatsService.reportCoinsSpent(1);
     void this.audio.resume();
     recalculateDimensions();
     const today = new Date().toISOString().slice(0, 10);

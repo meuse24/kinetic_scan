@@ -4,10 +4,12 @@ import MainScene from './MainScene';
 import { soundManager } from './SoundManager';
 import { DEFAULT_VOLUME } from './AudioManager';
 import { performanceMonitor } from './PerformanceMonitor';
+import { isDebugOverlayEnabled, toggleDebugOverlayEnabled } from './DebugSettings';
 import SceneBackground from './SceneBackground';
 
 export default class PauseScene extends Phaser.Scene {
   private soundText!: Phaser.GameObjects.Text;
+  private debugText!: Phaser.GameObjects.Text;
   private soundListener?: (muted: boolean) => void;
   private volumeListener?: () => void;
   private sceneBackground?: SceneBackground;
@@ -102,8 +104,28 @@ export default class PauseScene extends Phaser.Scene {
       soundManager.toggle();
     });
 
+    const debugBtnY = centerY + 148;
+    this.debugText = this.add
+      .text(centerX, debugBtnY, this.getDebugLabel(), {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '14px',
+        color: '#ffffff',
+        backgroundColor: '#333333',
+        padding: { x: 14, y: 9 },
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+
+    const toggleDebug = () => {
+      const enabled = toggleDebugOverlayEnabled();
+      const mainScene = this.scene.get('MainScene') as MainScene;
+      mainScene.setDebugOverlayFromSettings(enabled);
+      this.updateDebugLabel(enabled);
+    };
+    this.debugText.on('pointerdown', toggleDebug);
+
     // Volume Sliders
-    const sliderStartY = centerY + 150;
+    const sliderStartY = centerY + 195;
     const sliderLabels = ['MASTER', 'SFX', 'BGM'];
     const sliderValues = [
       soundManager.masterVolume,
@@ -170,6 +192,7 @@ export default class PauseScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-ESC', resumeGame);
     this.input.keyboard?.on('keydown-X', exitToAttract);
     this.input.keyboard?.on('keydown-S', () => soundManager.toggle());
+    this.input.keyboard?.on('keydown-G', toggleDebug);
 
     // Pulsing effect for button
     this.tweens.add({
@@ -282,6 +305,15 @@ export default class PauseScene extends Phaser.Scene {
   private updateSoundLabel(muted: boolean) {
     this.soundText.setText(`SOUND: ${muted ? 'OFF' : 'ON'} (S)`);
     this.soundText.setColor(muted ? '#ff6666' : '#ffffff');
+  }
+
+  private getDebugLabel() {
+    return `DEBUG INFO: ${isDebugOverlayEnabled() ? 'ON' : 'OFF'} (G)`;
+  }
+
+  private updateDebugLabel(enabled: boolean) {
+    this.debugText.setText(`DEBUG INFO: ${enabled ? 'ON' : 'OFF'} (G)`);
+    this.debugText.setColor(enabled ? '#9effb2' : '#ffffff');
   }
 
   update(_time: number, delta: number) {

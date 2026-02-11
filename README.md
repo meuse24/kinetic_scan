@@ -21,7 +21,7 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
   - asteroid kills: `+10` each,
   - UFO/invader kills: `+100` each,
   - animated score payout with coin ticks + fireworks.
-- Rogue-lite perk system: pick 1 of 3 perks after each boss defeat (fire rate, extra life, score multiplier, shield-on-level, and more).
+- Rogue-lite perk system: pick 1 of 3 perks after each boss defeat (fire rate, extra life, score multiplier, shield-on-level, mine stock, and more).
 - Score milestone feedback: camera flash + shake + ascending arpeggio at 5K/10K/25K/50K/100K.
 - Asteroid swarms: V-formation groups of 5-8 small asteroids from level 2+, bonus for full swarm wipe.
 - Daily challenge mode: seeded runs with separate leaderboard, accessible from attract screen.
@@ -32,8 +32,14 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
   - adaptive bullet cap,
   - collision-hit coalescing for mass scenes.
 - Enhanced ship visuals and power-up readability (thruster + effect overlays).
-- Mine-layer tactical ability: collect charges and deploy 5 proximity mines (`M` or double-click/double-tap).
+- Mine-layer tactical ability: each run starts with 2 charges; collect more and deploy 5 proximity mines (`M` or double-click/double-tap).
 - Attract mode now includes occasional UFO live-fire for a more dynamic demo screen.
+- Optional compact server sync API (`public/api/stats.php`) for:
+  - shared highscore leaderboard (`normal` + `daily`),
+  - consumed coin counter,
+  - total user counter (all-time unique users).
+  Client fetch is lazy/non-blocking in Attract/Game Over; local fallback remains active if API is unreachable.
+- Attract rotation now includes a dedicated `LIVE STATS` block (total users + consumed coins from server snapshot).
 
 ## Audio
 
@@ -55,7 +61,7 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
   - Base duration: ~18s (difficulty-scaled).
   - Compact/mobile layouts spawn 2 bunkers instead of 3.
   - Bunkers blink 4x shortly before deactivation.
-- `MNE` (Mine Layer): grants a mine-field charge; each activation deploys 5 proximity mines that arm, pulse, and destroy enemies on contact.
+- `MNE` (Mine Layer): grants +1 mine-field charge (run starts with 2); each activation deploys 5 proximity mines that arm, pulse, and destroy enemies on contact.
 
 ## Controls
 
@@ -98,6 +104,27 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 npm install
 npm run dev
 ```
+
+## Optional Server Stats API
+
+To enable shared highscores/coins/users on your web server:
+
+- Deploy `public/api/stats.php`.
+- Ensure `public/api/data/` is writable by PHP (API writes `stats.runtime.json` there).
+- Optional client override: set `VITE_STATS_API` to your endpoint.
+- Default client endpoint is relative (`api/stats.php`), so under
+  `https://meuse24.info/apps/kineticScan/index.html` it resolves to
+  `https://meuse24.info/apps/kineticScan/api/stats.php`.
+- Vite copies `public/` into `dist/` automatically, including `public/api/*`.
+  Uploading the entire `dist/` folder contents is sufficient.
+
+Behavior:
+
+- New highscores are sent to server immediately after initials are confirmed in Game Over.
+- Consumed credits are posted when a run starts.
+- Attract and Game Over refresh highscores lazily in the background so gameplay flow is not blocked.
+- API keeps only the last 30 recently seen users in `users`, while `totalUsersEver` is tracked separately.
+- If API calls fail (offline/network errors), events are buffered in localStorage and retried automatically.
 
 Build/lint:
 
@@ -166,7 +193,7 @@ Automation helpers are exposed on `window`:
 - Score milestones trigger camera effects and ascending arpeggio.
 - Top-entry invaders (stalker/lancer) appear from above, shoot, and retreat if left alive.
 - Asteroid swarm formations spawn from level 2+ with bonus for full wipe.
-- Mine Layer pickup increases HUD mine count; mine deployment (`M` or double-click/double-tap) launches 5 pulsing mines that destroy asteroids/UFOs/invaders on contact.
+- Start each run with 2 mine charges; Mine Layer pickup or Mine Stock perk increases HUD mine count. Deployment (`M` or double-click/double-tap) launches 5 pulsing mines that destroy asteroids/UFOs/invaders on contact.
 - Daily challenge mode with seeded runs and separate leaderboard.
 - Tutorial hints shown on first play.
 - Volume sliders (master/SFX/BGM) available in pause menu.

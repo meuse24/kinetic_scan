@@ -297,6 +297,9 @@ export default class HelpScene extends Phaser.Scene {
       'Double-click (desktop), double-tap (mobile), or press M deploys a minefield when you have Mine Layer charges.',
     );
     addParagraph(
+      'Each run starts with 2 minefield charges. Manage them carefully and restock with drops or upgrades.',
+    );
+    addParagraph(
       'Mobile: Touch-drag anywhere to move the ship relatively (offset-based control). This prevents your finger from obstructing the view. Auto-fire is enabled by default while touching. Manage heat to avoid overheat lockouts.',
     );
     addParagraph(
@@ -310,6 +313,9 @@ export default class HelpScene extends Phaser.Scene {
     );
     addParagraph(
       'After boss destruction, gameplay pauses and a short LEVEL countdown starts. Use this moment to reset position and prepare for faster asteroid waves.',
+    );
+    addParagraph(
+      'Boss clears also unlock one of three permanent run upgrades. Mine Stock can appear here and grants extra minefield charges.',
     );
 
     addHeader('POWER-UPS');
@@ -327,7 +333,7 @@ export default class HelpScene extends Phaser.Scene {
     );
     addPowerUp(
       'MINE LAYER',
-      'Grants one minefield charge. Double-click/tap to launch 5 proximity mines that arm and destroy asteroids, UFOs, and invaders on contact.',
+      'Grants +1 minefield charge (you start each run with 2). Double-click/tap or press M to launch 5 proximity mines that arm and destroy asteroids, UFOs, and invaders on contact.',
     );
     addPowerUp('MAGNETIC', 'Bullets home toward the nearest asteroid for a short time.');
 
