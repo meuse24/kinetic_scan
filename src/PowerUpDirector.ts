@@ -23,6 +23,7 @@ export class PowerUpDirector {
     PowerUpType.CANNON_COOLING,
     PowerUpType.SHIELD_BUNKER,
     PowerUpType.SHIELD_BUNKER,
+    PowerUpType.MINE_LAYER,
   ];
 
   // Combo Logic
@@ -240,6 +241,7 @@ export class PowerUpDirector {
         PowerUpType.CANNON_COOLING,
         PowerUpType.SHIELD_BUNKER,
         PowerUpType.SHIELD_BUNKER,
+        PowerUpType.MINE_LAYER,
       ];
     }
     if (this.difficultyLevel >= 4) {
@@ -255,6 +257,7 @@ export class PowerUpDirector {
         PowerUpType.CANNON_COOLING,
         PowerUpType.SHIELD_BUNKER,
         PowerUpType.SHIELD_BUNKER,
+        PowerUpType.MINE_LAYER,
       ];
     }
     return this.randomSpawnPool;

@@ -1299,30 +1299,75 @@ export default class AttractScene extends Phaser.Scene {
     cloudColor: number,
   ) {
     if (this.textures.exists(key)) return;
-    const center = size / 2;
-    const g = this.make.graphics({ x: 0, y: 0 });
+    const texture = this.textures.createCanvas(key, size, size);
+    if (!texture) return;
+    const ctx = texture.getContext();
+    const center = size * 0.5;
 
-    for (let i = 0; i < 8; i++) {
-      const rx = Phaser.Math.FloatBetween(size * 0.17, size * 0.35);
-      const ry = Phaser.Math.FloatBetween(size * 0.08, size * 0.19);
-      const cx = center + Phaser.Math.FloatBetween(-size * 0.17, size * 0.17);
-      const cy = center + Phaser.Math.FloatBetween(-size * 0.12, size * 0.12);
-      g.fillStyle(cloudColor, Phaser.Math.FloatBetween(0.06, 0.14));
-      g.fillEllipse(cx, cy, rx * 2, ry * 2);
+    const toRgb = (color: number) => ({
+      r: (color >> 16) & 0xff,
+      g: (color >> 8) & 0xff,
+      b: color & 0xff,
+    });
+    const core = toRgb(coreColor);
+    const cloud = toRgb(cloudColor);
+    const rgba = (rgb: { r: number; g: number; b: number }, alpha: number) =>
+      `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+
+    ctx.clearRect(0, 0, size, size);
+
+    for (let i = 0; i < 9; i++) {
+      const cx = center + Phaser.Math.FloatBetween(-size * 0.18, size * 0.18);
+      const cy = center + Phaser.Math.FloatBetween(-size * 0.13, size * 0.13);
+      const rx = Phaser.Math.FloatBetween(size * 0.16, size * 0.35);
+      const ry = rx * Phaser.Math.FloatBetween(0.4, 0.76);
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      const glow = ctx.createRadialGradient(0, 0, rx * 0.06, 0, 0, rx);
+      glow.addColorStop(0, rgba(cloud, Phaser.Math.FloatBetween(0.18, 0.32)));
+      glow.addColorStop(1, rgba(cloud, 0));
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
 
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 94; i++) {
       const dist = Phaser.Math.FloatBetween(0, size * 0.46);
       const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-      const x = center + Math.cos(angle) * dist;
-      const y = center + Math.sin(angle) * dist * Phaser.Math.FloatBetween(0.42, 1);
+      const px = center + Math.cos(angle) * dist;
+      const py = center + Math.sin(angle) * dist * Phaser.Math.FloatBetween(0.42, 1);
       const radius = Phaser.Math.FloatBetween(0.8, 2.6);
-      g.fillStyle(i % 4 === 0 ? cloudColor : coreColor, Phaser.Math.FloatBetween(0.35, 0.95));
-      g.fillCircle(x, y, radius);
+      const starColor = i % 4 === 0 ? cloud : core;
+      const alpha = Phaser.Math.FloatBetween(0.35, 0.95);
+      ctx.fillStyle = rgba(starColor, alpha);
+      ctx.beginPath();
+      ctx.arc(px, py, radius, 0, Math.PI * 2);
+      ctx.fill();
     }
 
-    g.generateTexture(key, size, size);
-    g.destroy();
+    // Soft radial alpha mask prevents hard rectangular edges during rotation.
+    const edgeMask = ctx.createRadialGradient(
+      center,
+      center,
+      size * 0.05,
+      center,
+      center,
+      size * 0.5,
+    );
+    edgeMask.addColorStop(0, 'rgba(255,255,255,1)');
+    edgeMask.addColorStop(0.7, 'rgba(255,255,255,0.96)');
+    edgeMask.addColorStop(0.9, 'rgba(255,255,255,0.35)');
+    edgeMask.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.fillStyle = edgeMask;
+    ctx.fillRect(0, 0, size, size);
+    ctx.globalCompositeOperation = 'source-over';
+
+    texture.refresh();
   }
 
   private spawnBackgroundDecor() {
@@ -1489,6 +1534,7 @@ export default class AttractScene extends Phaser.Scene {
       PowerUpType.WINGMAN_DRONES,
       PowerUpType.CANNON_COOLING,
       PowerUpType.SHIELD_BUNKER,
+      PowerUpType.MINE_LAYER,
       PowerUpType.TRIPLE_SHOT,
       PowerUpType.SHIELD,
     ];
@@ -1660,6 +1706,8 @@ export default class AttractScene extends Phaser.Scene {
         return 'BLK';
       case PowerUpType.SHIELD_BUNKER:
         return 'BNK';
+      case PowerUpType.MINE_LAYER:
+        return 'MNE';
       default:
         return 'PWR';
     }
@@ -1750,6 +1798,7 @@ export default class AttractScene extends Phaser.Scene {
       PowerUpType.CANNON_COOLING,
       PowerUpType.BLACK_HOLE,
       PowerUpType.SHIELD_BUNKER,
+      PowerUpType.MINE_LAYER,
     ];
     const spacing = 50;
     const totalWidth = (types.length - 1) * spacing;

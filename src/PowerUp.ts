@@ -10,6 +10,7 @@ export const PowerUpType = {
   CANNON_COOLING: 'CANNON_COOLING',
   BLACK_HOLE: 'BLACK_HOLE',
   SHIELD_BUNKER: 'SHIELD_BUNKER',
+  MINE_LAYER: 'MINE_LAYER',
 } as const;
 
 export type PowerUpType = (typeof PowerUpType)[keyof typeof PowerUpType];
@@ -249,6 +250,27 @@ export class PowerUp extends Phaser.Physics.Arcade.Sprite {
       ctx.fillRect(-4.8, -1.2, 2.3, 5.7);
       ctx.fillRect(-1.1, -1.2, 2.3, 5.7);
       ctx.fillRect(2.6, -1.2, 2.3, 5.7);
+    } else if (type === PowerUpType.MINE_LAYER) {
+      ctx.strokeStyle = this.colorToRgba(accentGlow, 0.94);
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 6.8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = this.colorToRgba(accentGlow, 0.86);
+      ctx.beginPath();
+      ctx.arc(0, 0, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2;
+        const ix = Math.cos(angle) * 6.8;
+        const iy = Math.sin(angle) * 6.8;
+        const ox = Math.cos(angle) * 9.4;
+        const oy = Math.sin(angle) * 9.4;
+        ctx.beginPath();
+        ctx.moveTo(ix, iy);
+        ctx.lineTo(ox, oy);
+        ctx.stroke();
+      }
     }
 
     ctx.restore();
@@ -265,6 +287,7 @@ export class PowerUp extends Phaser.Physics.Arcade.Sprite {
       { type: PowerUpType.CANNON_COOLING, accent: 0x8ad9ff, glow: 0xe7f8ff },
       { type: PowerUpType.BLACK_HOLE, accent: 0xbd7cff, glow: 0xf0d9ff },
       { type: PowerUpType.SHIELD_BUNKER, accent: 0x82ffb2, glow: 0xe3ffe7 },
+      { type: PowerUpType.MINE_LAYER, accent: 0xffb06a, glow: 0xfff0d6 },
     ];
 
     types.forEach((p) => {
@@ -317,6 +340,8 @@ export class PowerUp extends Phaser.Physics.Arcade.Sprite {
         return 'BLK';
       case PowerUpType.SHIELD_BUNKER:
         return 'BNK';
+      case PowerUpType.MINE_LAYER:
+        return 'MNE';
       default:
         return 'PWR';
     }

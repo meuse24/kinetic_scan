@@ -294,6 +294,9 @@ export default class HelpScene extends Phaser.Scene {
       'Desktop: Move with Arrows or WASD. Fire with Space or left-click. Tap firing to build heat slower than holding.',
     );
     addParagraph(
+      'Double-click (desktop), double-tap (mobile), or press M deploys a minefield when you have Mine Layer charges.',
+    );
+    addParagraph(
       'Mobile: Touch-drag anywhere to move the ship relatively (offset-based control). This prevents your finger from obstructing the view. Auto-fire is enabled by default while touching. Manage heat to avoid overheat lockouts.',
     );
     addParagraph(
@@ -321,6 +324,10 @@ export default class HelpScene extends Phaser.Scene {
     addPowerUp(
       'BUNKER',
       'Deploys temporary shield bunkers that block your ship, stop shots, and shatter asteroids.',
+    );
+    addPowerUp(
+      'MINE LAYER',
+      'Grants one minefield charge. Double-click/tap to launch 5 proximity mines that arm and destroy asteroids, UFOs, and invaders on contact.',
     );
     addPowerUp('MAGNETIC', 'Bullets home toward the nearest asteroid for a short time.');
 

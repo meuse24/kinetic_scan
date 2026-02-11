@@ -1392,3 +1392,59 @@ TODOs for next agent
 - Validation:
   - `npm run lint` pass
   - `npm run build` pass
+- 2026-02-11: Background rotating galaxy-nebula rectangle artifact fix (`src/MainScene.ts`, `src/AttractScene.ts`).
+  - Root cause: rotating galaxy-cluster decor sprites could expose hard texture bounds (rectangular silhouette) under blending/rotation.
+  - Fix: replaced cluster texture generation with CanvasTexture rendering that guarantees transparent base (`clearRect`) and applies a radial `destination-in` alpha falloff mask.
+  - Result: cluster edges fade out smoothly; no hard rectangular block over the starfield during rotation.
+  - Best-practice note: for procedural textures, explicit alpha mask in canvas is sufficient; no external PNG conversion needed.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+- 2026-02-11: Added Mine Layer ability with double-tap/double-click activation (new power-up + HUD + gameplay).
+  - New power-up type `MINE_LAYER` integrated in:
+    - `src/PowerUp.ts` (type enum, icon glyph, abbreviation `MNE`),
+    - `src/PowerUpDirector.ts` spawn pools,
+    - `src/AttractScene.ts` demo/preview icon pools + abbreviation map.
+  - `src/MainScene.ts` gameplay integration:
+    - Added mine charge state per player (`mineDeployCharges`) with save/load support in `PlayerState`.
+    - Added HUD label `MINES: <count>`.
+    - Rewired double-tap/double-click input handler to deploy minefield (5 mines per use) when charges are available.
+    - Added pooled proximity mines (`proximity_mine` texture + group) launched from player to randomized target positions.
+    - Mines arm on arrival, pulse visually, and destroy enemies on contact:
+      - asteroids,
+      - UFOs (including boss),
+      - SkyRaider invaders.
+    - Added mine telemetry in world events (`mineDeployCharges`, `activeMines`).
+    - Added mine cleanup in reset/transition/game-over/shutdown paths.
+  - `src/HelpScene.ts` updated:
+    - controls mention for double-click/double-tap mine deployment,
+    - new POWER-UP entry for `MINE LAYER`.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+- 2026-02-11: Mine deploy input follow-up fix.
+  - `src/MainScene.ts`:
+    - Reworked double-click/double-tap detection to be robust across pointer ids:
+      - uses time window + max tap distance instead of pointer-id matching.
+    - Added keyboard hotkey `M` to trigger mine deployment (`tryDeployMineFieldFromInput`).
+  - `src/HelpScene.ts`:
+    - Controls text now mentions `M` as mine deploy input.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+- 2026-02-11: Mine deploy UX polish.
+  - Added fallback feedback when mine deploy is triggered without charges:
+    - HUD hint `NO MINES` fades out with short cooldown (anti-spam).
+  - Keeps both input paths active:
+    - robust double-click/double-tap deploy,
+    - keyboard `M` deploy hotkey.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+- 2026-02-11: Teardown-race fix for proximity mine pool cleanup.
+  - `src/MainScene.ts` `clearProximityMines()` now uses defensive child access with teardown guards (no unguarded `getChildren()` calls).
+  - Added per-mine try/catch during disable/reset to avoid shutdown-time crashes when internals are already disposed.
+  - Fixes error: `Cannot read properties of undefined (reading 'entries')` during scene shutdown.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
