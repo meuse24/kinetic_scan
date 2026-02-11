@@ -62,6 +62,7 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
   - Compact/mobile layouts spawn 2 bunkers instead of 3.
   - Bunkers blink 4x shortly before deactivation.
 - `MNE` (Mine Layer): grants +1 mine-field charge (run starts with 2); each activation deploys 5 proximity mines that arm, pulse, and destroy enemies on contact.
+- `MINE STOCK` (Perk Card): permanent +1 mine-field charge per stack when selected after boss fights.
 
 ## Controls
 

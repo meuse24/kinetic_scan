@@ -34,7 +34,7 @@
 
 ### 3. Combat Mechanics
 - **Platform-Specific Control:** Desktop uses manual fire via Space/left-click with a short tap buffer; mobile uses "Touch-to-Fire" (auto-fires only when the screen is touched).
-- **Tactical Mine Deploy:** After collecting **MINE_LAYER** charges, the player can deploy a 5-mine field via `M` (keyboard) or double-click/double-tap.
+- **Tactical Mine Deploy:** Each run starts with 2 mine charges. Additional **MINE_LAYER** pickups and the **MINE STOCK** perk add more charges. Deploy a 5-mine field via `M` (keyboard) or double-click/double-tap.
 - **Heat & Overheat:** Each shot raises heat (0–100). At 100, the ship overheats and cannot fire for 2 seconds. Heat cools down gradually when not firing.
 - **Mobile Balancing:** On mobile devices, the heat decay rate is increased by ~60% to compensate for the continuous firing while moving, allowing for tactical cooling during short movement pauses.
 - **Contextual UI:** The heat bar follows the ship and sits just below it for quick peripheral readability, blinking red on overheat.
@@ -101,10 +101,11 @@ The game features a highly dynamic power-up system that reacts to both player sk
 ### 11. Arcade Simulation & Shaders
 The game is transformed into an authentic arcade experience.
 
-- **Attract Mode:** A new entry scene simulates waiting for a coin insert ('INSERT COIN'). The text is interactive and adds credits on touch. The UI cycles every 5 seconds between three message blocks:
+- **Attract Mode:** A new entry scene simulates waiting for a coin insert ('INSERT COIN'). The text is interactive and adds credits on touch. The UI cycles every 5 seconds between four message blocks:
     - **Infoblock:** INSERT COIN prompt and basic credits info.
     - **Top Scores:** Local leaderboard summary.
     - **Daily Challenge:** Dedicated entry point for the seeded daily run.
+    - **Live Stats:** Server-backed runtime stats (`TOTAL USERS`, `COINS USED`) with safe local fallback when API is unavailable.
 - **CRT Post-Processing Shader:**
     - **Scanlines:** Recreates the look of an old CRT.
     - **Curvature:** Distorts the image edges for the 3D feel of a curved monitor.
@@ -165,7 +166,7 @@ Classic arcade credits and a two-player alternating flow keep the game loop auth
 
 ### 19. Rogue-Lite Perk System
 - **Post-Boss Selection:** After each boss defeat, a `PerkSelectScene` overlay presents 3 random perk cards.
-- **12 Perks:** Fire rate, max life, fragment score, homing chance, cooldown speed, bullet speed, score multiplier, shield-on-level, explosion radius, combo window, magnet range, start shield.
+- **13 Perks:** Fire rate, max life, fragment score, homing chance, cooldown speed, bullet speed, score multiplier, shield-on-level, explosion radius, combo window, magnet range, start shield, mine stock.
 - **Responsive Layout:** On narrow screens (mobile), cards are automatically stacked vertically with an internal horizontal layout (Icon | Title + Description) to ensure visibility without scrolling.
 - **Stacking:** Most perks can be stacked up to 3 times for cumulative effects.
 - **15s Auto-Timeout:** If no selection is made, a random perk is chosen automatically.
@@ -198,3 +199,24 @@ Classic arcade credits and a two-player alternating flow keep the game loop auth
 - **Per-Channel Sliders:** Pause menu features 3 draggable sliders for MASTER, SFX, and BGM volume.
 - **Effective Volume:** SFX = master × sfx, BGM = master × bgm.
 - **Persistence:** Volume settings saved to `localStorage` and restored on next session.
+
+### 25. Remote Stats API (Optional)
+- **Endpoint:** `public/api/stats.php` (deployed as `dist/api/stats.php`).
+- **Persistence:** Runtime writes to `public/api/data/stats.runtime.json` (seed file remains `stats.json`).
+- **Actions:** `register_user`, `consume_coins`, `submit_highscore`.
+- **User Counters:**
+  - `users`: rolling recently-seen user map (server-pruned to last 30),
+  - `totalUsersEver`: cumulative all-time unique users (independent counter).
+- **Client Integration (`RemoteStatsService`):**
+  - lazy snapshot fetching with cache/inflight dedupe,
+  - immediate highscore submit on new entry,
+  - event queue in localStorage with automatic retry on reconnect,
+  - gameplay never blocks if API/network is unavailable.
+
+### 26. Browser Translation Handling
+- The game UI remains English-first (`lang="en"`).
+- To reduce Edge/Chromium translation popups:
+  - `translate="no"` on `<html>` and `<body>`,
+  - `meta name="google" content="notranslate"`,
+  - `Content-Language: en,de` metadata for mixed deployment context.
+- PWA manifest declares `"lang": "en"`.

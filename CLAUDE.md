@@ -31,8 +31,8 @@ Audio is hybrid:
 
 Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/lazy-loader) -> **AttractScene** (title/menu) -> **MainScene** (gameplay) -> **GameOverScene** -> back to AttractScene. **PauseScene** and **HelpScene** overlay during gameplay. **BezelScene** runs as a persistent overlay providing a CRT monitor bezel frame.
 
-- `src/AttractScene.ts` — Title screen with attract-mode demo, credit system, 1P/2P start buttons, high scores, daily challenge button, and occasional demo UFO shots
-- `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, 2-player turn switching, combo system, perk integration, swarm spawning, boss modifiers, score milestones, tutorial hints, daily challenge mode, mine-layer deploy input (`M` or double-click/double-tap with charges), debug bunker trigger (`B`)
+- `src/AttractScene.ts` — Title screen with attract-mode demo, credit system, 1P/2P start buttons, high scores, daily challenge button, live server stats block (`TOTAL USERS`, `COINS USED`), and occasional demo UFO shots
+- `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, 2-player turn switching, combo system, perk integration, swarm spawning, boss modifiers, score milestones, tutorial hints, daily challenge mode, mine-layer deploy input (`M` or double-click/double-tap with charges; each run starts with 2), debug bunker trigger (`B`)
 - `src/GameOverScene.ts` — Game over screen with high score entry (keyboard, touch swipe/tap, mouse wheel), separate daily challenge leaderboard
 - `src/PauseScene.ts` — Pause overlay with sound toggle and master/SFX/BGM volume sliders
 - `src/HelpScene.ts` — Controls/help overlay with scrollable content, `BACK (ESC/H)`, and a dedicated click hit-area for reliable pointer input
@@ -49,7 +49,7 @@ Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/l
 - `src/PowerUp.ts` — `PowerUp` sprite class and `PowerUpType` enum (TRIPLE_SHOT, SLOW_MOTION, SHIELD, EMP_WAVE, GHOST_PHASE, WINGMAN_DRONES, CANNON_COOLING, BLACK_HOLE, SHIELD_BUNKER, MINE_LAYER)
 - `src/PowerUpDirector.ts` — Decides when/what power-ups spawn based on combo streaks, score thresholds, accuracy, and idle time
 - `src/ComboManager.ts` — Combo kill tracking with configurable timeout window, multiplier tiers, and score popup integration
-- `src/PerkSystem.ts` — Rogue-lite perk registry (12 perks) with stacking logic, state save/load, and modifier getters
+- `src/PerkSystem.ts` — Rogue-lite perk registry (13 perks, including `MINE STOCK`) with stacking logic, state save/load, and modifier getters
 - `src/PerkSelectScene.ts` — Post-boss overlay showing 3 random perk cards; keyboard (1/2/3) or click selection with 15s auto-timeout
 - `src/StatsManager.ts` — Persistent lifetime stats (kills, deaths, boss kills, combo, level, playtime, total score) and 5 unlockable ship skins via localStorage
 - `src/MainSceneTuning.ts` — Central tuning constants for transitions, early-level ramp, spawn protection, background decor, shield bunker timing/layout, swarm spawning, and score milestones
@@ -58,7 +58,27 @@ Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/l
 - `src/MusicManager.ts` — BGM controller for scene-specific loops (`song.mp3` in menu-like scenes, `gameloop.mp3` during gameplay at reduced volume so SFX remain dominant)
 - `src/SoundManager.ts` — Global mute/unmute toggle + per-channel volume (master/SFX/BGM) singleton, persisted to localStorage
 - `src/CreditManager.ts` — Arcade-style credit/coin system singleton
+- `src/RemoteStatsService.ts` — Client-side service for optional PHP stats API sync (lazy snapshots, pending-event queue, offline retry)
+- `src/DebugSettings.ts` — Persisted debug-overlay toggle state used by scene settings menus
 - `src/CRTPipeline.ts` — Custom WebGL post-processing shader (scanlines, chromatic aberration, curvature, vignette)
+
+## Optional Server API
+
+- Endpoint: `public/api/stats.php` (copied to `dist/api/stats.php` by Vite public-copy step).
+- Runtime data file: `public/api/data/stats.runtime.json` (server writable).
+- Modes: `normal` and `daily`.
+- Snapshot includes highscores, `coinsSpent`, `totalUsers` (all-time), `activeUsers` (rolling last 30), and `updatedAt`.
+- Client fallback behavior:
+  - game flow is never blocked if API is unavailable,
+  - pending POST events are buffered in localStorage and retried automatically.
+
+## Browser Translation Metadata
+
+- `index.html` is intentionally English-first (`lang="en"`).
+- To reduce Edge/Chromium translation prompts:
+  - `translate="no"` is set on `<html>` and `<body>`,
+  - `meta name="google" content="notranslate"` is present,
+  - `Content-Language` is declared as `en,de` for deployment metadata context.
 
 ## Code Conventions
 

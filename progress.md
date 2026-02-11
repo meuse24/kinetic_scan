@@ -1546,3 +1546,45 @@ TODOs for next agent
   - Updated README with a new "Browser Language / Translation" section documenting the behavior and intent.
 - Validation:
   - `npm run build` pass
+- 2026-02-11: API implementation (consolidated summary).
+  - Server endpoint: `public/api/stats.php` (deployed via Vite public-copy to `dist/api/stats.php`).
+  - Storage model:
+    - seed file in repo: `public/api/data/stats.json`,
+    - runtime persistence on server: `public/api/data/stats.runtime.json` (written by PHP).
+  - Supported actions:
+    - `GET ?mode=normal|daily`: snapshot with highscores, `coinsSpent`, `totalUsers`, `activeUsers`, `updatedAt`.
+    - `POST { action: register_user | consume_coins | submit_highscore }` with sanitized payload.
+  - User counting semantics:
+    - `users`: rolling map of recently seen users, pruned to last 30,
+    - `knownUsers`: dedupe set for historical users,
+    - `totalUsersEver`: cumulative all-time counter independent from the 30-user rolling list.
+  - Leaderboards:
+    - server stores/sorts top highscores per mode (descending by score),
+    - client merges local + remote and renders top 5 rows on Attract/GameOver.
+  - Client integration (`src/RemoteStatsService.ts`):
+    - endpoint default is relative `api/stats.php` (works in subpath deploys like `/apps/kineticScan/`),
+    - lazy snapshot fetch with TTL cache + inflight dedupe,
+    - immediate highscore submit on initials confirm,
+    - coin usage event on run start,
+    - stable local client id for user registration.
+  - Resilience / offline behavior:
+    - API failures do not block game flow,
+    - pending POST events are buffered in localStorage and retried,
+    - `navigator.onLine === false` short-circuits network requests,
+    - Attract live stats show explicit fallback labels (`N/A` / `OFFLINE`) when snapshot is unavailable.
+  - Scene usage:
+    - Attract: lazy refresh for highscores + live server stats block,
+    - GameOver: lazy refresh + immediate highscore post on new entry,
+    - main bootstrap: background user-registration warmup.
+- 2026-02-11: Documentation synchronization pass (README + auxiliary docs).
+  - Completed cross-doc sync for API and gameplay updates in:
+    - `README.md`
+    - `CLAUDE.md`
+    - `gemini.md`
+  - Added/updated documentation topics:
+    - optional PHP stats API architecture and behavior,
+    - rolling 30-user tracking + independent all-time `totalUsersEver`,
+    - lazy/offline-safe client sync behavior,
+    - attract-mode live stats block,
+    - mine system updates (start with 2 charges + Mine Stock perk),
+    - browser translation suppression metadata for Edge/Chromium.
