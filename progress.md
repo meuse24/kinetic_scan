@@ -1680,3 +1680,17 @@ TODOs for next agent
   - `npm run test -- --run` pass (8 files, 177 tests)
   - `npm run test:coverage -- --run` pass
   - `npm run test:smoke` pass (8/8, no console errors)
+- 2026-02-12: MainScene level-flow extraction pass completed (option 1 continuation).
+  - Added `src/systems/MainLevelFlowSystem.ts` and moved level progression state/rules out of `MainScene`:
+    - boss gate state + timing (`isBossPendingDefeat`, `getRemainingBossGateTimeMs`, encounter trigger/clear),
+    - early-level opening state (`levelStartScore`, elapsed timer, support-drop timer/flag),
+    - runtime-intensity ramp and guaranteed support-drop trigger logic,
+    - per-level asteroid/special kill counters + level bonus payout calculation.
+  - `src/MainScene.ts` now delegates these responsibilities via `levelFlow` and uses flow getters for HUD/debug/state payload and runtime decisions.
+  - Gameplay behavior preserved: spawn timing, boss gating, level-up transition, and support-drop timing shortcuts on player death still function through delegated calls.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run` pass (8 files, 177 tests)
+  - `npm run test:coverage -- --run` pass
+  - `npm run test:smoke` pass (8/8, no console errors)

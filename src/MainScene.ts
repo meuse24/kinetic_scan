@@ -21,7 +21,6 @@ import { performanceMonitor } from './PerformanceMonitor';
 import { musicManager } from './MusicManager';
 import {
   BACKGROUND_DECOR_TUNING,
-  EARLY_LEVEL_TUNING,
   JUICE_TUNING,
   LEVEL_BONUS_TUNING,
   LEVEL_PROGRESS_TUNING,
@@ -47,6 +46,8 @@ import { PowerUpManager } from './managers/PowerUpManager';
 import type { PowerUpCallbacks, PowerUpManagerConfig } from './managers/PowerUpManager';
 import { bootstrapMainSceneGraphics } from './MainSceneGraphics';
 import { MainHazardsSystem } from './systems/MainHazardsSystem';
+import { MainLevelFlowSystem } from './systems/MainLevelFlowSystem';
+import type { LevelBonusPayout } from './systems/MainLevelFlowSystem';
 import { MainMineFieldSystem } from './systems/MainMineFieldSystem';
 import { MainWorldEvents } from './systems/MainWorldEvents';
 
@@ -93,15 +94,6 @@ interface PendingEnemyHit {
   y: number;
   points: number;
   source: 'bullet' | 'emp';
-}
-
-interface LevelBonusPayout {
-  completedLevel: number;
-  asteroidKills: number;
-  specialKills: number;
-  asteroidPoints: number;
-  specialPoints: number;
-  totalPoints: number;
 }
 
 type CollisionSourceMix = 'none' | 'bullet' | 'emp' | 'mixed';
@@ -160,13 +152,7 @@ export default class MainScene extends Phaser.Scene {
   private level: number = 1;
   private progressionScore: number = 0;
   private nextLevelScore: number = 2500;
-  private levelBossPendingDefeat: boolean = false;
-  private levelAsteroidKillCount: number = 0;
-  private levelSpecialKillCount: number = 0;
-  private levelStartScore: number = 0;
-  private levelElapsedMs: number = 0;
-  private earlySupportDropGranted: boolean = false;
-  private earlySupportDropTimerMs: number = 0;
+  private levelFlow: MainLevelFlowSystem = new MainLevelFlowSystem();
   private playerStates: PlayerState[] = [];
   private activePlayerIndex: number = 0;
   private playerCount: number = 1;
@@ -304,14 +290,12 @@ export default class MainScene extends Phaser.Scene {
     this.level = 1;
     this.progressionScore = 0;
     this.nextLevelScore = this.getNextLevelScore(1);
-    this.levelBossPendingDefeat = false;
-    this.levelAsteroidKillCount = 0;
-    this.levelSpecialKillCount = 0;
     this.milestoneIndex = 0;
-    this.levelStartScore = 0;
-    this.levelElapsedMs = 0;
-    this.earlySupportDropGranted = false;
-    this.earlySupportDropTimerMs = 0;
+    this.levelFlow.resetForRun({
+      difficultyKey: this.difficultyKey,
+      progressionScore: this.progressionScore,
+      rollRange: (range) => this.rollRange(range),
+    });
     this.powerUpBarRefreshMs = 0;
     this.heatBarRefreshMs = 0;
     this.lastDebugStatsLine = '';
@@ -728,7 +712,7 @@ export default class MainScene extends Phaser.Scene {
     if (!this.ufo.active) {
       this.ufoSpawnTimer -= delta;
       if (this.ufoSpawnTimer <= 0) {
-        if (this.levelBossPendingDefeat) {
+        if (this.levelFlow.isBossPendingDefeat()) {
           this.ufo.spawn({ variant: 'boss', level: this.level });
           if (this.level >= 3) {
             this.ufo.setBossModifier(this.rollBossModifier());
@@ -818,7 +802,7 @@ export default class MainScene extends Phaser.Scene {
       mineCharges: this.mineDeployCharges,
       playerCount: this.playerCount as 1 | 2,
       activePlayerIndex: this.activePlayerIndex as 0 | 1,
-      levelBossPendingDefeat: this.levelBossPendingDefeat,
+      levelBossPendingDefeat: this.levelFlow.isBossPendingDefeat(),
       nextLevelScore: this.nextLevelScore,
       progressionScore: this.progressionScore,
       remainingBossGateTimeMs: this.getRemainingBossGateTimeMs(),
@@ -961,28 +945,25 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private checkLevelProgression() {
-    if (
-      this.isGameOver ||
-      this.isSwitching ||
-      this.isLevelTransition ||
-      this.levelBossPendingDefeat
-    ) {
-      return;
-    }
-    if (this.progressionScore < this.nextLevelScore) return;
-    if (this.getRemainingBossGateTimeMs() > 0) return;
+    const shouldTrigger = this.levelFlow.shouldTriggerBossEncounter({
+      difficultyKey: this.difficultyKey,
+      isGameOver: this.isGameOver,
+      isSwitching: this.isSwitching,
+      isLevelTransition: this.isLevelTransition,
+      progressionScore: this.progressionScore,
+      nextLevelScore: this.nextLevelScore,
+    });
+    if (!shouldTrigger) return;
     this.triggerLevelBossEncounter();
   }
 
   private getRemainingBossGateTimeMs() {
-    if (this.levelBossPendingDefeat || this.isGameOver) return 0;
-    const minDurationMs = LEVEL_PROGRESS_TUNING.minLevelDurationMs[this.difficultyKey];
-    return Math.max(0, minDurationMs - this.levelElapsedMs);
+    return this.levelFlow.getRemainingBossGateTimeMs(this.difficultyKey, this.isGameOver);
   }
 
   private triggerLevelBossEncounter() {
-    if (this.levelBossPendingDefeat || this.isGameOver) return;
-    this.levelBossPendingDefeat = true;
+    if (this.isGameOver) return;
+    if (!this.levelFlow.triggerBossEncounter()) return;
     if (this.ufo.active && this.ufo.getVariant() !== 'boss') {
       this.ufo.deactivate();
     }
@@ -993,8 +974,8 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private completeLevelAfterBossDefeat() {
-    if (!this.levelBossPendingDefeat || this.isGameOver) return;
-    this.levelBossPendingDefeat = false;
+    if (this.isGameOver) return;
+    if (!this.levelFlow.clearBossPendingDefeat()) return;
     const completedLevel = this.level;
     const levelBonusPayout = this.consumeLevelBonusPayout(completedLevel);
     this.level += 1;
@@ -1036,28 +1017,15 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private registerAsteroidKillForLevel() {
-    this.levelAsteroidKillCount += 1;
+    this.levelFlow.registerAsteroidKill();
   }
 
   private registerSpecialKillForLevel() {
-    this.levelSpecialKillCount += 1;
+    this.levelFlow.registerSpecialKill();
   }
 
   private consumeLevelBonusPayout(completedLevel: number): LevelBonusPayout {
-    const asteroidKills = this.levelAsteroidKillCount;
-    const specialKills = this.levelSpecialKillCount;
-    this.levelAsteroidKillCount = 0;
-    this.levelSpecialKillCount = 0;
-    const asteroidPoints = asteroidKills * LEVEL_BONUS_TUNING.asteroidKillPoints;
-    const specialPoints = specialKills * LEVEL_BONUS_TUNING.specialKillPoints;
-    return {
-      completedLevel,
-      asteroidKills,
-      specialKills,
-      asteroidPoints,
-      specialPoints,
-      totalPoints: asteroidPoints + specialPoints,
-    };
+    return this.levelFlow.consumeLevelBonusPayout(completedLevel);
   }
 
   private rollBossModifier(): BossModifier {
@@ -1108,57 +1076,46 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private resetLevelOpeningState() {
-    this.levelStartScore = this.progressionScore;
-    this.levelElapsedMs = 0;
-    this.earlySupportDropGranted = false;
-    this.earlySupportDropTimerMs = this.rollRange(
-      EARLY_LEVEL_TUNING.guaranteedSupportDropDelayMs[this.difficultyKey],
-    );
-    this.enemyManager.setRuntimeIntensity(EARLY_LEVEL_TUNING.minIntensity[this.difficultyKey]);
-    this.skyRaiderManager.setRuntimeIntensity(EARLY_LEVEL_TUNING.minIntensity[this.difficultyKey]);
-  }
-
-  private getLevelProgressRatio() {
-    const requirement = Math.max(1, this.nextLevelScore - this.levelStartScore);
-    const gained = Math.max(0, this.progressionScore - this.levelStartScore);
-    return Phaser.Math.Clamp(gained / requirement, 0, 1);
+    this.levelFlow.resetOpeningState({
+      difficultyKey: this.difficultyKey,
+      progressionScore: this.progressionScore,
+      rollRange: (range) => this.rollRange(range),
+      setRuntimeIntensity: (intensity) => {
+        this.enemyManager.setRuntimeIntensity(intensity);
+        this.skyRaiderManager.setRuntimeIntensity(intensity);
+      },
+    });
   }
 
   private updateLevelOpeningBalance(delta: number) {
-    if (this.levelBossPendingDefeat || this.isGameOver) {
-      this.enemyManager.setRuntimeIntensity(1);
-      this.skyRaiderManager.setRuntimeIntensity(1);
-      return;
-    }
-    this.levelElapsedMs += delta;
-    const timeRamp = Phaser.Math.Clamp(
-      this.levelElapsedMs / EARLY_LEVEL_TUNING.rampDurationMs[this.difficultyKey],
-      0,
-      1,
-    );
-    const scoreRamp = Phaser.Math.Clamp(
-      this.getLevelProgressRatio() / EARLY_LEVEL_TUNING.scoreRampPortion,
-      0,
-      1,
-    );
-    const easedRamp = Phaser.Math.Easing.Cubic.Out(Math.max(timeRamp, scoreRamp));
-    const minIntensity = EARLY_LEVEL_TUNING.minIntensity[this.difficultyKey];
-    this.enemyManager.setRuntimeIntensity(Phaser.Math.Linear(minIntensity, 1, easedRamp));
-    this.skyRaiderManager.setRuntimeIntensity(Phaser.Math.Linear(minIntensity, 1, easedRamp));
+    this.levelFlow.updateOpeningBalance({
+      delta,
+      difficultyKey: this.difficultyKey,
+      isGameOver: this.isGameOver,
+      progressionScore: this.progressionScore,
+      nextLevelScore: this.nextLevelScore,
+      setRuntimeIntensity: (intensity) => {
+        this.enemyManager.setRuntimeIntensity(intensity);
+        this.skyRaiderManager.setRuntimeIntensity(intensity);
+      },
+    });
   }
 
   private updateGuaranteedSupportDrop(delta: number) {
-    if (this.earlySupportDropGranted || this.levelBossPendingDefeat || this.isGameOver) return;
-    this.earlySupportDropTimerMs -= delta;
-    const lowLifeUrgency = this.lives <= 1 && this.levelElapsedMs > 2400;
-    const progressReady = this.getLevelProgressRatio() >= 0.32;
-    if (this.earlySupportDropTimerMs > 0 && !lowLifeUrgency && !progressReady) return;
-    this.triggerGuaranteedSupportDrop();
+    this.levelFlow.updateGuaranteedSupportDrop({
+      delta,
+      difficultyKey: this.difficultyKey,
+      isGameOver: this.isGameOver,
+      lives: this.lives,
+      progressionScore: this.progressionScore,
+      nextLevelScore: this.nextLevelScore,
+      onSupportDropTriggered: () => this.triggerGuaranteedSupportDrop(),
+    });
   }
 
   private triggerGuaranteedSupportDrop() {
     // Support drops were removed from timed flow; drops now come only from enemy kills.
-    this.earlySupportDropGranted = true;
+    this.levelFlow.markSupportDropTriggered();
   }
 
   private createSmokeEmitter() {
@@ -1642,7 +1599,7 @@ export default class MainScene extends Phaser.Scene {
     this.removeShieldBunkers();
     this.clearWorldEvents('reset');
     this.resetWorldEventTimers();
-    this.ufoSpawnTimer = this.levelBossPendingDefeat
+    this.ufoSpawnTimer = this.levelFlow.isBossPendingDefeat()
       ? Phaser.Math.Between(500, 900)
       : this.computeNextUFOSpawnDelay();
     this.skyRaiderManager.resetSpawnController(Phaser.Math.Between(1200, 2200));
@@ -2687,7 +2644,7 @@ export default class MainScene extends Phaser.Scene {
       this.registerSpecialKillForLevel();
       const scoutPoints = 500 + this.level * 25;
       this.addScore(this.comboManager.registerKill(ufoX, ufoY, scoutPoints, this.time.now));
-      this.ufoSpawnTimer = this.levelBossPendingDefeat
+      this.ufoSpawnTimer = this.levelFlow.isBossPendingDefeat()
         ? Phaser.Math.Between(650, 1200)
         : this.computeNextUFOSpawnDelay('scout');
       if (this.playerStates[this.activePlayerIndex]) {
@@ -2709,10 +2666,10 @@ export default class MainScene extends Phaser.Scene {
     }
     const bossPoints = 1800 + this.level * 220 + bossPhase * 120;
     this.addScore(this.comboManager.registerKill(ufoX, ufoY, bossPoints, this.time.now));
-    if (this.levelBossPendingDefeat) {
+    if (this.levelFlow.isBossPendingDefeat()) {
       this.completeLevelAfterBossDefeat();
     }
-    this.ufoSpawnTimer = this.levelBossPendingDefeat
+    this.ufoSpawnTimer = this.levelFlow.isBossPendingDefeat()
       ? Phaser.Math.Between(650, 1200)
       : this.computeNextUFOSpawnDelay('boss');
     if (this.playerStates[this.activePlayerIndex]) {
@@ -2814,7 +2771,7 @@ export default class MainScene extends Phaser.Scene {
       this.registerSpecialKillForLevel();
       const scoutPoints = 500 + this.level * 25;
       this.addScore(this.comboManager.registerKill(ufoX, ufoY, scoutPoints, this.time.now));
-      this.ufoSpawnTimer = this.levelBossPendingDefeat
+      this.ufoSpawnTimer = this.levelFlow.isBossPendingDefeat()
         ? Phaser.Math.Between(650, 1200)
         : this.computeNextUFOSpawnDelay('scout');
       if (this.playerStates[this.activePlayerIndex]) {
@@ -2852,10 +2809,10 @@ export default class MainScene extends Phaser.Scene {
     }
     const bossPoints = 1800 + this.level * 220 + bossPhase * 120;
     this.addScore(this.comboManager.registerKill(ufoX, ufoY, bossPoints, this.time.now));
-    if (this.levelBossPendingDefeat) {
+    if (this.levelFlow.isBossPendingDefeat()) {
       this.completeLevelAfterBossDefeat();
     }
-    this.ufoSpawnTimer = this.levelBossPendingDefeat
+    this.ufoSpawnTimer = this.levelFlow.isBossPendingDefeat()
       ? Phaser.Math.Between(650, 1200)
       : this.computeNextUFOSpawnDelay(variant);
 
@@ -3224,8 +3181,8 @@ export default class MainScene extends Phaser.Scene {
         this.endGame();
       } else {
         this.respawnPlayerSafely(SPAWN_PROTECTION_TUNING.respawnGraceMs);
-        if (!this.earlySupportDropGranted && this.levelElapsedMs < 28000) {
-          this.earlySupportDropTimerMs = Math.min(this.earlySupportDropTimerMs, 500);
+        if (!this.levelFlow.isSupportDropGranted() && this.levelFlow.getLevelElapsedMs() < 28000) {
+          this.levelFlow.expediteSupportDropTimer(500);
         }
       }
       return;
@@ -3876,7 +3833,7 @@ export default class MainScene extends Phaser.Scene {
       progressionScore: this.progressionScore,
       nextLevelScore: this.nextLevelScore,
       scoreToBoss: Math.max(0, this.nextLevelScore - this.progressionScore),
-      bossPending: this.levelBossPendingDefeat,
+      bossPending: this.levelFlow.isBossPendingDefeat(),
       bossEnergy: bossActive ? this.ufo.getHealth() : 0,
       bossEnergyMax: bossActive ? this.ufo.getMaxHealth() : 0,
       transition: {
@@ -3905,10 +3862,10 @@ export default class MainScene extends Phaser.Scene {
       },
       spawnProtectionMs: Math.max(0, Math.round(this.spawnProtectionTimerMs)),
       levelOpening: {
-        elapsedMs: Math.max(0, Math.round(this.levelElapsedMs)),
-        startScore: this.levelStartScore,
-        supportDropGranted: this.earlySupportDropGranted,
-        supportDropInMs: Math.max(0, Math.round(this.earlySupportDropTimerMs)),
+        elapsedMs: Math.max(0, Math.round(this.levelFlow.getLevelElapsedMs())),
+        startScore: this.levelFlow.getLevelStartScore(),
+        supportDropGranted: this.levelFlow.isSupportDropGranted(),
+        supportDropInMs: Math.max(0, Math.round(this.levelFlow.getSupportDropTimerMs())),
       },
     };
   }
