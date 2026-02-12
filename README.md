@@ -38,7 +38,7 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
   - shared highscore leaderboard (`normal` + `daily`),
   - consumed coin counter,
   - total user counter (all-time unique users).
-  Client fetch is lazy/non-blocking in Attract/Game Over; local fallback remains active if API is unreachable.
+    Client fetch is lazy/non-blocking in Attract/Game Over; local fallback remains active if API is unreachable.
 - Attract rotation now includes a dedicated `LIVE STATS` block (total users + consumed coins from server snapshot).
 
 ## Audio
@@ -141,6 +141,19 @@ Build/lint:
 ```bash
 npm run lint
 npm run build
+```
+
+Tests:
+
+```bash
+npm run test
+npm run test:coverage
+```
+
+Playwright smoke flow (requires running dev server on `http://localhost:5173`):
+
+```bash
+npm run test:smoke
 ```
 
 Preview production build:

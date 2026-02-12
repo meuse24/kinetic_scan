@@ -1,7 +1,11 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
-import { performanceMonitor } from './PerformanceMonitor';
 import SceneBackground from './SceneBackground';
+import {
+  applyCrtPipelineIfEnabled,
+  createFullscreenOverlay,
+  ensureBezelScene,
+} from './ui/SceneOverlayUtils';
 
 type HelpSceneData = {
   returnScene?: string;
@@ -54,9 +58,7 @@ export default class HelpScene extends Phaser.Scene {
       maxOffsetX: 42,
       maxOffsetY: 28,
     });
-    this.add
-      .rectangle(centerX, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x040914, 0.72)
-      .setDepth(-30);
+    createFullscreenOverlay(this, { color: 0x040914, alpha: 0.72, depth: -30 });
     this.add.rectangle(centerX, titleY, GAME_WIDTH - 72, 72, 0x0a1322, 0.9).setDepth(-20);
 
     if (this.returnScene) {
@@ -67,17 +69,8 @@ export default class HelpScene extends Phaser.Scene {
       }
     }
 
-    if (
-      performanceMonitor.crtEnabled &&
-      this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
-    ) {
-      this.cameras.main.setPostPipeline('CRTPipeline');
-    }
-
-    if (!this.scene.isActive('BezelScene')) {
-      this.scene.launch('BezelScene');
-    }
-    this.scene.bringToTop('BezelScene');
+    applyCrtPipelineIfEnabled(this);
+    ensureBezelScene(this);
 
     this.add
       .text(centerX, titleY, 'HELP', {

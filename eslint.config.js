@@ -23,12 +23,6 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
-  {
-    files: ['src/**/__tests__/**/*.ts'],
-    rules: {
-      '@typescript-eslint/ban-ts-comment': 'off',
-    },
-  },
   prettierConfig,
   {
     ignores: ['dist/**', 'node_modules/**'],

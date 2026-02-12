@@ -1613,3 +1613,37 @@ TODOs for next agent
     - `npm run test -- --run` pass (8 files, 177 tests)
     - `npm run build` pass
     - Playwright skill client run (`output/web-game/settings-refactor`) produced screenshots + state JSON, no `errors-*.json`.
+- 2026-02-12: Refactor/quality follow-up completed (maintainability-focused, no gameplay-rule changes).
+- Added shared settings host (`src/ui/SettingsOverlayHost.ts`) and migrated Attract/GameOver overlay lifecycle/state handling to it.
+- Added shared overlay utilities (`src/ui/SceneOverlayUtils.ts`) and used them in Pause/Help for Bezel/CRT/fullscreen-dimmer setup.
+- Split `MainScene.createGraphics()` into `src/MainSceneGraphics.ts` and delegated from `MainScene`.
+- Quality gates hardened:
+  - removed `@ts-nocheck` from manager/UI tests,
+  - added `@vitest/coverage-v8`,
+  - updated `tsconfig.json` to exclude test sources from production type-check.
+- Standardized smoke automation:
+  - added npm script `test:smoke`,
+  - added CI workflows `.github/workflows/quality.yml` and `.github/workflows/smoke-test.yml`.
+- Validation results:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run` pass (177 tests)
+  - `npm run test:coverage -- --run` pass (coverage via v8)
+  - `npm run test:smoke` pass (8/8, no console errors)
+
+TODOs for next agent
+- Continue reducing `MainScene` size by extracting world-event/spawn orchestration (wormhole/elite-drone/swarm) into dedicated systems.
+- Consider converging Pause settings UI with `SettingsOverlayController` if Pause should share full settings parity with Attract/GameOver.
+- If CI runtime becomes heavy, tune smoke workflow triggers (manual-only vs. selective PR paths).
+- 2026-02-12: Follow-up refactor pass for MainScene world-event orchestration.
+- Added `src/systems/MainWorldEvents.ts` and moved wormhole/elite-drone/swarm spawn orchestration from `MainScene` into this dedicated system.
+- `MainScene` now delegates via `worldEvents.update(delta)`, `worldEvents.clear(...)`, `worldEvents.resetTimers()`, and `worldEvents.deactivateEliteDrone(...)`.
+- Collision registration now uses `worldEvents.getEliteDrone()`.
+- Debug/state payload now reads wormhole/elite flags from world-events getters.
+- Result: reduced MainScene coupling and removed large event-management block while preserving behavior.
+- Validation rerun after extraction:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run` pass
+  - `npm run test:coverage -- --run` pass
+  - `npm run test:smoke` pass (8/8, no console errors)

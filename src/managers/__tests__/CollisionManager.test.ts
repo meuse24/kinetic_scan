@@ -5,7 +5,6 @@
  * may receive arguments in swapped order.
  */
 
-// @ts-nocheck - Test file with Phaser mocks
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CollisionManager } from '../CollisionManager';
 import type { CollisionCallbacks, CollisionGroups } from '../CollisionManager';

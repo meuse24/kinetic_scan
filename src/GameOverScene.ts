@@ -23,6 +23,7 @@ import { isDebugOverlayEnabled, toggleDebugOverlayEnabled } from './DebugSetting
 import { mergeLeaderboardEntries, remoteStatsService } from './RemoteStatsService';
 import SceneBackground from './SceneBackground';
 import { SettingsOverlayController } from './ui/SettingsOverlayController';
+import { SettingsOverlayHost } from './ui/SettingsOverlayHost';
 
 interface GameOverData {
   score?: number;
@@ -63,8 +64,7 @@ export default class GameOverScene extends Phaser.Scene {
   private difficultyKey: DifficultyPresetKey = getCurrentDifficultyKey();
   private dailySeed: string = '';
   private settingsText!: Phaser.GameObjects.Text;
-  private settingsOverlayOpen: boolean = false;
-  private settingsOverlayController?: SettingsOverlayController;
+  private settingsOverlayHost?: SettingsOverlayHost;
   private soundListener?: (muted: boolean) => void;
   private volumeListener?: () => void;
   private playerButtons: PlayerButton[] = [];
@@ -273,12 +273,12 @@ export default class GameOverScene extends Phaser.Scene {
     this.updatePlayerButtons();
     this.soundListener = (_muted) => {
       this.applyGameOverAudioVolume();
-      if (this.settingsOverlayOpen) this.refreshSettingsOverlayLabels();
+      if (this.isSettingsOverlayOpen()) this.refreshSettingsOverlayLabels();
     };
     soundManager.onChange(this.soundListener, this);
     this.volumeListener = () => {
       this.applyGameOverAudioVolume();
-      if (this.settingsOverlayOpen) this.refreshSettingsOverlayLabels();
+      if (this.isSettingsOverlayOpen()) this.refreshSettingsOverlayLabels();
     };
     soundManager.onVolumeChange(this.volumeListener, this);
     this.applyGameOverAudioVolume();
@@ -288,9 +288,8 @@ export default class GameOverScene extends Phaser.Scene {
     this.events.once('shutdown', () => {
       this.sceneBackground?.destroy();
       this.sceneBackground = undefined;
-      this.settingsOverlayController?.destroy();
-      this.settingsOverlayController = undefined;
-      this.settingsOverlayOpen = false;
+      this.settingsOverlayHost?.destroy();
+      this.settingsOverlayHost = undefined;
       if (this.keyHandler) this.input.keyboard?.off('keydown', this.keyHandler);
       if (this.creditListener) creditManager.offChange(this.creditListener, this);
       if (this.soundListener) soundManager.offChange(this.soundListener, this);
@@ -342,19 +341,19 @@ export default class GameOverScene extends Phaser.Scene {
     this.resetIdleTimer();
 
     if (event.code === 'KeyO') {
-      if (this.settingsOverlayOpen) this.closeSettingsOverlay();
+      if (this.isSettingsOverlayOpen()) this.closeSettingsOverlay();
       else this.openSettingsOverlay();
       return;
     }
 
     if (event.code === 'Escape' || event.code === 'KeyB') {
-      if (this.settingsOverlayOpen) {
+      if (this.isSettingsOverlayOpen()) {
         this.closeSettingsOverlay();
         return;
       }
     }
 
-    if (this.settingsOverlayOpen) {
+    if (this.isSettingsOverlayOpen()) {
       if (event.code === 'KeyS') {
         this.toggleSound();
       } else if (event.code === 'KeyF') {
@@ -530,7 +529,7 @@ export default class GameOverScene extends Phaser.Scene {
   }
 
   private async insertCoin() {
-    if (this.settingsOverlayOpen) return;
+    if (this.isSettingsOverlayOpen()) return;
     await this.audio.resume();
     this.audio.playCoin();
     creditManager.addCredits(1);
@@ -575,7 +574,7 @@ export default class GameOverScene extends Phaser.Scene {
   }
 
   private startGame(requiredCredits: number) {
-    if (this.settingsOverlayOpen) return;
+    if (this.isSettingsOverlayOpen()) return;
     if (!creditManager.spendCredits(requiredCredits)) return;
     remoteStatsService.reportCoinsSpent(requiredCredits);
     void this.audio.resume();
@@ -594,12 +593,12 @@ export default class GameOverScene extends Phaser.Scene {
 
   private changeDifficulty(direction: 1 | -1) {
     this.difficultyKey = cycleDifficulty(direction);
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private toggleDebugSetting() {
     toggleDebugOverlayEnabled();
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private resetIdleTimer() {
@@ -703,29 +702,26 @@ export default class GameOverScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
     this.settingsText.on('pointerdown', () => {
-      if (this.settingsOverlayOpen) this.closeSettingsOverlay();
+      if (this.isSettingsOverlayOpen()) this.closeSettingsOverlay();
       else this.openSettingsOverlay();
     });
   }
 
+  private isSettingsOverlayOpen() {
+    return this.settingsOverlayHost?.isOpen() ?? false;
+  }
+
   private openSettingsOverlay() {
-    if (this.settingsOverlayOpen) return;
-    if (this.scene.isActive('HelpScene')) return;
-    this.settingsOverlayOpen = true;
-    this.settingsOverlayController?.open();
-    this.settingsText.setColor('#ffffff');
+    this.settingsOverlayHost?.open();
   }
 
   private closeSettingsOverlay() {
-    if (!this.settingsOverlayOpen) return;
-    this.settingsOverlayOpen = false;
-    this.settingsOverlayController?.close();
-    this.settingsText.setColor('#9be7ff');
+    this.settingsOverlayHost?.close();
   }
 
   private buildSettingsOverlay(depth: number) {
-    if (this.settingsOverlayController) return;
-    this.settingsOverlayController = new SettingsOverlayController({
+    if (this.settingsOverlayHost) return;
+    const controller = new SettingsOverlayController({
       scene: this,
       depth,
       isTouch: IS_TOUCH,
@@ -742,17 +738,22 @@ export default class GameOverScene extends Phaser.Scene {
       onToggleCrt: () => this.toggleCrt(),
       onCloseRequested: () => this.closeSettingsOverlay(),
     });
-    this.settingsOverlayController.build();
+    this.settingsOverlayHost = new SettingsOverlayHost({
+      triggerText: this.settingsText,
+      controller,
+      canOpen: () => !this.scene.isActive('HelpScene'),
+    });
+    this.settingsOverlayHost.build();
   }
 
   private refreshSettingsOverlayLabels() {
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private toggleSound() {
     void this.audio.resume();
     soundManager.toggle();
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private toggleFullscreen() {
@@ -762,13 +763,13 @@ export default class GameOverScene extends Phaser.Scene {
     } else {
       this.scale.startFullscreen();
     }
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private toggleCrt() {
     if (!performanceMonitor.isCrtSupported()) return;
     performanceMonitor.toggleCrtUserEnabled();
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private getSoundLabel() {
@@ -802,7 +803,7 @@ export default class GameOverScene extends Phaser.Scene {
   }
 
   private openHelp() {
-    if (this.settingsOverlayOpen) return;
+    if (this.isSettingsOverlayOpen()) return;
     if (this.scene.isActive('HelpScene')) return;
     this.scene.launch('HelpScene', { returnScene: this.scene.key });
     this.scene.pause();

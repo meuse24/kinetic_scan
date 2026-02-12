@@ -4,7 +4,6 @@
  * Comprehensive test suite for volume slider creation and interaction
  */
 
-// @ts-nocheck - Test file with Phaser mocks
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { UIComponentFactory } from '../UIComponentFactory';
 

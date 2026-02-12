@@ -25,6 +25,7 @@ import { isDebugOverlayEnabled, toggleDebugOverlayEnabled } from './DebugSetting
 import { mergeLeaderboardEntries, remoteStatsService } from './RemoteStatsService';
 import SceneBackground from './SceneBackground';
 import { SettingsOverlayController } from './ui/SettingsOverlayController';
+import { SettingsOverlayHost } from './ui/SettingsOverlayHost';
 
 type PlayerButton = {
   requiredCredits: number;
@@ -161,8 +162,7 @@ export default class AttractScene extends Phaser.Scene {
   private eventBanner!: Phaser.GameObjects.Text;
   private eventBannerTween: Phaser.Tweens.Tween | null = null;
   private difficultyKey: DifficultyPresetKey = getCurrentDifficultyKey();
-  private settingsOverlayOpen: boolean = false;
-  private settingsOverlayController?: SettingsOverlayController;
+  private settingsOverlayHost?: SettingsOverlayHost;
   private titleLogoContainer?: Phaser.GameObjects.Container;
   private powerUpPreviewContainer?: Phaser.GameObjects.Container;
   private highScoreRows: Phaser.GameObjects.Text[] = [];
@@ -370,32 +370,32 @@ export default class AttractScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-ENTER', () => this.startGame(1));
     this.input.keyboard?.on('keydown-UP', () => this.startGame(1));
     this.input.keyboard?.on('keydown-A', () => {
-      if (this.settingsOverlayOpen) this.cycleDifficulty(-1);
+      if (this.isSettingsOverlayOpen()) this.cycleDifficulty(-1);
     });
     this.input.keyboard?.on('keydown-D', () => {
-      if (this.settingsOverlayOpen) this.cycleDifficulty(1);
+      if (this.isSettingsOverlayOpen()) this.cycleDifficulty(1);
     });
     this.input.keyboard?.on('keydown-LEFT', () => {
-      if (this.settingsOverlayOpen) this.cycleDifficulty(-1);
+      if (this.isSettingsOverlayOpen()) this.cycleDifficulty(-1);
     });
     this.input.keyboard?.on('keydown-RIGHT', () => {
-      if (this.settingsOverlayOpen) this.cycleDifficulty(1);
+      if (this.isSettingsOverlayOpen()) this.cycleDifficulty(1);
     });
     this.input.keyboard?.on('keydown-S', () => {
-      if (this.settingsOverlayOpen) this.toggleSound();
+      if (this.isSettingsOverlayOpen()) this.toggleSound();
     });
     this.input.keyboard?.on('keydown-F', () => {
-      if (this.settingsOverlayOpen) this.toggleFullscreen();
+      if (this.isSettingsOverlayOpen()) this.toggleFullscreen();
     });
     this.input.keyboard?.on('keydown-C', () => {
-      if (this.settingsOverlayOpen) this.toggleCrt();
+      if (this.isSettingsOverlayOpen()) this.toggleCrt();
     });
     this.input.keyboard?.on('keydown-G', () => {
-      if (this.settingsOverlayOpen) this.toggleDebugSetting();
+      if (this.isSettingsOverlayOpen()) this.toggleDebugSetting();
     });
     this.input.keyboard?.on('keydown-H', () => this.openHelp());
     this.input.keyboard?.on('keydown-O', () => {
-      if (this.settingsOverlayOpen) this.closeSettingsOverlay();
+      if (this.isSettingsOverlayOpen()) this.closeSettingsOverlay();
       else this.openSettingsOverlay();
     });
     this.input.keyboard?.on('keydown-ESC', () => this.closeSettingsOverlay());
@@ -410,12 +410,12 @@ export default class AttractScene extends Phaser.Scene {
 
     this.soundListener = (_muted) => {
       this.applyAttractAudioVolume();
-      if (this.settingsOverlayOpen) this.refreshSettingsOverlayLabels();
+      if (this.isSettingsOverlayOpen()) this.refreshSettingsOverlayLabels();
     };
     soundManager.onChange(this.soundListener, this);
     this.volumeListener = () => {
       this.applyAttractAudioVolume();
-      if (this.settingsOverlayOpen) this.refreshSettingsOverlayLabels();
+      if (this.isSettingsOverlayOpen()) this.refreshSettingsOverlayLabels();
     };
     soundManager.onVolumeChange(this.volumeListener, this);
     this.applyAttractAudioVolume();
@@ -432,9 +432,8 @@ export default class AttractScene extends Phaser.Scene {
 
       this.sceneBackground?.destroy();
       this.sceneBackground = undefined;
-      this.settingsOverlayController?.destroy();
-      this.settingsOverlayController = undefined;
-      this.settingsOverlayOpen = false;
+      this.settingsOverlayHost?.destroy();
+      this.settingsOverlayHost = undefined;
       this.titleLogoContainer = undefined;
       this.powerUpPreviewContainer = undefined;
       this.highScoreRows.length = 0;
@@ -529,16 +528,20 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   private async insertCoin() {
-    if (this.settingsOverlayOpen) return;
+    if (this.isSettingsOverlayOpen()) return;
     await this.audio.resume();
     this.audio.playCoin();
     creditManager.addCredits(1);
   }
 
+  private isSettingsOverlayOpen() {
+    return this.settingsOverlayHost?.isOpen() ?? false;
+  }
+
   private toggleSound() {
     void this.audio.resume();
     soundManager.toggle();
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private toggleFullscreen() {
@@ -548,13 +551,13 @@ export default class AttractScene extends Phaser.Scene {
     } else {
       this.scale.startFullscreen();
     }
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private toggleCrt() {
     if (!performanceMonitor.isCrtSupported()) return;
     performanceMonitor.toggleCrtUserEnabled();
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private getSoundLabel() {
@@ -587,39 +590,32 @@ export default class AttractScene extends Phaser.Scene {
     this.audio.setDifficultyMix(this.difficultyKey);
     this.enemyManager.setDifficultyPreset(preset);
     this.ufo.setDifficultyPreset(preset);
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private toggleDebugSetting() {
     toggleDebugOverlayEnabled();
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private openHelp() {
-    if (this.settingsOverlayOpen) return;
+    if (this.isSettingsOverlayOpen()) return;
     if (this.scene.isActive('HelpScene')) return;
     this.scene.launch('HelpScene', { returnScene: this.scene.key });
     this.scene.pause();
   }
 
   private openSettingsOverlay() {
-    if (this.settingsOverlayOpen) return;
-    if (this.scene.isActive('HelpScene')) return;
-    this.settingsOverlayOpen = true;
-    this.settingsOverlayController?.open();
-    this.settingsText.setColor('#ffffff');
+    this.settingsOverlayHost?.open();
   }
 
   private closeSettingsOverlay() {
-    if (!this.settingsOverlayOpen) return;
-    this.settingsOverlayOpen = false;
-    this.settingsOverlayController?.close();
-    this.settingsText.setColor('#9be7ff');
+    this.settingsOverlayHost?.close();
   }
 
   private buildSettingsOverlay(depth: number) {
-    if (this.settingsOverlayController) return;
-    this.settingsOverlayController = new SettingsOverlayController({
+    if (this.settingsOverlayHost) return;
+    const controller = new SettingsOverlayController({
       scene: this,
       depth,
       isTouch: IS_TOUCH,
@@ -636,11 +632,16 @@ export default class AttractScene extends Phaser.Scene {
       onToggleCrt: () => this.toggleCrt(),
       onCloseRequested: () => this.closeSettingsOverlay(),
     });
-    this.settingsOverlayController.build();
+    this.settingsOverlayHost = new SettingsOverlayHost({
+      triggerText: this.settingsText,
+      controller,
+      canOpen: () => !this.scene.isActive('HelpScene'),
+    });
+    this.settingsOverlayHost.build();
   }
 
   private refreshSettingsOverlayLabels() {
-    this.settingsOverlayController?.refresh();
+    this.settingsOverlayHost?.refresh();
   }
 
   private applyAttractAudioVolume() {
@@ -1726,7 +1727,7 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   private startGame(requiredCredits: number) {
-    if (this.settingsOverlayOpen) return;
+    if (this.isSettingsOverlayOpen()) return;
     if (!creditManager.spendCredits(requiredCredits)) return;
     remoteStatsService.reportCoinsSpent(requiredCredits);
     void this.audio.resume();
@@ -1828,7 +1829,7 @@ export default class AttractScene extends Phaser.Scene {
   }
 
   private startDaily() {
-    if (this.settingsOverlayOpen) return;
+    if (this.isSettingsOverlayOpen()) return;
     if (!creditManager.spendCredits(1)) return;
     remoteStatsService.reportCoinsSpent(1);
     void this.audio.resume();

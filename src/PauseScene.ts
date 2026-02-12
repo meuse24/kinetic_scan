@@ -3,10 +3,14 @@ import { GAME_WIDTH, GAME_HEIGHT } from './gameConfig';
 import MainScene from './MainScene';
 import { soundManager } from './SoundManager';
 import { DEFAULT_VOLUME } from './AudioManager';
-import { performanceMonitor } from './PerformanceMonitor';
 import { isDebugOverlayEnabled, toggleDebugOverlayEnabled } from './DebugSettings';
 import SceneBackground from './SceneBackground';
 import { UIComponentFactory } from './ui/UIComponentFactory';
+import {
+  applyCrtPipelineIfEnabled,
+  createFullscreenOverlay,
+  ensureBezelScene,
+} from './ui/SceneOverlayUtils';
 
 export default class PauseScene extends Phaser.Scene {
   private soundText!: Phaser.GameObjects.Text;
@@ -33,21 +37,9 @@ export default class PauseScene extends Phaser.Scene {
       maxOffsetY: 26,
     });
 
-    if (!this.scene.isActive('BezelScene')) {
-      this.scene.launch('BezelScene');
-    }
-    this.scene.bringToTop('BezelScene');
-
-    if (
-      performanceMonitor.crtEnabled &&
-      this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
-    ) {
-      this.cameras.main.setPostPipeline('CRTPipeline');
-    }
-
-    // Semi-transparent overlay
-    const overlay = this.add.rectangle(centerX, centerY, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.7);
-    overlay.setInteractive(); // Prevent clicks passing through
+    ensureBezelScene(this);
+    applyCrtPipelineIfEnabled(this);
+    createFullscreenOverlay(this, { interactive: true });
 
     // PAUSED Text
     this.add

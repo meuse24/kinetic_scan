@@ -22,17 +22,13 @@ import { musicManager } from './MusicManager';
 import {
   BACKGROUND_DECOR_TUNING,
   EARLY_LEVEL_TUNING,
-  ELITE_DRONE_TUNING,
   JUICE_TUNING,
   LEVEL_BONUS_TUNING,
   LEVEL_PROGRESS_TUNING,
   LEVEL_TRANSITION_TUNING,
   MILESTONE_TUNING,
   SHIELD_BUNKER_TUNING,
-  SWARM_TUNING,
   SPAWN_PROTECTION_TUNING,
-  WORMHOLE_TUNING,
-  pickEliteDroneSpawnDelayRange,
   type BackgroundDecorTier,
   type EliteDroneDeactivateReason,
   type IntRange,
@@ -49,6 +45,8 @@ import { HUDManager } from './managers/HUDManager';
 import type { HUDComponents, HUDState, HUDManagerConfig } from './managers/HUDManager';
 import { PowerUpManager } from './managers/PowerUpManager';
 import type { PowerUpCallbacks, PowerUpManagerConfig } from './managers/PowerUpManager';
+import { bootstrapMainSceneGraphics } from './MainSceneGraphics';
+import { MainWorldEvents } from './systems/MainWorldEvents';
 
 interface PlayerState {
   score: number;
@@ -65,15 +63,6 @@ interface PlayerState {
 }
 
 type ElitePerkType = 'bonus_life' | 'cooling' | 'magnet';
-
-interface WormholeState {
-  active: boolean;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  ttlMs: number;
-}
 
 interface BackgroundDecorState {
   sprite: Phaser.GameObjects.Image;
@@ -233,15 +222,7 @@ export default class MainScene extends Phaser.Scene {
     active: boolean;
     graphics: Phaser.GameObjects.Graphics;
   } | null = null;
-  private wormhole: WormholeState | null = null;
-  private wormholeGraphics!: Phaser.GameObjects.Graphics;
-  private wormholeSpawnTimer: number = 0;
-  private wormholeForceAccumulatorMs: number = 0;
-  private wormholeVisualAccumulatorMs: number = 0;
-  private eliteDrone!: Phaser.Physics.Arcade.Sprite;
-  private eliteDroneLabel!: Phaser.GameObjects.Text;
-  private eliteDroneSpawnTimer: number = 0;
-  private eliteDroneLifetimeMs: number = 0;
+  private worldEvents!: MainWorldEvents;
   private empGraphics!: Phaser.GameObjects.Graphics;
   private backgroundDecorTier: BackgroundDecorTier = 'off';
   private backgroundDecorSpawnTimerMs: number = 0;
@@ -301,8 +282,6 @@ export default class MainScene extends Phaser.Scene {
   private levelText!: Phaser.GameObjects.Text;
   private milestoneIndex: number = 0;
   private milestoneText!: Phaser.GameObjects.Text;
-  private swarmSpawnTimerMs: number = 0;
-  private swarmKills: Map<number, number> = new Map();
   private summonerTimerMs: number = 0;
   private dailySeed: string = '';
   private passiveCoolingMultiplier: number = 1;
@@ -375,7 +354,6 @@ export default class MainScene extends Phaser.Scene {
     this.backgroundDecor = [];
     this.nebulaLayers = [];
     this.nebulaProfileKey = 'off';
-    this.wormholeVisualAccumulatorMs = 0;
     this.blackHoleVisualAccumulatorMs = 0;
     this.levelBonusPayoutTween = undefined;
     this.playerStates = [];
@@ -506,11 +484,16 @@ export default class MainScene extends Phaser.Scene {
     this.slowMoOverlay = this.add
       .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x0000ff, 0)
       .setDepth(5);
-    this.wormholeGraphics = this.add.graphics().setDepth(35);
-    this.wormholeGraphics.setVisible(false);
     this.empGraphics = this.add.graphics().setDepth(10);
-    this.createEliteDroneEntity();
-    this.resetWorldEventTimers();
+    this.worldEvents = new MainWorldEvents({
+      scene: this,
+      enemyManager: this.enemyManager,
+      bullets: this.bullets,
+      player: this.player,
+      getLevel: () => this.level,
+      isFlowBlocked: () => this.isLevelTransition || this.isSwitching,
+      isGameOver: () => this.isGameOver,
+    });
     // Create graphics before HUD so they can be passed to HUDManager
     this.powerUpBar = this.add.graphics();
     this.heatBar = this.add.graphics().setDepth(120);
@@ -564,7 +547,7 @@ export default class MainScene extends Phaser.Scene {
       enemies: this.enemyManager.enemies,
       ufo: this.ufo,
       powerUps: this.powerUpDirector.getGroup(),
-      eliteDrone: this.eliteDrone,
+      eliteDrone: this.worldEvents.getEliteDrone(),
       ufoProjectiles: this.ufo.getProjectiles() || undefined,
       shieldBunkers: this.shieldBunkers,
       proximityMines: this.proximityMines,
@@ -642,9 +625,7 @@ export default class MainScene extends Phaser.Scene {
       this.stopSpawnProtectionVisuals();
       this.clearBackgroundDecor();
       this.clearNebulaLayers();
-      this.wormholeGraphics.destroy();
-      this.eliteDroneLabel.destroy();
-      this.eliteDrone.destroy();
+      this.worldEvents.destroy();
       this.perkText.destroy();
       this.empGraphics.destroy();
       this.slowMoOverlay.destroy();
@@ -687,9 +668,7 @@ export default class MainScene extends Phaser.Scene {
       this.sceneBackground?.updateIdle(delta);
     }
     this.enemyManager.update(time, delta);
-    this.updateWormhole(delta);
-    this.updateEliteDrone(delta);
-    this.updateSwarmSpawner(delta);
+    this.worldEvents.update(delta);
     this.flushPendingEnemyHits();
     this.comboManager.update(time);
     this.comboManager.updateHUD();
@@ -742,7 +721,7 @@ export default class MainScene extends Phaser.Scene {
           `OBJ E ${activeEnemies} | P ${activePowerUps} | UP ${activeUFOProjectiles} | ` +
           `SR ${activeSkyRaiders}/${activeSkyRaiderProjectiles} | ` +
           `BNK ${activeBunkers} | DEC ${this.backgroundDecor.length}(${this.backgroundDecorTier}) | ` +
-          `WH ${this.wormhole?.active ? 1 : 0} | ED ${this.eliteDrone?.active ? 1 : 0} | BOD ${physicsBodies}`;
+          `WH ${this.worldEvents.isWormholeActive() ? 1 : 0} | ED ${this.worldEvents.isEliteDroneActive() ? 1 : 0} | BOD ${physicsBodies}`;
         if (nextDebugStatsLine !== this.lastDebugStatsLine) {
           this.debugStatsText.setText(nextDebugStatsLine);
           this.lastDebugStatsLine = nextDebugStatsLine;
@@ -1447,99 +1426,26 @@ export default class MainScene extends Phaser.Scene {
     );
   }
 
-  private createEliteDroneEntity() {
-    this.eliteDrone = this.physics.add.sprite(-160, -160, 'elite_drone');
-    this.eliteDrone.setActive(false);
-    this.eliteDrone.setVisible(false);
-    this.eliteDrone.setDepth(112);
-    this.eliteDrone.setScale(1);
-    this.eliteDrone.setCollideWorldBounds(false);
-    this.eliteDrone.setCircle(14, 2, 2);
-    const body = this.eliteDrone.body as Phaser.Physics.Arcade.Body | null;
-    if (body) {
-      body.allowGravity = false;
-      body.moves = true;
-      body.setMaxVelocity(360, 360);
-    }
-
-    this.eliteDroneLabel = this.add
-      .text(0, 0, 'ELITE', {
-        fontFamily: '"Press Start 2P"',
-        fontSize: '12px',
-        color: '#afffd2',
-        stroke: '#001a10',
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5)
-      .setDepth(113)
-      .setVisible(false);
-  }
-
   private rollRange(range: IntRange) {
     return Phaser.Math.Between(range[0], range[1]);
   }
 
-  private setWormholeSpawnTimer(mode: 'initial' | 'respawn') {
-    const range =
-      mode === 'initial' ? WORMHOLE_TUNING.initialSpawnDelayMs : WORMHOLE_TUNING.respawnDelayMs;
-    this.wormholeSpawnTimer = this.rollRange(range);
-  }
-
-  private setEliteDroneSpawnTimer(reason: EliteDroneDeactivateReason) {
-    this.eliteDroneSpawnTimer = this.rollRange(pickEliteDroneSpawnDelayRange(reason));
-  }
-
   private clearWorldEvents(reason: EliteDroneDeactivateReason = 'reset') {
-    this.deactivateWormhole();
-    this.deactivateEliteDrone(reason);
+    this.worldEvents.clear(reason);
     this.skyRaiderManager.deactivateAll();
   }
 
   private resetWorldEventTimers() {
-    this.setWormholeSpawnTimer('initial');
-    this.wormholeForceAccumulatorMs = 0;
-    this.eliteDroneSpawnTimer = this.rollRange(ELITE_DRONE_TUNING.initialSpawnDelayMs);
-    this.eliteDroneLifetimeMs = 0;
-    this.swarmSpawnTimerMs =
-      this.level >= SWARM_TUNING.minLevel ? this.rollRange(SWARM_TUNING.initialDelayMs) : 999999;
-    this.swarmKills.clear();
-  }
-
-  private updateSwarmSpawner(delta: number) {
-    if (this.level < SWARM_TUNING.minLevel || this.isLevelTransition || this.isSwitching) return;
-    this.swarmSpawnTimerMs -= delta;
-    if (this.swarmSpawnTimerMs > 0) return;
-    this.swarmSpawnTimerMs = this.rollRange(SWARM_TUNING.spawnIntervalMs);
-
-    const count = Phaser.Math.Between(SWARM_TUNING.countRange[0], SWARM_TUNING.countRange[1]);
-    const swarmId = this.enemyManager.spawnSwarm(
-      count,
-      SWARM_TUNING.scale,
-      SWARM_TUNING.speed,
-      SWARM_TUNING.spacingX,
-      SWARM_TUNING.spacingY,
-    );
-    if (swarmId > 0) {
-      this.swarmKills.set(swarmId, 0);
-    }
+    this.worldEvents.resetTimers();
   }
 
   private onSwarmEnemyKilled(enemy: Enemy, x: number, y: number) {
-    if (enemy.swarmId === 0) return;
-    const swarmId = enemy.swarmId;
-    const total = enemy.swarmTotal;
-    const kills = (this.swarmKills.get(swarmId) ?? 0) + 1;
-    this.swarmKills.set(swarmId, kills);
-
-    if (kills >= total) {
-      // Full swarm wiped — bonus!
-      const bonus = SWARM_TUNING.bonusPerAsteroid * total * SWARM_TUNING.fullSwarmBonusMultiplier;
-      this.addScore(bonus);
-      this.comboManager.spawnClusterPopup(x, y - 20, bonus);
-      this.cameras.main.flash(100, 136, 204, 255, false);
-      this.audio.playPickup();
-      this.swarmKills.delete(swarmId);
-    }
+    const bonus = this.worldEvents.registerSwarmKill(enemy);
+    if (bonus === null) return;
+    this.addScore(bonus);
+    this.comboManager.spawnClusterPopup(x, y - 20, bonus);
+    this.cameras.main.flash(100, 136, 204, 255, false);
+    this.audio.playPickup();
   }
 
   private applyPassivePerksFromActiveState() {
@@ -1613,211 +1519,8 @@ export default class MainScene extends Phaser.Scene {
     this.updateHUDDisplay();
   }
 
-  private spawnWormhole() {
-    if (this.wormhole?.active || this.isGameOver) return;
-    const width = this.scale.width;
-    const height = this.scale.height;
-    const vx = this.rollRange(WORMHOLE_TUNING.velocityX) || 35;
-    const vy = this.rollRange(WORMHOLE_TUNING.velocityY);
-    this.wormhole = {
-      active: true,
-      x: Phaser.Math.Between(130, width - 130),
-      y: Phaser.Math.Between(110, Math.round(height * 0.58)),
-      vx,
-      vy,
-      ttlMs: this.rollRange(WORMHOLE_TUNING.ttlMs),
-    };
-    this.wormholeGraphics.setVisible(true);
-    this.wormholeVisualAccumulatorMs = performanceMonitor.reducedParticles ? 48 : 28;
-    this.wormholeForceAccumulatorMs = 0;
-    this.setWormholeSpawnTimer('respawn');
-  }
-
-  private deactivateWormhole() {
-    if (!this.wormhole) return;
-    this.wormhole.active = false;
-    this.wormholeGraphics.clear();
-    this.wormholeGraphics.setVisible(false);
-    this.wormholeVisualAccumulatorMs = 0;
-    this.wormholeForceAccumulatorMs = 0;
-  }
-
-  private updateWormhole(delta: number) {
-    if (!this.wormhole?.active) {
-      this.wormholeSpawnTimer -= delta;
-      if (this.wormholeSpawnTimer <= 0) {
-        this.spawnWormhole();
-      }
-      return;
-    }
-
-    this.wormhole.ttlMs -= delta;
-    if (this.wormhole.ttlMs <= 0) {
-      this.deactivateWormhole();
-      return;
-    }
-
-    const width = this.scale.width;
-    const height = this.scale.height;
-    const pad = WORMHOLE_TUNING.motionPadding;
-    this.wormhole.x += (this.wormhole.vx * delta) / 1000;
-    this.wormhole.y += (this.wormhole.vy * delta) / 1000;
-
-    if (this.wormhole.x < pad || this.wormhole.x > width - pad) {
-      this.wormhole.vx *= -1;
-      this.wormhole.x = Phaser.Math.Clamp(this.wormhole.x, pad, width - pad);
-    }
-    if (this.wormhole.y < pad || this.wormhole.y > height * WORMHOLE_TUNING.maxYRatio) {
-      this.wormhole.vy *= -1;
-      this.wormhole.y = Phaser.Math.Clamp(this.wormhole.y, pad, height * WORMHOLE_TUNING.maxYRatio);
-    }
-
-    this.wormholeVisualAccumulatorMs += delta;
-    const wormholeVisualInterval = performanceMonitor.reducedParticles ? 48 : 28;
-    if (this.wormholeVisualAccumulatorMs >= wormholeVisualInterval) {
-      this.wormholeVisualAccumulatorMs = 0;
-      const t = this.time.now * 0.004;
-      const radiusOuter =
-        WORMHOLE_TUNING.outerRadiusBase + Math.sin(t * 1.8) * WORMHOLE_TUNING.outerRadiusWave;
-      const radiusInner =
-        WORMHOLE_TUNING.innerRadiusBase + Math.cos(t * 2.6) * WORMHOLE_TUNING.innerRadiusWave;
-      this.wormholeGraphics
-        .clear()
-        .lineStyle(3, 0x9f52ff, 0.85)
-        .strokeCircle(this.wormhole.x, this.wormhole.y, radiusOuter)
-        .lineStyle(2, 0x57f6ff, 0.88)
-        .strokeCircle(this.wormhole.x, this.wormhole.y, radiusInner);
-      for (let i = 0; i < 3; i++) {
-        const angle = t + i * ((Math.PI * 2) / 3);
-        const orbitRadius = 26 + i * 6;
-        const ox = Math.cos(angle) * orbitRadius;
-        const oy = Math.sin(angle) * orbitRadius;
-        this.wormholeGraphics.fillStyle(0xc8f2ff, 0.7);
-        this.wormholeGraphics.fillCircle(this.wormhole.x + ox, this.wormhole.y + oy, 2);
-      }
-    }
-
-    this.wormholeForceAccumulatorMs += delta;
-    if (this.wormholeForceAccumulatorMs < WORMHOLE_TUNING.forceIntervalMs) return;
-
-    const forceScale = this.wormholeForceAccumulatorMs / (1000 / 60);
-    this.wormholeForceAccumulatorMs = 0;
-    const wx = this.wormhole.x;
-    const wy = this.wormhole.y;
-    const radius = WORMHOLE_TUNING.pullRadius;
-    const radiusSq = radius * radius;
-
-    const enemies = this.enemyManager.enemies.getChildren() as Enemy[];
-    for (const enemy of enemies) {
-      if (!enemy.active || !enemy.body) continue;
-      const dx = wx - enemy.x;
-      const dy = wy - enemy.y;
-      const distSq = dx * dx + dy * dy;
-      if (distSq <= 36 || distSq > radiusSq) continue;
-      const invDist = 1 / Math.sqrt(distSq);
-      const pull = (1 - distSq / radiusSq) * WORMHOLE_TUNING.enemyPullStrength * forceScale;
-      enemy.body.velocity.x += dx * invDist * pull;
-      enemy.body.velocity.y += dy * invDist * pull;
-    }
-
-    const bullets = this.bullets.getChildren() as Bullet[];
-    for (const bullet of bullets) {
-      if (!bullet.active || !bullet.body) continue;
-      const dx = wx - bullet.x;
-      const dy = wy - bullet.y;
-      const distSq = dx * dx + dy * dy;
-      if (distSq <= 16 || distSq > radiusSq) continue;
-      const invDist = 1 / Math.sqrt(distSq);
-      const bend = (1 - distSq / radiusSq) * WORMHOLE_TUNING.bulletBendStrength * forceScale;
-      bullet.body.velocity.x += dx * invDist * bend;
-      bullet.body.velocity.y += dy * invDist * bend;
-      const speed = bullet.body.velocity.length();
-      if (speed > WORMHOLE_TUNING.bulletMaxSpeed) {
-        const scale = WORMHOLE_TUNING.bulletMaxSpeed / speed;
-        bullet.body.velocity.x *= scale;
-        bullet.body.velocity.y *= scale;
-      }
-    }
-  }
-
-  private spawnEliteDrone() {
-    if (this.eliteDrone.active || this.isGameOver) return;
-    const spawnLeft = Phaser.Math.Between(0, 1) === 0;
-    const x = spawnLeft
-      ? Phaser.Math.Between(86, 180)
-      : Phaser.Math.Between(this.scale.width - 180, this.scale.width - 86);
-    const y = Phaser.Math.Between(92, Math.round(this.scale.height * 0.46));
-    this.eliteDrone.enableBody(true, x, y, true, true);
-    this.eliteDrone.setActive(true);
-    this.eliteDrone.setVisible(true);
-    this.eliteDrone.setAlpha(1);
-    this.eliteDrone.setTint(0xa7ffd8);
-    this.eliteDroneLifetimeMs = this.rollRange(ELITE_DRONE_TUNING.lifetimeMs);
-    this.eliteDroneLabel.setVisible(true);
-    this.eliteDroneSpawnTimer = this.rollRange(ELITE_DRONE_TUNING.postSpawnDelayMs);
-    this.cameras.main.flash(70, 120, 255, 120, false);
-  }
-
   private deactivateEliteDrone(reason: EliteDroneDeactivateReason) {
-    if (!this.eliteDrone) return;
-    if (this.eliteDrone.active) {
-      this.eliteDrone.disableBody(true, true);
-      this.eliteDrone.setActive(false);
-      this.eliteDrone.setVisible(false);
-    }
-    this.eliteDroneLabel?.setVisible(false);
-    this.eliteDroneLifetimeMs = 0;
-    this.setEliteDroneSpawnTimer(reason);
-  }
-
-  private updateEliteDrone(delta: number) {
-    if (!this.eliteDrone?.active) {
-      this.eliteDroneSpawnTimer -= delta;
-      if (this.eliteDroneSpawnTimer <= 0) {
-        this.spawnEliteDrone();
-      }
-      return;
-    }
-
-    this.eliteDroneLifetimeMs -= delta;
-    if (this.eliteDroneLifetimeMs <= 0) {
-      this.deactivateEliteDrone('expired');
-      return;
-    }
-
-    const body = this.eliteDrone.body as Phaser.Physics.Arcade.Body | null;
-    if (!body) return;
-    const dx = this.eliteDrone.x - this.player.x;
-    const dy = this.eliteDrone.y - this.player.y;
-    const dist = Math.max(20, Math.hypot(dx, dy));
-    const awayX = dx / dist;
-    const awayY = dy / dist;
-    const baseSpeed =
-      ELITE_DRONE_TUNING.speedBase +
-      Math.min(ELITE_DRONE_TUNING.speedBonusCap, this.level * ELITE_DRONE_TUNING.speedPerLevel);
-    const wave = this.time.now * 0.0036;
-    let vx = awayX * baseSpeed + Math.cos(wave) * 62;
-    let vy = awayY * baseSpeed + Math.sin(wave * 1.15) * 52 - 36;
-
-    if (this.eliteDrone.x < 76) vx += 85;
-    if (this.eliteDrone.x > this.scale.width - 76) vx -= 85;
-    if (this.eliteDrone.y < 72) vy += 72;
-    if (this.eliteDrone.y > this.scale.height * 0.82) vy -= 96;
-
-    body.setVelocity(vx, vy);
-    this.eliteDrone.rotation += (delta / 1000) * 3.2;
-    this.eliteDroneLabel.setPosition(this.eliteDrone.x, this.eliteDrone.y - 24);
-    this.eliteDroneLabel.setAlpha(0.55 + Math.sin(this.time.now * 0.01) * 0.3);
-
-    const outBounds = ELITE_DRONE_TUNING.outOfBoundsPadding;
-    if (
-      this.eliteDrone.x < -outBounds ||
-      this.eliteDrone.x > this.scale.width + outBounds ||
-      this.eliteDrone.y < -outBounds ||
-      this.eliteDrone.y > this.scale.height + outBounds
-    ) {
-      this.deactivateEliteDrone('expired');
-    }
+    this.worldEvents.deactivateEliteDrone(reason);
   }
 
   private handlePlayerRescueEliteDrone(_player: Player, drone: Phaser.Physics.Arcade.Sprite) {
@@ -4224,397 +3927,13 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private createGraphics() {
-    const starG = this.add.graphics();
-    starG.setVisible(false);
-    starG.fillStyle(0xffffff, 1);
-    starG.fillRect(0, 0, 2, 2);
-    starG.generateTexture('star', 2, 2);
-    starG.destroy();
-    const bulletG = this.add.graphics();
-    bulletG.setVisible(false);
-    bulletG.fillStyle(0xffff00, 1);
-    bulletG.fillRect(0, 0, 8, 20);
-    bulletG.generateTexture('bullet', 8, 20);
-    bulletG.destroy();
-
-    if (!this.textures.exists(PROXIMITY_MINE_TEXTURE_KEY)) {
-      const texture = this.textures.createCanvas(PROXIMITY_MINE_TEXTURE_KEY, 30, 30);
-      if (texture) {
-        const ctx = texture.getContext();
-        ctx.clearRect(0, 0, 30, 30);
-
-        const shadow = ctx.createRadialGradient(15, 16.5, 2, 15, 16.5, 13.5);
-        shadow.addColorStop(0, 'rgba(0, 0, 0, 0.52)');
-        shadow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = shadow;
-        ctx.beginPath();
-        ctx.arc(15, 16.5, 13.5, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.arc(15, 15, 9.6, 0, Math.PI * 2);
-        const hullGrad = ctx.createLinearGradient(7, 6, 23, 24);
-        hullGrad.addColorStop(0, '#7f8996');
-        hullGrad.addColorStop(0.46, '#37414f');
-        hullGrad.addColorStop(1, '#171e28');
-        ctx.fillStyle = hullGrad;
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(226, 236, 248, 0.88)';
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.arc(15, 15, 5.9, 0, Math.PI * 2);
-        const coreGrad = ctx.createRadialGradient(15, 14, 0.8, 15, 15, 6.2);
-        coreGrad.addColorStop(0, 'rgba(255, 247, 217, 1)');
-        coreGrad.addColorStop(0.35, 'rgba(255, 210, 126, 0.95)');
-        coreGrad.addColorStop(1, 'rgba(255, 120, 52, 0.5)');
-        ctx.fillStyle = coreGrad;
-        ctx.fill();
-
-        for (let i = 0; i < 8; i++) {
-          const angle = (i / 8) * Math.PI * 2;
-          const ix = 15 + Math.cos(angle) * 9.6;
-          const iy = 15 + Math.sin(angle) * 9.6;
-          const ox = 15 + Math.cos(angle) * 13.1;
-          const oy = 15 + Math.sin(angle) * 13.1;
-          ctx.strokeStyle = 'rgba(232, 242, 255, 0.86)';
-          ctx.lineWidth = 1.1;
-          ctx.beginPath();
-          ctx.moveTo(ix, iy);
-          ctx.lineTo(ox, oy);
-          ctx.stroke();
-        }
-
-        ctx.strokeStyle = 'rgba(245, 171, 92, 0.8)';
-        ctx.lineWidth = 0.95;
-        ctx.beginPath();
-        ctx.arc(15, 15, 3.1, 0, Math.PI * 2);
-        ctx.stroke();
-
-        texture.refresh();
-      }
-    }
-
-    if (!this.textures.exists(IMPACT_RING_TEXTURE_KEY)) {
-      const ringG = this.add.graphics();
-      ringG.setVisible(false);
-      ringG.lineStyle(8, 0xffffff, 1);
-      ringG.strokeCircle(
-        IMPACT_RING_TEXTURE_SIZE / 2,
-        IMPACT_RING_TEXTURE_SIZE / 2,
-        IMPACT_RING_TEXTURE_RADIUS,
-      );
-      ringG.generateTexture(
-        IMPACT_RING_TEXTURE_KEY,
-        IMPACT_RING_TEXTURE_SIZE,
-        IMPACT_RING_TEXTURE_SIZE,
-      );
-      ringG.destroy();
-    }
-
-    if (!this.textures.exists('ufo_shard')) {
-      const shardG = this.add.graphics();
-      shardG.fillStyle(0xffffff, 1);
-      shardG.beginPath();
-      shardG.moveTo(8, 0);
-      shardG.lineTo(14, 6);
-      shardG.lineTo(10, 16);
-      shardG.lineTo(2, 14);
-      shardG.lineTo(0, 6);
-      shardG.closePath();
-      shardG.fillPath();
-      shardG.lineStyle(1, 0xd7f8ff, 1);
-      shardG.strokePath();
-      shardG.generateTexture('ufo_shard', 16, 16);
-      shardG.destroy();
-    }
-
-    if (!this.textures.exists('elite_drone')) {
-      const texture = this.textures.createCanvas('elite_drone', 32, 28);
-      if (texture) {
-        const ctx = texture.getContext();
-        ctx.clearRect(0, 0, 32, 28);
-
-        const bodyGradient = ctx.createLinearGradient(4, 6, 28, 22);
-        bodyGradient.addColorStop(0, '#63778d');
-        bodyGradient.addColorStop(0.45, '#2a394d');
-        bodyGradient.addColorStop(1, '#10161f');
-        ctx.fillStyle = bodyGradient;
-        ctx.beginPath();
-        ctx.moveTo(8, 6);
-        ctx.lineTo(24, 6);
-        ctx.quadraticCurveTo(30, 6, 30, 12);
-        ctx.lineTo(30, 16);
-        ctx.quadraticCurveTo(30, 22, 24, 22);
-        ctx.lineTo(8, 22);
-        ctx.quadraticCurveTo(2, 22, 2, 16);
-        ctx.lineTo(2, 12);
-        ctx.quadraticCurveTo(2, 6, 8, 6);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(226, 241, 255, 0.88)';
-        ctx.lineWidth = 1.4;
-        ctx.stroke();
-
-        ctx.fillStyle = 'rgba(13, 20, 31, 0.92)';
-        ctx.beginPath();
-        ctx.moveTo(9, 9);
-        ctx.lineTo(23, 9);
-        ctx.lineTo(25, 14);
-        ctx.lineTo(23, 19);
-        ctx.lineTo(9, 19);
-        ctx.lineTo(7, 14);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(123, 162, 199, 0.45)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        const eyeGlow = ctx.createRadialGradient(16, 14, 0.7, 16, 14, 6.3);
-        eyeGlow.addColorStop(0, 'rgba(236, 251, 255, 1)');
-        eyeGlow.addColorStop(0.35, 'rgba(142, 240, 255, 0.82)');
-        eyeGlow.addColorStop(1, 'rgba(76, 191, 255, 0)');
-        ctx.fillStyle = eyeGlow;
-        ctx.beginPath();
-        ctx.arc(16, 14, 6.1, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(214, 248, 255, 0.95)';
-        ctx.beginPath();
-        ctx.arc(16, 14, 2.6, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.strokeStyle = 'rgba(188, 224, 255, 0.35)';
-        ctx.lineWidth = 0.85;
-        ctx.beginPath();
-        ctx.moveTo(6.5, 14);
-        ctx.lineTo(25.5, 14);
-        ctx.moveTo(9, 18.5);
-        ctx.lineTo(23, 18.5);
-        ctx.stroke();
-
-        const topBeacon = ctx.createRadialGradient(16, 4, 0.4, 16, 4, 3.3);
-        topBeacon.addColorStop(0, 'rgba(241, 255, 255, 1)');
-        topBeacon.addColorStop(0.5, 'rgba(154, 255, 238, 0.9)');
-        topBeacon.addColorStop(1, 'rgba(90, 205, 175, 0)');
-        ctx.fillStyle = topBeacon;
-        ctx.beginPath();
-        ctx.arc(16, 4, 3.1, 0, Math.PI * 2);
-        ctx.fill();
-
-        texture.refresh();
-      }
-    }
-
-    if (!this.textures.exists(WINGMAN_DRONE_TEXTURE_KEY)) {
-      const texture = this.textures.createCanvas(WINGMAN_DRONE_TEXTURE_KEY, 34, 26);
-      if (texture) {
-        const ctx = texture.getContext();
-        const hullPoints = [
-          { x: 17, y: 2 },
-          { x: 30, y: 8 },
-          { x: 27, y: 21 },
-          { x: 17, y: 24 },
-          { x: 7, y: 21 },
-          { x: 4, y: 8 },
-        ];
-        const traceHull = (xOffset: number = 0, yOffset: number = 0) => {
-          ctx.beginPath();
-          ctx.moveTo(hullPoints[0].x + xOffset, hullPoints[0].y + yOffset);
-          for (let i = 1; i < hullPoints.length; i++) {
-            ctx.lineTo(hullPoints[i].x + xOffset, hullPoints[i].y + yOffset);
-          }
-          ctx.closePath();
-        };
-        ctx.clearRect(0, 0, 34, 26);
-
-        traceHull(0.4, 1.2);
-        ctx.fillStyle = 'rgba(0,0,0,0.36)';
-        ctx.fill();
-
-        traceHull();
-        const bodyGradient = ctx.createLinearGradient(6, 3, 28, 22);
-        bodyGradient.addColorStop(0, '#58677c');
-        bodyGradient.addColorStop(0.45, '#253246');
-        bodyGradient.addColorStop(1, '#0d121a');
-        ctx.fillStyle = bodyGradient;
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(212, 233, 255, 0.88)';
-        ctx.lineWidth = 1.35;
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(17, 5);
-        ctx.lineTo(25, 9);
-        ctx.lineTo(23.5, 17.5);
-        ctx.lineTo(17, 20);
-        ctx.lineTo(10.5, 17.5);
-        ctx.lineTo(9, 9);
-        ctx.closePath();
-        const panelGradient = ctx.createLinearGradient(17, 5, 17, 20);
-        panelGradient.addColorStop(0, '#111a28');
-        panelGradient.addColorStop(1, '#080c12');
-        ctx.fillStyle = panelGradient;
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(124, 159, 194, 0.45)';
-        ctx.lineWidth = 0.9;
-        ctx.stroke();
-
-        const eyeGlow = ctx.createRadialGradient(17, 12, 0.6, 17, 12, 5.2);
-        eyeGlow.addColorStop(0, 'rgba(206, 244, 255, 1)');
-        eyeGlow.addColorStop(0.4, 'rgba(110, 217, 255, 0.82)');
-        eyeGlow.addColorStop(1, 'rgba(36, 145, 220, 0)');
-        ctx.beginPath();
-        ctx.arc(17, 12, 5, 0, Math.PI * 2);
-        ctx.fillStyle = eyeGlow;
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(17, 12, 2.2, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(235, 250, 255, 0.94)';
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.moveTo(8, 10.5);
-        ctx.lineTo(14, 9);
-        ctx.moveTo(26, 10.5);
-        ctx.lineTo(20, 9);
-        ctx.moveTo(9.5, 17.5);
-        ctx.lineTo(14.5, 16.7);
-        ctx.moveTo(24.5, 16.7);
-        ctx.lineTo(19.5, 17.5);
-        ctx.strokeStyle = 'rgba(222, 240, 255, 0.42)';
-        ctx.lineWidth = 0.85;
-        ctx.stroke();
-
-        ctx.fillStyle = 'rgba(145, 190, 228, 0.66)';
-        ctx.fillRect(8.5, 21.2, 17, 1);
-        ctx.fillStyle = 'rgba(255, 187, 108, 0.78)';
-        ctx.beginPath();
-        ctx.arc(11.2, 22.4, 1.15, 0, Math.PI * 2);
-        ctx.arc(22.8, 22.4, 1.15, 0, Math.PI * 2);
-        ctx.fill();
-
-        texture.refresh();
-      }
-    }
-
-    if (!this.textures.exists('shield_bunker')) {
-      const texture = this.textures.createCanvas('shield_bunker', 140, 52);
-      if (texture) {
-        const ctx = texture.getContext();
-        ctx.clearRect(0, 0, 140, 52);
-
-        const traceRoundedRect = (
-          x: number,
-          y: number,
-          width: number,
-          height: number,
-          radius: number,
-        ) => {
-          const r = Math.min(radius, width * 0.5, height * 0.5);
-          ctx.beginPath();
-          ctx.moveTo(x + r, y);
-          ctx.lineTo(x + width - r, y);
-          ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-          ctx.lineTo(x + width, y + height - r);
-          ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-          ctx.lineTo(x + r, y + height);
-          ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-          ctx.lineTo(x, y + r);
-          ctx.quadraticCurveTo(x, y, x + r, y);
-          ctx.closePath();
-        };
-
-        traceRoundedRect(5, 5, 130, 42, 10);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.33)';
-        ctx.fill();
-
-        traceRoundedRect(4, 3, 132, 44, 10);
-        const hullGradient = ctx.createLinearGradient(6, 3, 132, 47);
-        hullGradient.addColorStop(0, '#8f9dac');
-        hullGradient.addColorStop(0.38, '#4c5868');
-        hullGradient.addColorStop(1, '#1f2935');
-        ctx.fillStyle = hullGradient;
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(219, 235, 255, 0.82)';
-        ctx.lineWidth = 1.6;
-        ctx.stroke();
-
-        traceRoundedRect(8, 7, 124, 36, 8);
-        const innerPlateGradient = ctx.createLinearGradient(8, 7, 8, 43);
-        innerPlateGradient.addColorStop(0, 'rgba(21, 30, 41, 0.93)');
-        innerPlateGradient.addColorStop(1, 'rgba(8, 12, 18, 0.95)');
-        ctx.fillStyle = innerPlateGradient;
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(124, 148, 174, 0.58)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        const topGlow = ctx.createLinearGradient(0, 8, 0, 18);
-        topGlow.addColorStop(0, 'rgba(175, 234, 255, 0.54)');
-        topGlow.addColorStop(1, 'rgba(175, 234, 255, 0)');
-        ctx.fillStyle = topGlow;
-        ctx.fillRect(14, 9, 112, 8);
-
-        ctx.strokeStyle = 'rgba(210, 226, 244, 0.32)';
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(24, 14);
-        ctx.lineTo(116, 14);
-        ctx.moveTo(44, 8);
-        ctx.lineTo(44, 42);
-        ctx.moveTo(96, 8);
-        ctx.lineTo(96, 42);
-        ctx.stroke();
-
-        const ventXs = [24, 61, 98];
-        for (const x of ventXs) {
-          const ventGradient = ctx.createLinearGradient(x, 22, x, 50);
-          ventGradient.addColorStop(0, 'rgba(2, 6, 11, 0.95)');
-          ventGradient.addColorStop(1, 'rgba(0, 0, 0, 1)');
-          ctx.fillStyle = ventGradient;
-          ctx.fillRect(x, 22, 18, 28);
-
-          ctx.strokeStyle = 'rgba(145, 168, 198, 0.44)';
-          ctx.lineWidth = 0.9;
-          ctx.strokeRect(x + 0.5, 22.5, 17, 27);
-
-          ctx.strokeStyle = 'rgba(102, 122, 152, 0.5)';
-          ctx.lineWidth = 0.7;
-          ctx.beginPath();
-          ctx.moveTo(x + 6, 23);
-          ctx.lineTo(x + 6, 49);
-          ctx.moveTo(x + 12, 23);
-          ctx.lineTo(x + 12, 49);
-          ctx.stroke();
-
-          const diodeGlow = ctx.createRadialGradient(x + 9, 21, 0.6, x + 9, 21, 4.8);
-          diodeGlow.addColorStop(0, 'rgba(153, 241, 255, 0.95)');
-          diodeGlow.addColorStop(1, 'rgba(45, 175, 225, 0)');
-          ctx.fillStyle = diodeGlow;
-          ctx.beginPath();
-          ctx.arc(x + 9, 21, 4.5, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        ctx.strokeStyle = 'rgba(154, 203, 227, 0.75)';
-        ctx.lineWidth = 1.35;
-        ctx.beginPath();
-        ctx.moveTo(13, 17);
-        ctx.lineTo(127, 17);
-        ctx.stroke();
-
-        const rivets = [18, 33, 48, 63, 78, 93, 108, 123];
-        ctx.fillStyle = 'rgba(218, 235, 255, 0.72)';
-        for (const x of rivets) {
-          ctx.beginPath();
-          ctx.arc(x, 6.8, 0.9, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        texture.refresh();
-      }
-    }
+    bootstrapMainSceneGraphics(this, {
+      proximityMineTextureKey: PROXIMITY_MINE_TEXTURE_KEY,
+      impactRingTextureKey: IMPACT_RING_TEXTURE_KEY,
+      impactRingTextureSize: IMPACT_RING_TEXTURE_SIZE,
+      impactRingTextureRadius: IMPACT_RING_TEXTURE_RADIUS,
+      wingmanDroneTextureKey: WINGMAN_DRONE_TEXTURE_KEY,
+    });
   }
 
   private rollFloatRange(range: readonly [number, number]) {
@@ -4919,8 +4238,8 @@ export default class MainScene extends Phaser.Scene {
         magnetLevel: state?.eliteMagnetPerkLevel ?? 0,
       },
       worldEvents: {
-        wormholeActive: Boolean(this.wormhole?.active),
-        eliteDroneActive: Boolean(this.eliteDrone?.active),
+        wormholeActive: this.worldEvents.isWormholeActive(),
+        eliteDroneActive: this.worldEvents.isEliteDroneActive(),
         topRaidersActive: this.skyRaiderManager.getActiveRaiderCount(),
         topRaiderShotsActive: this.skyRaiderManager.getActiveProjectileCount(),
         shieldBunkerActive: this.powerUpManager.isActive(PowerUpType.SHIELD_BUNKER),
