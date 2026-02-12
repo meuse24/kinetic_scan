@@ -1,0 +1,21 @@
+{
+  "forceEncounter": {
+    "ok": true
+  },
+  "forceDefeat": {
+    "ok": true,
+    "level": 2,
+    "transitionActive": false,
+    "transitionLabel": ""
+  },
+  "overlayDelayMs": 2131,
+  "hasPerkOverlay": true,
+  "transitionActiveAtGate": false,
+  "controlsLockedReport": {
+    "checked": true,
+    "dx": 0,
+    "bulletsBefore": 0,
+    "bulletsAfter": 0
+  },
+  "errors": []
+}

@@ -1,19 +1,8 @@
 import Phaser from 'phaser';
+import { PowerUpType } from './types/PowerUpType';
 
-export const PowerUpType = {
-  TRIPLE_SHOT: 'TRIPLE_SHOT',
-  SLOW_MOTION: 'SLOW_MOTION',
-  SHIELD: 'SHIELD',
-  EMP_WAVE: 'EMP_WAVE',
-  GHOST_PHASE: 'GHOST_PHASE',
-  WINGMAN_DRONES: 'WINGMAN_DRONES',
-  CANNON_COOLING: 'CANNON_COOLING',
-  BLACK_HOLE: 'BLACK_HOLE',
-  SHIELD_BUNKER: 'SHIELD_BUNKER',
-  MINE_LAYER: 'MINE_LAYER',
-} as const;
-
-export type PowerUpType = (typeof PowerUpType)[keyof typeof PowerUpType];
+// Re-export for backward compatibility
+export { PowerUpType };
 
 export class PowerUp extends Phaser.Physics.Arcade.Sprite {
   public type: PowerUpType;

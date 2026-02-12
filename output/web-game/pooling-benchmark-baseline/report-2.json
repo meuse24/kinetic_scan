@@ -1,0 +1,36 @@
+{
+  "label": "baseline_2",
+  "url": "http://127.0.0.1:4175/?renderer=canvas&capture=1",
+  "timestamp": "2026-02-10T21:06:45.565Z",
+  "cycles": 6,
+  "transitions": {
+    "success": 6,
+    "failed": 0
+  },
+  "fps": {
+    "sampleCount": 16,
+    "mean": 46.5,
+    "p10": 32,
+    "p50": 45,
+    "p90": 57,
+    "min": 31,
+    "max": 58
+  },
+  "heapMB": {
+    "available": true,
+    "sampleCount": 16,
+    "mean": 9.84,
+    "min": 8.38,
+    "max": 11.94,
+    "delta": 3.56
+  },
+  "peaks": {
+    "enemiesActiveMax": 36,
+    "bulletsActiveMax": 3
+  },
+  "errors": {
+    "count": 0,
+    "first": []
+  },
+  "rawSampleCount": 16
+}

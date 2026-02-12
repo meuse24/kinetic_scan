@@ -43,6 +43,8 @@ Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/l
 - `src/Player.ts` — `Player` class (ship movement, input handling for keyboard/mouse/touch, heat system) and `Bullet` class. All textures generated procedurally.
 - `src/EnemyManager.ts` — `Enemy` (asteroid) class and `EnemyManager` that handles spawning, fragmentation on destroy, and difficulty scaling
 - `src/UFO.ts` — UFO enemy with two variants: `scout` (single-hit, sine-wave movement) and `boss` (multi-hit with segmented energy bar, phase-based attack patterns, dodge AI, boss modifiers: shielded/summoner/berserk/armored). Both drawn procedurally with animated tentacles, hull, and antenna
+  - `src/entities/ufo/UFOCombatSystem.ts` — Manages UFO hit points, boss phases (1/2/3 based on HP ratio), damage calculation with modifiers (armored: 50% damage reduction, shielded: HP regeneration, berserk: speed boost), and display HP smoothing
+  - `src/entities/ufo/UFOMovementSystem.ts` — Handles scout sine-wave movement and boss dodge AI with bullet evasion. Pure logic with no Phaser dependencies for testability (custom math helpers, EvasionThreats interface)
 
 ### Systems
 
@@ -61,6 +63,24 @@ Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/l
 - `src/RemoteStatsService.ts` — Client-side service for optional PHP stats API sync (lazy snapshots, pending-event queue, offline retry)
 - `src/DebugSettings.ts` — Persisted debug-overlay toggle state used by scene settings menus
 - `src/CRTPipeline.ts` — Custom WebGL post-processing shader (scanlines, chromatic aberration, curvature, vignette)
+
+### Manager Architecture (Refactored 2026)
+
+MainScene was originally a 5,287-line "God Class" handling all gameplay logic. A comprehensive refactoring extracted specialized managers using dependency injection and callback patterns:
+
+- **`src/managers/CollisionManager.ts`** — Collision handler registration and coordination. Handles 15+ collision types (bullets vs enemies/UFO/bunkers, player vs enemies/powerups/projectiles, mines vs threats). CRITICAL: Implements identity checks to work around Phaser 3.90 overlap callback argument-order bug (arguments can be swapped).
+
+- **`src/managers/SpawnManager.ts`** — Wormhole, Elite Drone, Swarm, and Background Decor spawning coordination. Uses `SpawnTimer` utility (`src/utils/SpawnTimer.ts`) for randomized spawn intervals with auto-reset.
+
+- **`src/managers/HUDManager.ts`** — HUD rendering and update logic (scores, lives, level, power-up bar, heat bar, mine charges, boss energy, combo, perks, active player markers). Implements change-detection optimization with cached state to minimize unnecessary text updates.
+
+- **`src/managers/PowerUpManager.ts`** — Power-up timer management, activation/deactivation coordination. Delegates entity spawning (Drones, Black Hole, Shield Bunkers) to callbacks. State sync for 2-player mode. Handles instant power-ups (MINE_LAYER, EMP_WAVE) and timed effects (TRIPLE_SHOT, SHIELD, etc.).
+
+- **`src/ui/UIComponentFactory.ts`** — Reusable UI component factory. Eliminates ~300 lines of duplicated volume slider code across AttractScene, GameOverScene, and PauseScene. Creates interactive sliders with drag, click-to-seek, and real-time value updates.
+
+- **`src/scenes/ModalOverlay.ts`** — Base class for modal overlay scenes (Pause, Help, PerkSelect). Provides semi-transparent background, scene parallax, CRT pipeline setup, BezelScene management, and optional input blocking of underlying scene.
+
+All managers are tested with Vitest (153 tests across 7 test suites). Manager callbacks delegate back to MainScene methods to keep entity-specific logic centralized while extracting coordination concerns.
 
 ## Optional Server API
 

@@ -1,0 +1,24 @@
+{
+  "mode": "AttractScene",
+  "activeScenes": [
+    "AttractScene",
+    "BezelScene"
+  ],
+  "coordinateSystem": {
+    "origin": "top-left",
+    "xAxis": "right",
+    "yAxis": "down"
+  },
+  "captureMode": "canvas",
+  "fps": 60,
+  "viewport": {
+    "width": 1422,
+    "height": 1000
+  },
+  "attract": {
+    "backgroundDecorTier": "low",
+    "backgroundDecorCount": 0,
+    "nebulaLayerCount": 0,
+    "gpu": ""
+  }
+}

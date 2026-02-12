@@ -1,0 +1,18 @@
+{
+  "mode": "PauseScene",
+  "activeScenes": [
+    "PauseScene",
+    "BezelScene"
+  ],
+  "coordinateSystem": {
+    "origin": "top-left",
+    "xAxis": "right",
+    "yAxis": "down"
+  },
+  "captureMode": "canvas",
+  "fps": 59,
+  "viewport": {
+    "width": 1422,
+    "height": 1000
+  }
+}

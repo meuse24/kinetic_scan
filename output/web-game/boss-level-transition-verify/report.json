@@ -1,0 +1,438 @@
+{
+  "ok": true,
+  "url": "http://127.0.0.1:4173/?renderer=canvas&capture=1",
+  "baselineState": {
+    "active": true,
+    "level": 1,
+    "progressionScore": 0,
+    "nextLevelScore": 3400,
+    "bossPending": false,
+    "isLevelTransition": false,
+    "transitionLabel": "",
+    "physicsPaused": false,
+    "enemiesActive": 1,
+    "bulletsActive": 0,
+    "ufoActive": false,
+    "ufoVariant": "scout",
+    "ufoHealth": 1,
+    "ufoShots": 0,
+    "spawnProtectionMs": 983.8566666666653
+  },
+  "baselineRenderState": {
+    "mode": "gameplay",
+    "activeScenes": [
+      "MainScene",
+      "BezelScene"
+    ],
+    "coordinateSystem": {
+      "origin": "top-left",
+      "xAxis": "right",
+      "yAxis": "down"
+    },
+    "captureMode": "canvas",
+    "fps": 60,
+    "viewport": {
+      "width": 1778,
+      "height": 1000
+    },
+    "player": {
+      "x": 889,
+      "y": 900,
+      "heat": 0,
+      "overheated": false
+    },
+    "score": 0,
+    "lives": 3,
+    "difficulty": {
+      "preset": "normal",
+      "presetLabel": "NORMAL",
+      "level": 1,
+      "progressionScore": 0,
+      "nextLevelScore": 3400,
+      "scoreToBoss": 3400,
+      "bossPending": false,
+      "bossEnergy": 0,
+      "bossEnergyMax": 0,
+      "transition": {
+        "active": false,
+        "countdown": ""
+      },
+      "perks": {
+        "lifeBonus": 0,
+        "coolingLevel": 0,
+        "magnetLevel": 0
+      },
+      "worldEvents": {
+        "wormholeActive": false,
+        "eliteDroneActive": false,
+        "shieldBunkerActive": false,
+        "shieldBunkerCount": 0,
+        "backgroundDecorTier": "off",
+        "backgroundDecorCount": 0,
+        "nebulaLayerCount": 0
+      },
+      "spawnProtectionMs": 984,
+      "levelOpening": {
+        "elapsedMs": 1216,
+        "startScore": 0,
+        "supportDropGranted": false,
+        "supportDropInMs": 8489
+      }
+    },
+    "enemies": [
+      {
+        "x": 1406,
+        "y": 241,
+        "scale": 0.9145597094026119
+      }
+    ],
+    "bulletStats": {
+      "active": 0,
+      "cap": 55
+    },
+    "ufo": {
+      "active": false,
+      "x": -100,
+      "y": -100,
+      "variant": "scout",
+      "health": 1,
+      "maxHealth": 1,
+      "bossPhase": 0,
+      "shots": 0
+    },
+    "collisionPressure": {
+      "pendingHits": 0,
+      "queuedTotal": 0,
+      "queuedBulletTotal": 0,
+      "queuedEmpTotal": 0,
+      "flushedTotal": 0,
+      "coalescedFlushes": 0,
+      "directFlushes": 0,
+      "explosionEmitsTotal": 0,
+      "sfxBurstsTotal": 0,
+      "clusterDropsTotal": 0,
+      "pendingQueuePeak": 0,
+      "lastFlushHits": 0,
+      "lastFlushClusters": 0,
+      "lastFlushExplosionEmits": 0,
+      "lastFlushSfxBursts": 0,
+      "lastFlushClusterDrops": 0,
+      "lastFlushCoalesced": false,
+      "lastFlushSourceMix": "none"
+    },
+    "powerUps": [],
+    "shieldBunkers": []
+  },
+  "forceBossResult": {
+    "ok": true
+  },
+  "bossSpawnSnapshot": {
+    "active": true,
+    "level": 1,
+    "progressionScore": 0,
+    "nextLevelScore": 3400,
+    "bossPending": true,
+    "isLevelTransition": false,
+    "transitionLabel": "",
+    "physicsPaused": false,
+    "enemiesActive": 2,
+    "bulletsActive": 0,
+    "ufoActive": true,
+    "ufoVariant": "boss",
+    "ufoHealth": 7,
+    "ufoShots": 0,
+    "spawnProtectionMs": 817.1866666666654
+  },
+  "killResult": {
+    "ok": true,
+    "level": 2,
+    "transitionActive": true,
+    "transitionLabel": ""
+  },
+  "assertions": {
+    "forceHookWorked": true,
+    "bossSpawned": true,
+    "killTriggered": true,
+    "transitionSawActive": true,
+    "transitionCompleted": true,
+    "levelIncreased": true,
+    "transitionEventuallyInactive": true,
+    "postTransitionSpawnProtection": true,
+    "cleanupOnTransitionStart": true
+  },
+  "transitionFrames": [
+    {
+      "index": 0,
+      "sceneTime": null,
+      "level": 2,
+      "isTransition": true,
+      "transitionLabel": "",
+      "physicsPaused": true,
+      "enemiesActive": 0,
+      "bulletsActive": 0,
+      "ufoActive": false,
+      "ufoShots": 0,
+      "spawnProtectionMs": 0,
+      "renderTransition": {
+        "active": true,
+        "countdown": ""
+      },
+      "renderWorldEvents": {
+        "wormholeActive": false,
+        "eliteDroneActive": false,
+        "shieldBunkerActive": false,
+        "shieldBunkerCount": 0,
+        "backgroundDecorTier": "off",
+        "backgroundDecorCount": 0,
+        "nebulaLayerCount": 0
+      }
+    },
+    {
+      "index": 71,
+      "sceneTime": null,
+      "level": 2,
+      "isTransition": true,
+      "transitionLabel": "3",
+      "physicsPaused": true,
+      "enemiesActive": 0,
+      "bulletsActive": 0,
+      "ufoActive": false,
+      "ufoShots": 0,
+      "spawnProtectionMs": 0,
+      "renderTransition": {
+        "active": true,
+        "countdown": "3"
+      },
+      "renderWorldEvents": {
+        "wormholeActive": false,
+        "eliteDroneActive": false,
+        "shieldBunkerActive": false,
+        "shieldBunkerCount": 0,
+        "backgroundDecorTier": "off",
+        "backgroundDecorCount": 0,
+        "nebulaLayerCount": 0
+      }
+    },
+    {
+      "index": 118,
+      "sceneTime": null,
+      "level": 2,
+      "isTransition": true,
+      "transitionLabel": "2",
+      "physicsPaused": true,
+      "enemiesActive": 0,
+      "bulletsActive": 0,
+      "ufoActive": false,
+      "ufoShots": 0,
+      "spawnProtectionMs": 0,
+      "renderTransition": {
+        "active": true,
+        "countdown": "2"
+      },
+      "renderWorldEvents": {
+        "wormholeActive": false,
+        "eliteDroneActive": false,
+        "shieldBunkerActive": false,
+        "shieldBunkerCount": 0,
+        "backgroundDecorTier": "off",
+        "backgroundDecorCount": 0,
+        "nebulaLayerCount": 0
+      }
+    },
+    {
+      "index": 165,
+      "sceneTime": null,
+      "level": 2,
+      "isTransition": true,
+      "transitionLabel": "1",
+      "physicsPaused": true,
+      "enemiesActive": 0,
+      "bulletsActive": 0,
+      "ufoActive": false,
+      "ufoShots": 0,
+      "spawnProtectionMs": 0,
+      "renderTransition": {
+        "active": true,
+        "countdown": "1"
+      },
+      "renderWorldEvents": {
+        "wormholeActive": false,
+        "eliteDroneActive": false,
+        "shieldBunkerActive": false,
+        "shieldBunkerCount": 0,
+        "backgroundDecorTier": "off",
+        "backgroundDecorCount": 0,
+        "nebulaLayerCount": 0
+      }
+    },
+    {
+      "index": 213,
+      "sceneTime": null,
+      "level": 2,
+      "isTransition": true,
+      "transitionLabel": "GO!",
+      "physicsPaused": true,
+      "enemiesActive": 0,
+      "bulletsActive": 0,
+      "ufoActive": false,
+      "ufoShots": 0,
+      "spawnProtectionMs": 0,
+      "renderTransition": {
+        "active": true,
+        "countdown": "GO!"
+      },
+      "renderWorldEvents": {
+        "wormholeActive": false,
+        "eliteDroneActive": false,
+        "shieldBunkerActive": false,
+        "shieldBunkerCount": 0,
+        "backgroundDecorTier": "off",
+        "backgroundDecorCount": 0,
+        "nebulaLayerCount": 0
+      }
+    },
+    {
+      "index": 263,
+      "sceneTime": null,
+      "level": 2,
+      "isTransition": false,
+      "transitionLabel": "",
+      "physicsPaused": false,
+      "enemiesActive": 0,
+      "bulletsActive": 0,
+      "ufoActive": false,
+      "ufoShots": 0,
+      "spawnProtectionMs": 1383.34,
+      "renderTransition": {
+        "active": false,
+        "countdown": ""
+      },
+      "renderWorldEvents": {
+        "wormholeActive": false,
+        "eliteDroneActive": false,
+        "shieldBunkerActive": false,
+        "shieldBunkerCount": 0,
+        "backgroundDecorTier": "off",
+        "backgroundDecorCount": 0,
+        "nebulaLayerCount": 0
+      }
+    }
+  ],
+  "postMainState": {
+    "active": true,
+    "level": 2,
+    "progressionScore": 2140,
+    "nextLevelScore": 7760,
+    "bossPending": false,
+    "isLevelTransition": false,
+    "transitionLabel": "",
+    "physicsPaused": false,
+    "enemiesActive": 0,
+    "bulletsActive": 0,
+    "ufoActive": false,
+    "ufoVariant": "boss",
+    "ufoHealth": 0,
+    "ufoShots": 0,
+    "spawnProtectionMs": 766.6700000000001
+  },
+  "postRenderState": {
+    "mode": "gameplay",
+    "activeScenes": [
+      "MainScene",
+      "BezelScene"
+    ],
+    "coordinateSystem": {
+      "origin": "top-left",
+      "xAxis": "right",
+      "yAxis": "down"
+    },
+    "captureMode": "canvas",
+    "fps": 60,
+    "viewport": {
+      "width": 1778,
+      "height": 1000
+    },
+    "player": {
+      "x": 889,
+      "y": 900,
+      "heat": 0,
+      "overheated": false
+    },
+    "score": 2140,
+    "lives": 3,
+    "difficulty": {
+      "preset": "normal",
+      "presetLabel": "NORMAL",
+      "level": 2,
+      "progressionScore": 2140,
+      "nextLevelScore": 7760,
+      "scoreToBoss": 5620,
+      "bossPending": false,
+      "bossEnergy": 0,
+      "bossEnergyMax": 0,
+      "transition": {
+        "active": false,
+        "countdown": ""
+      },
+      "perks": {
+        "lifeBonus": 0,
+        "coolingLevel": 0,
+        "magnetLevel": 0
+      },
+      "worldEvents": {
+        "wormholeActive": false,
+        "eliteDroneActive": false,
+        "shieldBunkerActive": false,
+        "shieldBunkerCount": 0,
+        "backgroundDecorTier": "off",
+        "backgroundDecorCount": 0,
+        "nebulaLayerCount": 0
+      },
+      "spawnProtectionMs": 767,
+      "levelOpening": {
+        "elapsedMs": 633,
+        "startScore": 2140,
+        "supportDropGranted": false,
+        "supportDropInMs": 7109
+      }
+    },
+    "enemies": [],
+    "bulletStats": {
+      "active": 0,
+      "cap": 55
+    },
+    "ufo": {
+      "active": false,
+      "x": 1469,
+      "y": 213,
+      "variant": "boss",
+      "health": 0,
+      "maxHealth": 7,
+      "bossPhase": 1,
+      "shots": 0
+    },
+    "collisionPressure": {
+      "pendingHits": 0,
+      "queuedTotal": 0,
+      "queuedBulletTotal": 0,
+      "queuedEmpTotal": 0,
+      "flushedTotal": 0,
+      "coalescedFlushes": 0,
+      "directFlushes": 0,
+      "explosionEmitsTotal": 0,
+      "sfxBurstsTotal": 0,
+      "clusterDropsTotal": 0,
+      "pendingQueuePeak": 0,
+      "lastFlushHits": 0,
+      "lastFlushClusters": 0,
+      "lastFlushExplosionEmits": 0,
+      "lastFlushSfxBursts": 0,
+      "lastFlushClusterDrops": 0,
+      "lastFlushCoalesced": false,
+      "lastFlushSourceMix": "none"
+    },
+    "powerUps": [],
+    "shieldBunkers": []
+  },
+  "consoleErrors": []
+}

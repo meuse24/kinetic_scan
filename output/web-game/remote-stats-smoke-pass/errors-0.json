@@ -1,0 +1,6 @@
+[
+  {
+    "type": "pageerror",
+    "text": "Uncaught (in promise) SyntaxError: Unexpected token '<', \"<?php\ndecl\"... is not valid JSON"
+  }
+]

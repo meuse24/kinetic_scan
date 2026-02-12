@@ -1,0 +1,36 @@
+{
+  "label": "current_pooling_2",
+  "url": "http://127.0.0.1:4176/?renderer=canvas&capture=1",
+  "timestamp": "2026-02-10T21:09:47.114Z",
+  "cycles": 6,
+  "transitions": {
+    "success": 5,
+    "failed": 1
+  },
+  "fps": {
+    "sampleCount": 16,
+    "mean": 46.25,
+    "p10": 33,
+    "p50": 42,
+    "p90": 57,
+    "min": 32,
+    "max": 58
+  },
+  "heapMB": {
+    "available": true,
+    "sampleCount": 16,
+    "mean": 10.14,
+    "min": 8.41,
+    "max": 11.27,
+    "delta": 2.86
+  },
+  "peaks": {
+    "enemiesActiveMax": 35,
+    "bulletsActiveMax": 1
+  },
+  "errors": {
+    "count": 0,
+    "first": []
+  },
+  "rawSampleCount": 16
+}

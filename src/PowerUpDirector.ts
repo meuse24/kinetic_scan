@@ -4,8 +4,9 @@ import type { DifficultyPreset } from './Difficulty';
 import { PowerUp, PowerUpType } from './PowerUp';
 
 const SHIELD_BUNKER_REROLL_PERCENT = 45;
-const MAX_ACTIVE_POWER_UPS = 15;
+const MAX_ACTIVE_POWER_UPS = 8;
 const MAX_DROPS_PER_ENEMY = 3;
+const LAST_POWERUP_COOLDOWN_PERCENT = 60;
 
 type EnemyDropTier = 'asteroid' | 'skyRaider' | 'ufoScout' | 'ufoBoss';
 type EnemyDropProfile = {
@@ -19,30 +20,30 @@ type EnemyDropProfile = {
 const ENEMY_DROP_PROFILES: Record<EnemyDropTier, EnemyDropProfile> = {
   asteroid: {
     guaranteedDrops: 0,
-    firstDropChance: 0.22,
-    secondDropChance: 0.06,
-    thirdDropChance: 0.02,
+    firstDropChance: 0.18,
+    secondDropChance: 0.04,
+    thirdDropChance: 0.01,
     spreadRadius: 34,
   },
   skyRaider: {
-    guaranteedDrops: 1,
-    firstDropChance: 1,
-    secondDropChance: 0.32,
-    thirdDropChance: 0.12,
+    guaranteedDrops: 0,
+    firstDropChance: 0.85,
+    secondDropChance: 0.22,
+    thirdDropChance: 0.08,
     spreadRadius: 42,
   },
   ufoScout: {
     guaranteedDrops: 1,
     firstDropChance: 1,
-    secondDropChance: 0.5,
-    thirdDropChance: 0.22,
+    secondDropChance: 0.35,
+    thirdDropChance: 0.12,
     spreadRadius: 50,
   },
   ufoBoss: {
-    guaranteedDrops: 2,
+    guaranteedDrops: 1,
     firstDropChance: 1,
-    secondDropChance: 1,
-    thirdDropChance: 0.68,
+    secondDropChance: 0.4,
+    thirdDropChance: 0.15,
     spreadRadius: 62,
   },
 };
@@ -52,21 +53,17 @@ export class PowerUpDirector {
   private powerUps: Phaser.Physics.Arcade.Group;
   private readonly randomSpawnPool: PowerUpType[] = [
     PowerUpType.TRIPLE_SHOT,
-    PowerUpType.TRIPLE_SHOT,
     PowerUpType.SLOW_MOTION,
-    PowerUpType.SLOW_MOTION,
-    PowerUpType.SHIELD,
     PowerUpType.SHIELD,
     PowerUpType.EMP_WAVE,
     PowerUpType.GHOST_PHASE,
     PowerUpType.BLACK_HOLE,
     PowerUpType.WINGMAN_DRONES,
     PowerUpType.CANNON_COOLING,
-    PowerUpType.CANNON_COOLING,
-    PowerUpType.SHIELD_BUNKER,
     PowerUpType.SHIELD_BUNKER,
     PowerUpType.MINE_LAYER,
   ];
+  private lastSpawnedType: PowerUpType | null = null;
 
   // Combo logic for asteroid chain kills (bonus drop chance)
   private comboCount: number = 0;
@@ -98,12 +95,14 @@ export class PowerUpDirector {
   public resetForLevelStart(_score: number) {
     this.comboCount = 0;
     this.lastKillTime = 0;
+    this.lastSpawnedType = null;
     this.deactivateAllPowerUps();
   }
 
   public reset() {
     this.comboCount = 0;
     this.lastKillTime = 0;
+    this.lastSpawnedType = null;
     this.deactivateAllPowerUps();
   }
 
@@ -225,8 +224,22 @@ export class PowerUpDirector {
   private spawnPowerUp(x: number, y: number) {
     if (this.powerUps.countActive(true) >= MAX_ACTIVE_POWER_UPS) return false;
 
-    const spawnPool = this.getSpawnPool();
+    let spawnPool = this.getSpawnPool();
+
+    // Cooldown system: remove last spawned type from pool with LAST_POWERUP_COOLDOWN_PERCENT chance
+    if (
+      this.lastSpawnedType !== null &&
+      Phaser.Math.Between(0, 99) < LAST_POWERUP_COOLDOWN_PERCENT
+    ) {
+      const filteredPool = spawnPool.filter((entry) => entry !== this.lastSpawnedType);
+      if (filteredPool.length > 0) {
+        spawnPool = filteredPool;
+      }
+    }
+
     let type = Phaser.Utils.Array.GetRandom(spawnPool);
+
+    // Shield bunker reroll logic
     if (
       type === PowerUpType.SHIELD_BUNKER &&
       Phaser.Math.Between(0, 99) < SHIELD_BUNKER_REROLL_PERCENT
@@ -240,13 +253,13 @@ export class PowerUpDirector {
     const powerUp = this.powerUps.get(x, y) as PowerUp;
     if (!powerUp) return false;
     powerUp.spawn(x, y, type);
+    this.lastSpawnedType = type;
     return true;
   }
 
   private getSpawnPool() {
     if (this.difficultyLevel >= 7) {
       return [
-        PowerUpType.TRIPLE_SHOT,
         PowerUpType.TRIPLE_SHOT,
         PowerUpType.SLOW_MOTION,
         PowerUpType.EMP_WAVE,
@@ -255,13 +268,11 @@ export class PowerUpDirector {
         PowerUpType.WINGMAN_DRONES,
         PowerUpType.CANNON_COOLING,
         PowerUpType.SHIELD_BUNKER,
-        PowerUpType.SHIELD_BUNKER,
         PowerUpType.MINE_LAYER,
       ];
     }
     if (this.difficultyLevel >= 4) {
       return [
-        PowerUpType.TRIPLE_SHOT,
         PowerUpType.TRIPLE_SHOT,
         PowerUpType.SLOW_MOTION,
         PowerUpType.SHIELD,
@@ -270,7 +281,6 @@ export class PowerUpDirector {
         PowerUpType.BLACK_HOLE,
         PowerUpType.WINGMAN_DRONES,
         PowerUpType.CANNON_COOLING,
-        PowerUpType.SHIELD_BUNKER,
         PowerUpType.SHIELD_BUNKER,
         PowerUpType.MINE_LAYER,
       ];
