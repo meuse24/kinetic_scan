@@ -47,6 +47,7 @@ import { PowerUpManager } from './managers/PowerUpManager';
 import type { PowerUpCallbacks, PowerUpManagerConfig } from './managers/PowerUpManager';
 import { bootstrapMainSceneGraphics } from './MainSceneGraphics';
 import { MainHazardsSystem } from './systems/MainHazardsSystem';
+import { MainMineFieldSystem } from './systems/MainMineFieldSystem';
 import { MainWorldEvents } from './systems/MainWorldEvents';
 
 interface PlayerState {
@@ -79,13 +80,6 @@ interface NebulaLayerState {
   baseAlpha: number;
   alphaWave: number;
   phase: number;
-}
-
-interface MineState {
-  targetX: number;
-  targetY: number;
-  armed: boolean;
-  pulsePhase: number;
 }
 
 type MainSceneData = {
@@ -146,7 +140,6 @@ export default class MainScene extends Phaser.Scene {
   private player!: Player;
   private bullets!: Phaser.Physics.Arcade.Group;
   private proximityMines!: Phaser.Physics.Arcade.Group;
-  private mineStates: Map<Phaser.Physics.Arcade.Image, MineState> = new Map();
   private shieldBunkers!: Phaser.Physics.Arcade.StaticGroup;
   public enemyManager!: EnemyManager;
   private explosionManager!: ExplosionManager;
@@ -218,6 +211,7 @@ export default class MainScene extends Phaser.Scene {
   private impactRingTweens: Map<Phaser.GameObjects.Image, Phaser.Tweens.Tween> = new Map();
   private worldEvents!: MainWorldEvents;
   private hazards!: MainHazardsSystem;
+  private mineField!: MainMineFieldSystem;
   private empGraphics!: Phaser.GameObjects.Graphics;
   private backgroundDecorTier: BackgroundDecorTier = 'off';
   private backgroundDecorSpawnTimerMs: number = 0;
@@ -286,11 +280,6 @@ export default class MainScene extends Phaser.Scene {
   private spawnProtectionTimerMs: number = 0;
   private spawnProtectionTween?: Phaser.Tweens.Tween;
   private mineDeployCharges: number = INITIAL_MINE_DEPLOY_CHARGES;
-  private lastMineDeployTapAt: number = -10000;
-  private lastMineDeployTapX: number = -1000;
-  private lastMineDeployTapY: number = -1000;
-  private readonly mineDeployDoubleTapWindowMs: number = 320;
-  private readonly mineDeployDoubleTapMaxDistancePx: number = 72;
   private mineDeployHintCooldownUntil: number = 0;
   private lastPlayerRecoilAt: number = -1000;
   private hitStopTimer?: Phaser.Time.TimerEvent;
@@ -331,11 +320,7 @@ export default class MainScene extends Phaser.Scene {
     this.spawnProtectionTimerMs = 0;
     this.spawnProtectionTween = undefined;
     this.mineDeployCharges = INITIAL_MINE_DEPLOY_CHARGES;
-    this.lastMineDeployTapAt = -10000;
-    this.lastMineDeployTapX = -1000;
-    this.lastMineDeployTapY = -1000;
     this.mineDeployHintCooldownUntil = 0;
-    this.mineStates.clear();
     this.lastPlayerRecoilAt = -1000;
     this.trailEmitAccumulatorMs = 0;
     this.backgroundDecorTier = 'off';
@@ -493,6 +478,20 @@ export default class MainScene extends Phaser.Scene {
       isShieldBunkerPowerActive: () =>
         this.powerUpManager?.isActive(PowerUpType.SHIELD_BUNKER) ?? false,
     });
+    this.mineField = new MainMineFieldSystem({
+      scene: this,
+      mines: this.proximityMines,
+      player: this.player,
+      textureKey: PROXIMITY_MINE_TEXTURE_KEY,
+      deployCount: PROXIMITY_MINE_DEPLOY_COUNT,
+      getPlayerCount: () => this.playerCount,
+      isInputBlocked: () =>
+        this.isGameOver ||
+        this.isSwitching ||
+        this.isLevelTransition ||
+        this.scene.isPaused('MainScene') ||
+        !this.scene.isActive('MainScene'),
+    });
     // Create graphics before HUD so they can be passed to HUDManager
     this.powerUpBar = this.add.graphics();
     this.heatBar = this.add.graphics().setDepth(120);
@@ -590,7 +589,7 @@ export default class MainScene extends Phaser.Scene {
       this.ufo.deactivate();
       this.skyRaiderManager.deactivateAll();
       this.hazards.destroy();
-      this.clearProximityMines();
+      this.mineField.destroy();
       safeClearGroup(this.proximityMines as any);
       this.impactRingTweens.forEach((tween) => tween.stop());
       this.impactRingTweens.clear();
@@ -2570,32 +2569,7 @@ export default class MainScene extends Phaser.Scene {
     pointer: Phaser.Input.Pointer,
     currentlyOver: Phaser.GameObjects.GameObject[] = [],
   ) {
-    if (pointer.button !== 0) return;
-    if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
-    if (this.scene.isPaused('MainScene') || !this.scene.isActive('MainScene')) return;
-
-    const overInteractiveUI = currentlyOver.some((obj) => {
-      const input = (obj as any).input as { enabled?: boolean } | undefined;
-      return Boolean(input?.enabled);
-    });
-    if (overInteractiveUI) {
-      this.lastMineDeployTapAt = -10000;
-      this.lastMineDeployTapX = -1000;
-      this.lastMineDeployTapY = -1000;
-      return;
-    }
-
-    const now = this.time.now;
-    const dt = now - this.lastMineDeployTapAt;
-    const dx = pointer.x - this.lastMineDeployTapX;
-    const dy = pointer.y - this.lastMineDeployTapY;
-    const isCloseEnough = dx * dx + dy * dy <= this.mineDeployDoubleTapMaxDistancePx ** 2;
-    const isDoubleTap = dt <= this.mineDeployDoubleTapWindowMs && isCloseEnough;
-    this.lastMineDeployTapAt = now;
-    this.lastMineDeployTapX = pointer.x;
-    this.lastMineDeployTapY = pointer.y;
-
-    if (!isDoubleTap) return;
+    if (!this.mineField.handlePointerDown(pointer, currentlyOver)) return;
     this.tryDeployMineFieldFromInput();
   }
 
@@ -2607,30 +2581,7 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private clearProximityMines() {
-    this.mineStates.clear();
-    if (!this.proximityMines) return;
-    const groupAny = this.proximityMines as any;
-    let children: Phaser.Physics.Arcade.Image[] = [];
-    try {
-      if (groupAny.children && Array.isArray(groupAny.children.entries)) {
-        children = groupAny.children.entries as Phaser.Physics.Arcade.Image[];
-      } else if (typeof groupAny.getChildren === 'function') {
-        children = groupAny.getChildren() as Phaser.Physics.Arcade.Image[];
-      }
-    } catch {
-      // Ignore teardown races during scene shutdown.
-      return;
-    }
-    for (const mine of children) {
-      if (!mine.active) continue;
-      try {
-        mine.disableBody(true, true);
-        mine.setScale(1);
-        mine.setAlpha(1);
-      } catch {
-        // Ignore teardown races during scene shutdown.
-      }
-    }
+    this.mineField.clear();
   }
 
   private tryDeployMineFieldFromInput() {
@@ -2665,120 +2616,19 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private deployMineFieldFromPlayer() {
-    if (!this.proximityMines || !this.player?.active) return 0;
-    const launchCount = PROXIMITY_MINE_DEPLOY_COUNT;
-    let deployed = 0;
-    const launchOriginX = this.player.x;
-    const launchOriginY = this.player.y - 4;
-
-    for (let i = 0; i < launchCount; i++) {
-      const mine = this.proximityMines.get(
-        launchOriginX,
-        launchOriginY,
-        PROXIMITY_MINE_TEXTURE_KEY,
-      ) as Phaser.Physics.Arcade.Image | null;
-      if (!mine) continue;
-
-      const target = this.rollMineTargetPosition(i);
-      const dx = target.x - launchOriginX;
-      const dy = target.y - launchOriginY;
-      const len = Math.max(1, Math.hypot(dx, dy));
-      const speed = Phaser.Math.Between(220, 320);
-      const vx = (dx / len) * speed;
-      const vy = (dy / len) * speed;
-
-      mine.setTexture(PROXIMITY_MINE_TEXTURE_KEY);
-      mine.enableBody(true, launchOriginX, launchOriginY, true, true);
-      mine.setActive(true);
-      mine.setVisible(true);
-      mine.setDepth(88);
-      mine.setAlpha(0.9);
-      mine.setScale(0.88);
-      mine.setBlendMode(Phaser.BlendModes.NORMAL);
-      mine.setVelocity(vx, vy);
-      mine.setAngularVelocity(Phaser.Math.Between(-70, 70));
-      mine.setDrag(0, 0);
-      mine.setImmovable(false);
-      const body = mine.body as Phaser.Physics.Arcade.Body | undefined;
-      if (body && typeof body.setCircle === 'function') {
-        body.setCircle(10, 6, 6);
-      }
-      this.mineStates.set(mine, {
-        targetX: target.x,
-        targetY: target.y,
-        armed: false,
-        pulsePhase: Phaser.Math.FloatBetween(0, Math.PI * 2),
-      });
-      deployed++;
-    }
-
-    return deployed;
-  }
-
-  private rollMineTargetPosition(index: number) {
-    const width = this.scale.width;
-    const height = this.scale.height;
-    const laneX = ((index + 0.5) / PROXIMITY_MINE_DEPLOY_COUNT) * width;
-    const x = Phaser.Math.Clamp(
-      laneX + Phaser.Math.Between(-68, 68),
-      Math.round(width * 0.08),
-      Math.round(width * 0.92),
-    );
-    const y = Phaser.Math.Between(
-      Math.round(height * 0.2),
-      Math.round(height * (this.playerCount === 2 ? 0.62 : 0.68)),
-    );
-    return { x, y };
+    return this.mineField.deployFromPlayer();
   }
 
   private updateProximityMines(delta: number) {
-    if (!this.proximityMines) return;
-    const children = this.proximityMines.getChildren() as Phaser.Physics.Arcade.Image[];
-    const t = this.time.now * 0.001;
-
-    for (const mine of children) {
-      if (!mine.active) continue;
-      const state = this.mineStates.get(mine);
-      if (!state) continue;
-
-      if (!state.armed) {
-        const dx = state.targetX - mine.x;
-        const dy = state.targetY - mine.y;
-        const arrivalDistSq = dx * dx + dy * dy;
-        if (arrivalDistSq <= 18 * 18) {
-          mine.setPosition(state.targetX, state.targetY);
-          mine.setVelocity(0, 0);
-          mine.setAngularVelocity(0);
-          mine.setImmovable(true);
-          mine.rotation = 0;
-          state.armed = true;
-          continue;
-        }
-        mine.rotation += (delta / 1000) * 2.8;
-        continue;
-      }
-
-      const pulse = Math.sin(t * 7.5 + state.pulsePhase);
-      const pulseNorm = pulse * 0.5 + 0.5;
-      mine.setScale(0.92 + pulseNorm * 0.2);
-      mine.setAlpha(0.72 + pulseNorm * 0.26);
-      const r = Math.round(255);
-      const g = Math.round(147 + (242 - 147) * pulseNorm);
-      const b = Math.round(46 + (166 - 46) * pulseNorm);
-      mine.setTint((r << 16) | (g << 8) | b);
-    }
+    this.mineField.update(delta);
   }
 
   private isArmedMine(mine: Phaser.Physics.Arcade.Image) {
-    return Boolean(this.mineStates.get(mine)?.armed);
+    return this.mineField.isArmed(mine);
   }
 
   private consumeMine(mine: Phaser.Physics.Arcade.Image) {
-    this.mineStates.delete(mine);
-    mine.clearTint();
-    mine.disableBody(true, true);
-    mine.setScale(1);
-    mine.setAlpha(1);
+    this.mineField.consume(mine);
   }
 
   private handleMineHitEnemy(mine: Phaser.Physics.Arcade.Image, enemy: Enemy) {

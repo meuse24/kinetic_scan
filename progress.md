@@ -1666,3 +1666,17 @@ TODOs for next agent
   - `npm run test -- --run` pass (8 files, 177 tests)
   - `npm run test:coverage -- --run` pass
   - `npm run test:smoke` pass (8/8, no console errors)
+- 2026-02-12: MainScene mine-field extraction pass completed (option 1 continuation).
+  - Added `src/systems/MainMineFieldSystem.ts` and moved proximity-mine lifecycle out of `MainScene`:
+    - pointer double-tap detection for mine deploy,
+    - mine deployment targeting/launch setup,
+    - mine update loop (arm transition + pulse/tint animation),
+    - consume/clear/destroy with defensive teardown behavior.
+  - `src/MainScene.ts` now delegates mine logic via `this.mineField` and removed mine-local state internals from scene.
+  - Maintained existing gameplay flow by keeping `MainScene`-owned scoring/combat callbacks and calling `mineField.isArmed/consume` there.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run` pass (8 files, 177 tests)
+  - `npm run test:coverage -- --run` pass
+  - `npm run test:smoke` pass (8/8, no console errors)
