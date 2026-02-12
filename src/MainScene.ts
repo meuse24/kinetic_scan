@@ -46,6 +46,7 @@ import type { HUDComponents, HUDState, HUDManagerConfig } from './managers/HUDMa
 import { PowerUpManager } from './managers/PowerUpManager';
 import type { PowerUpCallbacks, PowerUpManagerConfig } from './managers/PowerUpManager';
 import { bootstrapMainSceneGraphics } from './MainSceneGraphics';
+import { MainHazardsSystem } from './systems/MainHazardsSystem';
 import { MainWorldEvents } from './systems/MainWorldEvents';
 
 interface PlayerState {
@@ -213,16 +214,10 @@ export default class MainScene extends Phaser.Scene {
   private ufoSpawnTimer: number = 0;
   private isGameOver: boolean = false;
 
-  private drones: Phaser.GameObjects.Group | null = null;
   private impactRingPool!: Phaser.GameObjects.Group;
   private impactRingTweens: Map<Phaser.GameObjects.Image, Phaser.Tweens.Tween> = new Map();
-  private blackHole: {
-    x: number;
-    y: number;
-    active: boolean;
-    graphics: Phaser.GameObjects.Graphics;
-  } | null = null;
   private worldEvents!: MainWorldEvents;
+  private hazards!: MainHazardsSystem;
   private empGraphics!: Phaser.GameObjects.Graphics;
   private backgroundDecorTier: BackgroundDecorTier = 'off';
   private backgroundDecorSpawnTimerMs: number = 0;
@@ -245,8 +240,6 @@ export default class MainScene extends Phaser.Scene {
   // powerUpTextRefreshMs, lastPowerUpList moved to PowerUpManager
   private powerUpBarRefreshMs: number = 0;
   private heatBarRefreshMs: number = 0;
-  private blackHoleForceAccumulatorMs: number = 0;
-  private blackHoleVisualAccumulatorMs: number = 0;
   // activeStateSyncMs moved to PowerUpManager
   private pendingEnemyHits: PendingEnemyHit[] = [];
   private hitClusterScratch: Map<number, { sumX: number; sumY: number; count: number }> = new Map();
@@ -292,8 +285,6 @@ export default class MainScene extends Phaser.Scene {
   private trailEmitAccumulatorMs: number = 0;
   private spawnProtectionTimerMs: number = 0;
   private spawnProtectionTween?: Phaser.Tweens.Tween;
-  private shieldBunkerWarningStarted: boolean = false;
-  private shieldBunkerWarningTween?: Phaser.Tweens.Tween;
   private mineDeployCharges: number = INITIAL_MINE_DEPLOY_CHARGES;
   private lastMineDeployTapAt: number = -10000;
   private lastMineDeployTapX: number = -1000;
@@ -339,8 +330,6 @@ export default class MainScene extends Phaser.Scene {
     this.magneticDurationMultiplier = 1;
     this.spawnProtectionTimerMs = 0;
     this.spawnProtectionTween = undefined;
-    this.shieldBunkerWarningStarted = false;
-    this.shieldBunkerWarningTween = undefined;
     this.mineDeployCharges = INITIAL_MINE_DEPLOY_CHARGES;
     this.lastMineDeployTapAt = -10000;
     this.lastMineDeployTapX = -1000;
@@ -354,7 +343,6 @@ export default class MainScene extends Phaser.Scene {
     this.backgroundDecor = [];
     this.nebulaLayers = [];
     this.nebulaProfileKey = 'off';
-    this.blackHoleVisualAccumulatorMs = 0;
     this.levelBonusPayoutTween = undefined;
     this.playerStates = [];
     for (let i = 0; i < this.playerCount; i++) {
@@ -494,6 +482,17 @@ export default class MainScene extends Phaser.Scene {
       isFlowBlocked: () => this.isLevelTransition || this.isSwitching,
       isGameOver: () => this.isGameOver,
     });
+    this.hazards = new MainHazardsSystem({
+      scene: this,
+      player: this.player,
+      enemyManager: this.enemyManager,
+      audio: this.audio,
+      shieldBunkers: this.shieldBunkers,
+      wingmanDroneTextureKey: WINGMAN_DRONE_TEXTURE_KEY,
+      shieldBunkerTextureKey: 'shield_bunker',
+      isShieldBunkerPowerActive: () =>
+        this.powerUpManager?.isActive(PowerUpType.SHIELD_BUNKER) ?? false,
+    });
     // Create graphics before HUD so they can be passed to HUDManager
     this.powerUpBar = this.add.graphics();
     this.heatBar = this.add.graphics().setDepth(120);
@@ -590,12 +589,9 @@ export default class MainScene extends Phaser.Scene {
       this.finishLevelTransitionCountdown(false);
       this.ufo.deactivate();
       this.skyRaiderManager.deactivateAll();
-      this.removeDrones();
-      safeDestroyGroup(this.drones as any);
-      this.drones = null;
+      this.hazards.destroy();
       this.clearProximityMines();
       safeClearGroup(this.proximityMines as any);
-      this.removeBlackHole();
       this.impactRingTweens.forEach((tween) => tween.stop());
       this.impactRingTweens.clear();
       safeClearGroup(this.impactRingPool as any);
@@ -603,7 +599,6 @@ export default class MainScene extends Phaser.Scene {
       musicManager.stopGameplay();
       this.clearWorldEvents('reset');
       this.pendingEnemyHits.length = 0;
-      this.stopShieldBunkerWarning(false);
       const bunkerGroup = this.shieldBunkers as any;
       safeClearGroup(bunkerGroup);
       this.comboManager.destroy();
@@ -791,14 +786,11 @@ export default class MainScene extends Phaser.Scene {
     }
 
     this.powerUpManager.update(delta);
-    // Check if shield bunker needs expiry warning
-    if (this.powerUpManager.isActive(PowerUpType.SHIELD_BUNKER)) {
-      const timeLeft = this.powerUpManager.getRemainingTime(PowerUpType.SHIELD_BUNKER);
-      this.maybeStartShieldBunkerExpiryWarning(timeLeft);
-    }
-    this.updateDrones();
+    const shieldBunkerTimeLeft = this.powerUpManager.isActive(PowerUpType.SHIELD_BUNKER)
+      ? this.powerUpManager.getRemainingTime(PowerUpType.SHIELD_BUNKER)
+      : null;
+    this.hazards.update(delta, shieldBunkerTimeLeft);
     this.updateProximityMines(delta);
-    this.updateBlackHole(delta);
     this.updateBossEnergyUI();
 
     // Update HUD displays (throttled at ~30 FPS for performance)
@@ -2492,217 +2484,31 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private spawnDrones() {
-    this.audio.playDrones();
-    if (!this.drones) {
-      this.drones = this.add.group({ maxSize: 2 });
-      for (let i = 0; i < 2; i++) {
-        const drone = this.add.image(this.player.x, this.player.y, WINGMAN_DRONE_TEXTURE_KEY);
-        drone.setDepth(this.player.depth + 0.2);
-        drone.setScale(1);
-        drone.setAlpha(0.95);
-        drone.setActive(false);
-        drone.setVisible(false);
-        this.drones.add(drone);
-      }
-    }
-    const children = this.drones.getChildren() as Phaser.GameObjects.Image[];
-    for (let i = 0; i < children.length; i++) {
-      const drone = children[i];
-      const offset = i === 0 ? -60 : 60;
-      drone.x = this.player.x + offset;
-      drone.y = this.player.y + 20;
-      drone.rotation = 0;
-      drone.setScale(1);
-      drone.setAlpha(0.95);
-      drone.setActive(true);
-      drone.setVisible(true);
-    }
-
-    this.player.setDrones(this.drones);
-  }
-
-  private updateDrones() {
-    if (!this.drones) return;
-    const playerActive = this.player && this.player.active;
-    const droneChildren = (this.drones as any).children;
-    if (!droneChildren || typeof droneChildren.each !== 'function') return;
-    droneChildren.each((drone: any, i: number) => {
-      if (!playerActive) {
-        drone.setVisible(false);
-        return null;
-      }
-      drone.setVisible(true);
-      const offset = i === 0 ? -60 : 60;
-      const phase = this.time.now * 0.006 + i * 1.2;
-      const hover = Math.sin(phase) * 2.4;
-      const targetY = this.player.y + 20 + hover;
-      drone.x = Phaser.Math.Linear(drone.x, this.player.x + offset, 0.12);
-      drone.y = Phaser.Math.Linear(drone.y, targetY, 0.12);
-      drone.rotation = Math.sin(phase * 0.85) * 0.08;
-      drone.setScale(1 + Math.sin(phase * 1.35) * 0.03);
-      drone.setAlpha(0.88 + (Math.sin(phase) * 0.5 + 0.5) * 0.16);
-      return null;
-    });
+    this.hazards.spawnDrones();
   }
 
   private removeDrones() {
-    this.player.setDrones(null);
-    if (!this.drones) return;
-    const groupAny = this.drones as any;
-    let children: Phaser.GameObjects.Image[] = [];
-    try {
-      if (groupAny.children && Array.isArray(groupAny.children.entries)) {
-        children = groupAny.children.entries as Phaser.GameObjects.Image[];
-      } else if (typeof groupAny.getChildren === 'function') {
-        children = groupAny.getChildren() as Phaser.GameObjects.Image[];
-      }
-    } catch {
-      // Ignore teardown races during scene shutdown.
-      return;
-    }
-    for (const drone of children) {
-      drone.setActive(false);
-      drone.setVisible(false);
-    }
+    this.hazards.removeDrones();
   }
 
   private spawnBlackHole() {
-    if (this.blackHole?.active) return;
-    this.audio.playBlackHole();
-    this.audio.startBlackHoleLoop();
-    const x = Phaser.Math.Between(Math.round(GAME_WIDTH * 0.2), Math.round(GAME_WIDTH * 0.8));
-    const y = Phaser.Math.Between(Math.round(GAME_HEIGHT * 0.2), Math.round(GAME_HEIGHT * 0.5));
-    const g = this.add.graphics().setDepth(5);
-    this.blackHoleVisualAccumulatorMs = performanceMonitor.reducedParticles ? 52 : 34;
-    this.blackHoleForceAccumulatorMs = 0;
-    this.blackHole = { x, y, active: true, graphics: g };
-  }
-
-  private updateBlackHole(delta: number) {
-    if (!this.blackHole?.active) return;
-    const { x, y, graphics } = this.blackHole;
-    this.blackHoleVisualAccumulatorMs += delta;
-    const visualInterval = performanceMonitor.reducedParticles ? 52 : 34;
-    if (this.blackHoleVisualAccumulatorMs >= visualInterval) {
-      this.blackHoleVisualAccumulatorMs = 0;
-      graphics
-        .clear()
-        .lineStyle(2, 0xaa00ff, 0.8)
-        .strokeCircle(x, y, 50 + Math.sin(this.time.now * 0.01) * 10);
-    }
-
-    this.blackHoleForceAccumulatorMs += delta;
-    if (this.blackHoleForceAccumulatorMs < 33) return;
-
-    const forceScale = this.blackHoleForceAccumulatorMs / (1000 / 60);
-    this.blackHoleForceAccumulatorMs = 0;
-    const force = 10 * forceScale;
-    const children = this.enemyManager.enemies.getChildren() as Enemy[];
-    for (const enemy of children) {
-      if (!enemy.active || !enemy.body) continue;
-      const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, x, y);
-      enemy.body.velocity.x += Math.cos(angle) * force;
-      enemy.body.velocity.y += Math.sin(angle) * force;
-    }
+    this.hazards.spawnBlackHole();
   }
 
   private removeBlackHole() {
-    this.blackHole?.graphics.destroy();
-    this.blackHole = null;
-    this.blackHoleVisualAccumulatorMs = 0;
-    this.blackHoleForceAccumulatorMs = 0;
-    this.audio.stopBlackHoleLoop();
+    this.hazards.removeBlackHole();
   }
 
   private spawnShieldBunkers() {
-    if (!this.shieldBunkers || this.shieldBunkers.countActive(true) > 0) return;
-    this.stopShieldBunkerWarning(false);
-    const y = Math.round(this.scale.height * SHIELD_BUNKER_TUNING.spawnYRatio);
-    const layoutRatios =
-      this.scale.width <= SHIELD_BUNKER_TUNING.compactLayoutMaxWidth
-        ? SHIELD_BUNKER_TUNING.compactLayoutRatios
-        : SHIELD_BUNKER_TUNING.layoutRatios;
-    const positions = layoutRatios.map((ratio) => Math.round(this.scale.width * ratio));
-
-    for (const x of positions) {
-      const bunker = this.shieldBunkers.get(x, y, 'shield_bunker') as Phaser.Physics.Arcade.Image;
-      if (!bunker) continue;
-      bunker.setTexture('shield_bunker');
-      bunker.setActive(true);
-      bunker.setVisible(true);
-      bunker.setDepth(66);
-      bunker.setAlpha(SHIELD_BUNKER_TUNING.idleAlpha);
-      const body = bunker.body as Phaser.Physics.Arcade.StaticBody | Phaser.Physics.Arcade.Body;
-      if (body) body.enable = true;
-      bunker.setPosition(x, y);
-      bunker.refreshBody();
-      this.tweens.add({
-        targets: bunker,
-        alpha: SHIELD_BUNKER_TUNING.spawnPulseAlpha,
-        duration: SHIELD_BUNKER_TUNING.spawnPulseDurationMs,
-        yoyo: true,
-        ease: 'Sine.easeOut',
-      });
-    }
-  }
-
-  private getActiveShieldBunkers() {
-    if (!this.shieldBunkers) return [] as Phaser.Physics.Arcade.Image[];
-    return (this.shieldBunkers.getChildren() as Phaser.Physics.Arcade.Image[]).filter(
-      (bunker) => bunker.active,
-    );
-  }
-
-  private maybeStartShieldBunkerExpiryWarning(timeLeftMs: number) {
-    if (this.shieldBunkerWarningStarted) return;
-    if (timeLeftMs > SHIELD_BUNKER_TUNING.warningLeadMs) return;
-    const bunkers = this.getActiveShieldBunkers();
-    if (bunkers.length === 0) return;
-
-    this.shieldBunkerWarningStarted = true;
-    this.tweens.killTweensOf(bunkers);
-    for (const bunker of bunkers) {
-      bunker.setAlpha(SHIELD_BUNKER_TUNING.idleAlpha);
-    }
-
-    this.shieldBunkerWarningTween = this.tweens.add({
-      targets: bunkers,
-      alpha: SHIELD_BUNKER_TUNING.spawnPulseAlpha,
-      duration: SHIELD_BUNKER_TUNING.warningBlinkHalfPeriodMs,
-      yoyo: true,
-      repeat: Math.max(0, SHIELD_BUNKER_TUNING.warningBlinkCount - 1),
-      ease: 'Sine.easeInOut',
-      onComplete: () => {
-        this.shieldBunkerWarningTween = undefined;
-        if (!this.powerUpManager.isActive(PowerUpType.SHIELD_BUNKER)) return;
-        for (const bunker of this.getActiveShieldBunkers()) {
-          bunker.setAlpha(SHIELD_BUNKER_TUNING.idleAlpha);
-        }
-      },
-    });
+    this.hazards.spawnShieldBunkers();
   }
 
   private stopShieldBunkerWarning(restoreAlpha: boolean) {
-    if (this.shieldBunkerWarningTween) {
-      this.shieldBunkerWarningTween.stop();
-      this.shieldBunkerWarningTween = undefined;
-    }
-    this.shieldBunkerWarningStarted = false;
-    if (!restoreAlpha) return;
-    for (const bunker of this.getActiveShieldBunkers()) {
-      bunker.setAlpha(SHIELD_BUNKER_TUNING.idleAlpha);
-    }
+    this.hazards.stopShieldBunkerWarning(restoreAlpha);
   }
 
   private removeShieldBunkers() {
-    const bunkers = this.getActiveShieldBunkers();
-    if (bunkers.length > 0) {
-      this.tweens.killTweensOf(bunkers);
-    }
-    this.stopShieldBunkerWarning(false);
-    for (const bunker of bunkers) {
-      bunker.disableBody(true, true);
-    }
+    this.hazards.removeShieldBunkers();
   }
 
   private handleBulletHitShieldBunker(bullet: Bullet, _bunker: Phaser.Physics.Arcade.Sprite) {
@@ -2749,10 +2555,7 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private hasActiveShieldBunkers() {
-    return (
-      this.powerUpManager.isActive(PowerUpType.SHIELD_BUNKER) ||
-      (this.shieldBunkers?.countActive(true) ?? 0) > 0
-    );
+    return this.hazards.hasActiveShieldBunkers();
   }
 
   private tryActivateShieldBunkerFromInput() {

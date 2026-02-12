@@ -1647,3 +1647,22 @@ TODOs for next agent
   - `npm run test -- --run` pass
   - `npm run test:coverage -- --run` pass
   - `npm run test:smoke` pass (8/8, no console errors)
+- 2026-02-12: MainScene hazard-system extraction pass completed (option 1 follow-up).
+  - Added `src/systems/MainHazardsSystem.ts` and moved hazard responsibilities out of `MainScene`:
+    - wingman drones spawn/remove/update,
+    - black-hole spawn/remove/update (visual + pull force accumulator),
+    - shield-bunker spawn/remove/warning lifecycle.
+  - `src/MainScene.ts` now delegates hazard operations via `this.hazards` and no longer stores hazard-local runtime fields directly.
+  - Lifecycle integration:
+    - initialized in `create()` after core scene systems,
+    - updated per-frame via `hazards.update(delta, shieldBunkerTimeLeft)`,
+    - teardown via `hazards.destroy()` in scene shutdown.
+  - Maintainability impact:
+    - reduced hazard-specific surface area in `MainScene`,
+    - isolated hazard behavior into a focused system for follow-up testing/refactor.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run` pass (8 files, 177 tests)
+  - `npm run test:coverage -- --run` pass
+  - `npm run test:smoke` pass (8/8, no console errors)
