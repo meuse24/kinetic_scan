@@ -43,6 +43,12 @@ import { PerkSystem } from './PerkSystem';
 import { statsManager } from './StatsManager';
 import { isDebugOverlayEnabled, setDebugOverlayEnabled } from './DebugSettings';
 import SceneBackground from './SceneBackground';
+import { CollisionManager } from './managers/CollisionManager';
+import type { CollisionCallbacks } from './managers/CollisionManager';
+import { HUDManager } from './managers/HUDManager';
+import type { HUDComponents, HUDState, HUDManagerConfig } from './managers/HUDManager';
+import { PowerUpManager } from './managers/PowerUpManager';
+import type { PowerUpCallbacks, PowerUpManagerConfig } from './managers/PowerUpManager';
 
 interface PlayerState {
   score: number;
@@ -160,6 +166,9 @@ export default class MainScene extends Phaser.Scene {
   private powerUpDirector!: PowerUpDirector;
   private comboManager!: ComboManager;
   private perkSystem!: PerkSystem;
+  private collisionManager!: CollisionManager;
+  private hudManager!: HUDManager;
+  private powerUpManager!: PowerUpManager;
 
   private score: number = 0;
   private lives: number = 3;
@@ -213,7 +222,6 @@ export default class MainScene extends Phaser.Scene {
 
   private powerUpTimer: number = 0; // UFO Magnetic
   private ufoSpawnTimer: number = 0;
-  private activePowerUps: Map<PowerUpType, number> = new Map();
   private isGameOver: boolean = false;
 
   private drones: Phaser.GameObjects.Group | null = null;
@@ -249,25 +257,16 @@ export default class MainScene extends Phaser.Scene {
   private mineDeployHintText!: Phaser.GameObjects.Text;
   private activeMarkerLeft?: Phaser.GameObjects.Text;
   private activeMarkerRight?: Phaser.GameObjects.Text;
-  private activeMarkerTween?: Phaser.Tweens.Tween;
-  private lastActiveMarkerIndex: number = -1;
   private debugOverlayEnabled: boolean = false;
   private debugRefreshMs: number = 0;
   private lastDebugLine: string = '';
   private lastDebugStatsLine: string = '';
-  private powerUpTextRefreshMs: number = 0;
-  private lastPowerUpList: string = '';
+  // powerUpTextRefreshMs, lastPowerUpList moved to PowerUpManager
   private powerUpBarRefreshMs: number = 0;
   private heatBarRefreshMs: number = 0;
-  private lastP1ScoreLabel: string = '';
-  private lastP2ScoreLabel: string = '';
-  private lastP1LivesLabel: string = '';
-  private lastP2LivesLabel: string = '';
-  private lastMineChargesLabel: string = '';
-  private lastLevelLabel: string = '';
   private blackHoleForceAccumulatorMs: number = 0;
   private blackHoleVisualAccumulatorMs: number = 0;
-  private activeStateSyncMs: number = 0;
+  // activeStateSyncMs moved to PowerUpManager
   private pendingEnemyHits: PendingEnemyHit[] = [];
   private hitClusterScratch: Map<number, { sumX: number; sumY: number; count: number }> = new Map();
   private collisionPressureMetrics: CollisionPressureMetrics = {
@@ -300,7 +299,6 @@ export default class MainScene extends Phaser.Scene {
   private damageOverlayTween?: Phaser.Tweens.Tween;
   private heatBar!: Phaser.GameObjects.Graphics;
   private levelText!: Phaser.GameObjects.Text;
-  private lastPerkLabel: string = '';
   private milestoneIndex: number = 0;
   private milestoneText!: Phaser.GameObjects.Text;
   private swarmSpawnTimerMs: number = 0;
@@ -357,14 +355,7 @@ export default class MainScene extends Phaser.Scene {
     this.earlySupportDropTimerMs = 0;
     this.powerUpBarRefreshMs = 0;
     this.heatBarRefreshMs = 0;
-    this.lastP1ScoreLabel = '';
-    this.lastP2ScoreLabel = '';
-    this.lastP1LivesLabel = '';
-    this.lastP2LivesLabel = '';
-    this.lastMineChargesLabel = '';
-    this.lastLevelLabel = '';
     this.lastDebugStatsLine = '';
-    this.lastPerkLabel = '';
     this.passiveCoolingMultiplier = 1;
     this.magneticDurationMultiplier = 1;
     this.spawnProtectionTimerMs = 0;
@@ -386,7 +377,6 @@ export default class MainScene extends Phaser.Scene {
     this.nebulaProfileKey = 'off';
     this.wormholeVisualAccumulatorMs = 0;
     this.blackHoleVisualAccumulatorMs = 0;
-    this.activeStateSyncMs = 0;
     this.levelBonusPayoutTween = undefined;
     this.playerStates = [];
     for (let i = 0; i < this.playerCount; i++) {
@@ -450,7 +440,7 @@ export default class MainScene extends Phaser.Scene {
     this.lives = startingState.lives;
     this.powerUpTimer = startingState.powerUpTimer;
     this.mineDeployCharges = startingState.mineDeployCharges ?? INITIAL_MINE_DEPLOY_CHARGES;
-    this.activePowerUps = new Map(startingState.activePowerUps);
+    // activePowerUps loaded into PowerUpManager after it's created (line ~4097)
     if (!this.scene.isActive('BezelScene')) {
       this.scene.launch('BezelScene');
     }
@@ -521,143 +511,66 @@ export default class MainScene extends Phaser.Scene {
     this.empGraphics = this.add.graphics().setDepth(10);
     this.createEliteDroneEntity();
     this.resetWorldEventTimers();
+    // Create graphics before HUD so they can be passed to HUDManager
+    this.powerUpBar = this.add.graphics();
+    this.heatBar = this.add.graphics().setDepth(120);
     this.createHUD();
     this.createDamageOverlay();
     this.createTurnOverlay();
     this.createLevelTransitionOverlay();
-    this.powerUpBar = this.add.graphics();
-    this.heatBar = this.add.graphics().setDepth(120);
     this.createSmokeEmitter();
     this.applyPassivePerksFromActiveState();
-    this.updateHUD();
-    this.applyActivePowerUpEffects(true);
+    this.updateHUDDisplay();
+    this.powerUpManager.reapplyAll(true);
     this.resetLevelOpeningState();
     this.applySpawnProtection(SPAWN_PROTECTION_TUNING.startGraceMs, true);
     this.showTutorialHints();
     this.ufoSpawnTimer = this.computeNextUFOSpawnDelay();
     this.skyRaiderManager.resetSpawnController(Phaser.Math.Between(1800, 3200));
 
-    this.physics.add.overlap(
-      this.bullets,
-      this.enemyManager.enemies,
-      this.handleBulletHitEnemy,
-      undefined,
-      this,
-    );
-    this.physics.add.overlap(this.bullets, this.ufo, this.handleBulletHitUFO, undefined, this);
-    this.physics.add.collider(this.player, this.shieldBunkers);
-    this.physics.add.collider(
-      this.bullets,
-      this.shieldBunkers,
-      this.handleBulletHitShieldBunker,
-      undefined,
-      this,
-    );
-    this.physics.add.collider(
-      this.enemyManager.enemies,
-      this.shieldBunkers,
-      this.handleAsteroidHitShieldBunker,
-      undefined,
-      this,
-    );
-    this.physics.add.overlap(
-      this.player,
-      this.enemyManager.enemies,
-      this.handlePlayerHitEnemy,
-      undefined,
-      this,
-    );
-    this.physics.add.overlap(
-      this.player,
-      this.powerUpDirector.getGroup(),
-      this.handlePlayerHitPowerUp,
-      undefined,
-      this,
-    );
-    this.physics.add.overlap(
-      this.player,
-      this.eliteDrone,
-      this.handlePlayerRescueEliteDrone,
-      undefined,
-      this,
-    );
-    this.physics.add.overlap(
-      this.bullets,
-      this.eliteDrone,
-      this.handleBulletHitEliteDrone,
-      undefined,
-      this,
-    );
-    const ufoProjectiles = this.ufo.getProjectiles();
-    if (ufoProjectiles) {
-      this.physics.add.collider(
-        ufoProjectiles,
-        this.shieldBunkers,
-        this.handleUFOProjectileHitShieldBunker,
-        undefined,
-        this,
-      );
-      this.physics.add.overlap(
-        this.player,
-        ufoProjectiles,
-        this.handlePlayerHitUFOProjectile,
-        undefined,
-        this,
-      );
-    }
+    // Initialize CollisionManager with callbacks to existing handler methods
+    const collisionCallbacks: CollisionCallbacks = {
+      onBulletHitEnemy: (bullet, enemy) => this.handleBulletHitEnemy(bullet, enemy),
+      onBulletHitUFO: (bullet, ufo) => this.handleBulletHitUFO(bullet, ufo),
+      onBulletHitEliteDrone: (bullet, drone) => this.handleBulletHitEliteDrone(bullet, drone),
+      onBulletHitSkyRaider: (bullet, raider) => this.handleBulletHitSkyRaider(bullet, raider),
+      onBulletHitShieldBunker: (bullet, bunker) => this.handleBulletHitShieldBunker(bullet, bunker),
+      onPlayerHitEnemy: (player, enemy) => this.handlePlayerHitEnemy(player, enemy),
+      onPlayerHitPowerUp: (player, powerUp) => this.handlePlayerHitPowerUp(player, powerUp),
+      onPlayerRescueEliteDrone: (player, drone) => this.handlePlayerRescueEliteDrone(player, drone),
+      onPlayerHitUFOProjectile: (player, projectile) =>
+        this.handlePlayerHitUFOProjectile(player, projectile),
+      onPlayerHitSkyRaider: (player, raider) => this.handlePlayerHitSkyRaider(player, raider),
+      onPlayerHitSkyRaiderShot: (player, shot) => this.handlePlayerHitSkyRaiderShot(player, shot),
+      onMineHitEnemy: (mine, enemy) => this.handleMineHitEnemy(mine, enemy),
+      onMineHitUFO: (mine, ufo) => this.handleMineHitUFO(mine, ufo),
+      onMineHitSkyRaider: (mine, raider) => this.handleMineHitSkyRaider(mine, raider),
+      onAsteroidHitShieldBunker: (enemy, bunker) =>
+        this.handleAsteroidHitShieldBunker(enemy, bunker),
+      onUFOProjectileHitShieldBunker: (projectile, bunker) =>
+        this.handleUFOProjectileHitShieldBunker(projectile, bunker),
+      onSkyRaiderHitShieldBunker: (raider, bunker) =>
+        this.handleSkyRaiderHitShieldBunker(raider, bunker),
+      onSkyRaiderShotHitShieldBunker: (shot, bunker) =>
+        this.handleSkyRaiderShotHitShieldBunker(shot, bunker),
+    };
 
-    const skyRaiders = this.skyRaiderManager.getRaiders();
-    const skyRaiderProjectiles = this.skyRaiderManager.getProjectiles();
-    this.physics.add.overlap(
-      this.bullets,
-      skyRaiders,
-      this.handleBulletHitSkyRaider,
-      undefined,
-      this,
-    );
-    this.physics.add.overlap(
-      this.proximityMines,
-      this.enemyManager.enemies,
-      this.handleMineHitEnemy,
-      undefined,
-      this,
-    );
-    this.physics.add.overlap(this.proximityMines, this.ufo, this.handleMineHitUFO, undefined, this);
-    this.physics.add.overlap(
-      this.proximityMines,
-      skyRaiders,
-      this.handleMineHitSkyRaider,
-      undefined,
-      this,
-    );
-    this.physics.add.overlap(
-      this.player,
-      skyRaiders,
-      this.handlePlayerHitSkyRaider,
-      undefined,
-      this,
-    );
-    this.physics.add.collider(
-      skyRaiders,
-      this.shieldBunkers,
-      this.handleSkyRaiderHitShieldBunker,
-      undefined,
-      this,
-    );
-    this.physics.add.overlap(
-      this.player,
-      skyRaiderProjectiles,
-      this.handlePlayerHitSkyRaiderShot,
-      undefined,
-      this,
-    );
-    this.physics.add.collider(
-      skyRaiderProjectiles,
-      this.shieldBunkers,
-      this.handleSkyRaiderShotHitShieldBunker,
-      undefined,
-      this,
-    );
+    this.collisionManager = new CollisionManager(this, collisionCallbacks);
+
+    // Register all collisions
+    this.collisionManager.registerCollisions({
+      bullets: this.bullets,
+      player: this.player,
+      enemies: this.enemyManager.enemies,
+      ufo: this.ufo,
+      powerUps: this.powerUpDirector.getGroup(),
+      eliteDrone: this.eliteDrone,
+      ufoProjectiles: this.ufo.getProjectiles() || undefined,
+      shieldBunkers: this.shieldBunkers,
+      proximityMines: this.proximityMines,
+      skyRaiders: this.skyRaiderManager.getRaiders(),
+      skyRaiderProjectiles: this.skyRaiderManager.getProjectiles(),
+    });
 
     // Apply CRT Shader Pipeline
     if (
@@ -711,6 +624,8 @@ export default class MainScene extends Phaser.Scene {
       const bunkerGroup = this.shieldBunkers as any;
       safeClearGroup(bunkerGroup);
       this.comboManager.destroy();
+      this.hudManager.cleanup();
+      this.powerUpManager.cleanup();
       this.powerUpBar.destroy();
       this.heatBar.destroy();
       this.damageOverlayTween?.stop();
@@ -740,7 +655,6 @@ export default class MainScene extends Phaser.Scene {
       this.levelBonusPayoutTween?.stop();
       this.switchOverlay?.destroy();
       this.levelTransitionOverlay?.destroy();
-      this.activeMarkerTween?.stop();
       if (this.onScenePaused) this.events.off(Phaser.Scenes.Events.PAUSE, this.onScenePaused);
       if (this.onSceneResumed) this.events.off(Phaser.Scenes.Events.RESUME, this.onSceneResumed);
       if (this.turnKeyHandler) this.input.keyboard?.off('keydown', this.turnKeyHandler);
@@ -885,7 +799,6 @@ export default class MainScene extends Phaser.Scene {
       this.powerUpTimer -= delta;
       this.powerUpBarRefreshMs -= delta;
       if (this.powerUpBarRefreshMs <= 0 || this.powerUpTimer <= 0) {
-        this.updatePowerUpUI();
         this.powerUpBarRefreshMs = 34;
       }
       if (this.powerUpTimer <= 0) {
@@ -898,121 +811,60 @@ export default class MainScene extends Phaser.Scene {
       }
     }
 
-    this.updateActivePowerUps(delta);
+    this.powerUpManager.update(delta);
+    // Check if shield bunker needs expiry warning
+    if (this.powerUpManager.isActive(PowerUpType.SHIELD_BUNKER)) {
+      const timeLeft = this.powerUpManager.getRemainingTime(PowerUpType.SHIELD_BUNKER);
+      this.maybeStartShieldBunkerExpiryWarning(timeLeft);
+    }
     this.updateDrones();
     this.updateProximityMines(delta);
     this.updateBlackHole(delta);
     this.updateBossEnergyUI();
+
+    // Update HUD displays (throttled at ~30 FPS for performance)
     this.heatBarRefreshMs -= delta;
-    if (this.heatBarRefreshMs <= 0) {
-      this.updateHeatBar();
+    if (this.heatBarRefreshMs <= 0 || this.powerUpBarRefreshMs <= 0) {
+      this.updateHUDDisplay();
       this.heatBarRefreshMs = 34;
     }
   }
 
-  private updatePowerUpUI() {
-    this.powerUpBar.clear();
-    const width = 200;
-    const barMaxDuration = this.getScaledMagneticDuration(7000);
-    const progress = Phaser.Math.Clamp(this.powerUpTimer / Math.max(1, barMaxDuration), 0, 1);
-    this.powerUpBar.fillStyle(0x00ffff, 0.8);
-    this.powerUpBar.fillRect(GAME_WIDTH / 2 - width / 2, 80, width * progress, 10);
-    if (Math.sin(this.time.now * 0.01) > 0) {
-      this.powerUpBar.lineStyle(2, 0xffffff, 1);
-      this.powerUpBar.strokeRect(GAME_WIDTH / 2 - width / 2, 80, width, 10);
-    }
-  }
-
-  private updateHeatBar() {
-    this.heatBar.clear();
-    if (!this.player.active) return;
-    const heat = this.player.getHeatNormalized();
-    if (heat <= 0) return;
-    const width = 50;
-    const height = 4;
-    const anchor = this.player.getHeatBarAnchor();
-    const x = anchor.x - width / 2;
-    const y = anchor.y;
-    this.heatBar.fillStyle(0x000000, 0.6);
-    this.heatBar.fillRect(x - 1, y - 1, width + 2, height + 2);
-    if (this.player.isOverheated()) {
-      const blinkOn = Math.floor(this.time.now / 150) % 2 === 0;
-      if (!blinkOn) return;
-      this.heatBar.fillStyle(0xff3333, 0.95);
-    } else {
-      const t = Phaser.Math.Clamp(heat, 0, 1);
-      const r = Math.round(255 * t);
-      const g = Math.round(255 - 204 * t);
-      const b = Math.round(102 - 51 * t);
-      this.heatBar.fillStyle((r << 16) | (g << 8) | b, 0.9);
-    }
-    this.heatBar.fillRect(x, y, width * heat, height);
-  }
-
-  private updateHUD() {
-    if (this.playerCount === 2) {
-      const p1ScoreLabel = `P1 SCORE: ${this.playerStates[0].score}`;
-      if (p1ScoreLabel !== this.lastP1ScoreLabel) {
-        this.p1ScoreText.setText(p1ScoreLabel);
-        this.lastP1ScoreLabel = p1ScoreLabel;
-      }
-      const p2ScoreLabel = `P2 SCORE: ${this.playerStates[1].score}`;
-      if (p2ScoreLabel !== this.lastP2ScoreLabel) {
-        this.p2ScoreText?.setText(p2ScoreLabel);
-        this.lastP2ScoreLabel = p2ScoreLabel;
-      }
-      const p1LivesLabel = `P1 LIVES: ${this.playerStates[0].lives}`;
-      if (p1LivesLabel !== this.lastP1LivesLabel) {
-        this.p1LivesText.setText(p1LivesLabel);
-        this.lastP1LivesLabel = p1LivesLabel;
-      }
-      const p2LivesLabel = `P2 LIVES: ${this.playerStates[1].lives}`;
-      if (p2LivesLabel !== this.lastP2LivesLabel) {
-        this.p2LivesText?.setText(p2LivesLabel);
-        this.lastP2LivesLabel = p2LivesLabel;
-      }
-      this.updateActiveMarker();
-    } else {
-      const p1ScoreLabel = `SCORE: ${this.score}`;
-      if (p1ScoreLabel !== this.lastP1ScoreLabel) {
-        this.p1ScoreText.setText(p1ScoreLabel);
-        this.lastP1ScoreLabel = p1ScoreLabel;
-      }
-      const p1LivesLabel = `LIVES: ${this.lives}`;
-      if (p1LivesLabel !== this.lastP1LivesLabel) {
-        this.p1LivesText.setText(p1LivesLabel);
-        this.lastP1LivesLabel = p1LivesLabel;
-      }
-    }
-    let nextLevelLabel = '';
-    if (this.levelBossPendingDefeat) {
-      nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  BOSS FIGHT`;
-    } else {
-      const scoreRemaining = Math.max(0, this.nextLevelScore - this.progressionScore);
-      const timeRemainingMs = this.getRemainingBossGateTimeMs();
-      const timeRemainingSec = Math.ceil(timeRemainingMs / 1000);
-      if (timeRemainingSec > 0) {
-        nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  SURVIVE ${scoreRemaining}  T-${timeRemainingSec}s`;
-      } else {
-        nextLevelLabel = `${this.difficultyPreset.label}  LEVEL ${this.level}  SURVIVE ${scoreRemaining}`;
-      }
-    }
-    if (nextLevelLabel !== this.lastLevelLabel) {
-      this.levelText.setText(nextLevelLabel);
-      this.lastLevelLabel = nextLevelLabel;
-    }
-    const mineChargesLabel = `MINES: ${this.mineDeployCharges}`;
-    if (mineChargesLabel !== this.lastMineChargesLabel) {
-      this.mineChargesText.setText(mineChargesLabel);
-      this.lastMineChargesLabel = mineChargesLabel;
-    }
-
-    this.updatePerkHUD();
-    this.updateBossEnergyUI();
-  }
-
   private updateBossEnergyUI() {
     // Boss energy is rendered directly on the boss UFO.
+  }
+
+  /**
+   * Update all HUD elements via HUDManager
+   */
+  private updateHUDDisplay() {
+    const state = this.playerStates[this.activePlayerIndex];
+    const hudState: HUDState = {
+      p1Score: this.playerCount === 2 ? this.playerStates[0].score : this.score,
+      p2Score: this.playerCount === 2 ? this.playerStates[1].score : 0,
+      p1Lives: this.playerCount === 2 ? this.playerStates[0].lives : this.lives,
+      p2Lives: this.playerCount === 2 ? this.playerStates[1].lives : 0,
+      level: this.level,
+      mineCharges: this.mineDeployCharges,
+      playerCount: this.playerCount as 1 | 2,
+      activePlayerIndex: this.activePlayerIndex as 0 | 1,
+      levelBossPendingDefeat: this.levelBossPendingDefeat,
+      nextLevelScore: this.nextLevelScore,
+      progressionScore: this.progressionScore,
+      remainingBossGateTimeMs: this.getRemainingBossGateTimeMs(),
+      difficultyLabel: this.difficultyPreset.label,
+      eliteLifePerkCount: state?.eliteLifePerkCount ?? 0,
+      eliteCoolingPerkLevel: state?.eliteCoolingPerkLevel ?? 0,
+      eliteMagnetPerkLevel: state?.eliteMagnetPerkLevel ?? 0,
+      powerUpTimer: this.powerUpTimer,
+      powerUpBarMaxDuration: this.getScaledMagneticDuration(7000),
+      time: this.time.now,
+      playerHeat: this.player.getHeatNormalized(),
+      playerActive: this.player.active,
+      playerOverheated: this.player.isOverheated(),
+      heatBarAnchor: this.player.getHeatBarAnchor(),
+    };
+    this.hudManager.update(hudState);
   }
 
   private addScore(points: number) {
@@ -1037,7 +889,7 @@ export default class MainScene extends Phaser.Scene {
     }
     this.checkMilestone(prevScore, this.score);
     this.checkLevelProgression();
-    this.updateHUD();
+    this.updateHUDDisplay();
   }
 
   private checkMilestone(prevScore: number, newScore: number) {
@@ -1167,7 +1019,7 @@ export default class MainScene extends Phaser.Scene {
     this.ufoSpawnTimer = Phaser.Math.Between(320, 620);
     this.cameras.main.flash(180, 255, 96, 128, false);
     this.cameras.main.shake(220, 0.005);
-    this.updateHUD();
+    this.updateHUDDisplay();
   }
 
   private completeLevelAfterBossDefeat() {
@@ -1257,13 +1109,13 @@ export default class MainScene extends Phaser.Scene {
 
     // Apply shield-on-level-up perk
     if (this.perkSystem.hasShieldOnLevel() && !this.player.getShieldActive()) {
-      this.player.setShield(true);
-      this.activePowerUps.set(PowerUpType.SHIELD, Infinity);
+      this.powerUpManager.activate(PowerUpType.SHIELD);
+      // Note: Infinite shields from perks use very long duration
     }
     // Apply start-shield perk (same effect)
     if (this.perkSystem.hasStartShield() && this.level === 2 && !this.player.getShieldActive()) {
-      this.player.setShield(true);
-      this.activePowerUps.set(PowerUpType.SHIELD, Infinity);
+      this.powerUpManager.activate(PowerUpType.SHIELD);
+      // Note: Infinite shields from perks use very long duration
     }
     // Extra lives from perk are applied immediately when selected (addPerk recalculates)
     // Other perk effects are read dynamically via getters in the gameplay loop
@@ -1281,7 +1133,7 @@ export default class MainScene extends Phaser.Scene {
     this.skyRaiderManager.setDifficultyPreset(this.difficultyPreset);
     this.skyRaiderManager.setDifficultyLevel(this.level);
     if (!silent) {
-      this.updateHUD();
+      this.updateHUDDisplay();
     }
   }
 
@@ -1337,30 +1189,6 @@ export default class MainScene extends Phaser.Scene {
   private triggerGuaranteedSupportDrop() {
     // Support drops were removed from timed flow; drops now come only from enemy kills.
     this.earlySupportDropGranted = true;
-  }
-
-  private updateActiveMarker() {
-    if (this.playerCount !== 2 || !this.activeMarkerLeft || !this.activeMarkerRight) return;
-    if (this.lastActiveMarkerIndex === this.activePlayerIndex) return;
-    const activeLeft = this.activePlayerIndex === 0;
-    this.activeMarkerLeft.setVisible(true);
-    this.activeMarkerRight.setVisible(true);
-    this.activeMarkerLeft.setAlpha(activeLeft ? 1 : 0.2);
-    this.activeMarkerRight.setAlpha(activeLeft ? 0.2 : 1);
-    if (this.activeMarkerTween) {
-      this.activeMarkerTween.stop();
-      this.activeMarkerTween = undefined;
-    }
-    const target = activeLeft ? this.activeMarkerLeft : this.activeMarkerRight;
-    this.activeMarkerTween = this.tweens.add({
-      targets: target,
-      alpha: 0.2,
-      duration: 400,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
-    this.lastActiveMarkerIndex = this.activePlayerIndex;
   }
 
   private createSmokeEmitter() {
@@ -1721,18 +1549,7 @@ export default class MainScene extends Phaser.Scene {
     this.passiveCoolingMultiplier = 1 + coolingLevel * 0.2;
     this.magneticDurationMultiplier = 1 + magnetLevel * 0.24;
     this.player.setPassiveCoolingMultiplier(this.passiveCoolingMultiplier);
-    this.updatePerkHUD();
-  }
-
-  private updatePerkHUD() {
-    if (!this.perkText) return;
-    const state = this.playerStates[this.activePlayerIndex];
-    if (!state) return;
-    const perkLabel = `PERKS L+${state.eliteLifePerkCount} C+${state.eliteCoolingPerkLevel} M+${state.eliteMagnetPerkLevel}`;
-    if (perkLabel !== this.lastPerkLabel) {
-      this.perkText.setText(perkLabel);
-      this.lastPerkLabel = perkLabel;
-    }
+    this.updateHUDDisplay();
   }
 
   private getScaledMagneticDuration(baseMs: number) {
@@ -1793,7 +1610,7 @@ export default class MainScene extends Phaser.Scene {
     });
 
     this.cameras.main.flash(90, 120, 255, 210, false);
-    this.updateHUD();
+    this.updateHUDDisplay();
   }
 
   private spawnWormhole() {
@@ -2003,9 +1820,8 @@ export default class MainScene extends Phaser.Scene {
     }
   }
 
-  private handlePlayerRescueEliteDrone(obj1: any, obj2: any) {
+  private handlePlayerRescueEliteDrone(_player: Player, drone: Phaser.Physics.Arcade.Sprite) {
     if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
-    const drone = (obj1 === this.eliteDrone ? obj1 : obj2) as Phaser.Physics.Arcade.Sprite;
     if (!drone.active) return;
     const x = drone.x;
     const y = drone.y;
@@ -2014,10 +1830,8 @@ export default class MainScene extends Phaser.Scene {
     this.deactivateEliteDrone('rescued');
   }
 
-  private handleBulletHitEliteDrone(obj1: any, obj2: any) {
+  private handleBulletHitEliteDrone(bullet: Bullet, drone: Phaser.Physics.Arcade.Sprite) {
     if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
-    const bullet = (obj1 === this.eliteDrone ? obj2 : obj1) as Bullet;
-    const drone = (obj1 === this.eliteDrone ? obj1 : obj2) as Phaser.Physics.Arcade.Sprite;
     if (!drone.active || !bullet.active) return;
     const x = drone.x;
     const y = drone.y;
@@ -2040,53 +1854,13 @@ export default class MainScene extends Phaser.Scene {
     this.smokeEmitter.emitParticleAt(x, y + 10, 10);
   }
 
-  private updateActivePowerUps(delta: number) {
-    const showDebugLists = this.debugOverlayEnabled;
-    let list = '';
-    let powerUpSetChanged = false;
-    this.activePowerUps.forEach((timeLeft, type) => {
-      const newTime = timeLeft - delta;
-      if (newTime <= 0) {
-        this.activePowerUps.delete(type);
-        this.deactivatePowerUp(type);
-        powerUpSetChanged = true;
-      } else {
-        this.activePowerUps.set(type, newTime);
-        if (type === PowerUpType.SHIELD_BUNKER) {
-          this.maybeStartShieldBunkerExpiryWarning(newTime);
-        }
-        if (showDebugLists) {
-          list += `${type}: ${(newTime / 1000).toFixed(1)}s\n`;
-        }
-      }
-    });
-    this.activeStateSyncMs -= delta;
-    if (powerUpSetChanged || this.activeStateSyncMs <= 0) {
-      this.syncActivePowerUpsToState();
-      this.activeStateSyncMs = 180;
-    }
-    if (!showDebugLists) {
-      if (this.lastPowerUpList !== '') {
-        this.powerUpListText.setText('');
-        this.lastPowerUpList = '';
-      }
-      return;
-    }
-    this.powerUpTextRefreshMs -= delta;
-    if (this.powerUpTextRefreshMs <= 0) {
-      if (list !== this.lastPowerUpList) {
-        this.powerUpListText.setText(list);
-        this.lastPowerUpList = list;
-      }
-      this.powerUpTextRefreshMs = 100;
-    }
-  }
+  // Moved to PowerUpManager.update()
 
-  private syncActivePowerUpsToState() {
+  private syncActivePowerUpsToState(activePowerUps: Map<PowerUpType, number>) {
     const state = this.playerStates[this.activePlayerIndex];
     if (!state) return;
     state.activePowerUps.clear();
-    this.activePowerUps.forEach((timeLeft, type) => {
+    activePowerUps.forEach((timeLeft, type) => {
       state.activePowerUps.set(type, timeLeft);
     });
   }
@@ -2106,7 +1880,7 @@ export default class MainScene extends Phaser.Scene {
     state.mineDeployCharges = this.mineDeployCharges;
     state.comboState = this.comboManager.saveState();
     state.perkState = this.perkSystem.saveState();
-    this.syncActivePowerUpsToState();
+    this.syncActivePowerUpsToState(this.powerUpManager.getActivePowerUps());
   }
 
   private loadActivePlayerState(index: number) {
@@ -2116,55 +1890,21 @@ export default class MainScene extends Phaser.Scene {
     this.lives = state.lives;
     this.powerUpTimer = state.powerUpTimer;
     this.mineDeployCharges = state.mineDeployCharges ?? INITIAL_MINE_DEPLOY_CHARGES;
-    this.activePowerUps = new Map(state.activePowerUps);
+    this.powerUpManager.loadState(state.activePowerUps);
     this.comboManager.loadState(state.comboState);
     this.perkSystem.loadState(state.perkState);
     state.mineStockPerkApplied = state.mineStockPerkApplied ?? this.perkSystem.getMineStockStacks();
-    this.activeStateSyncMs = 0;
     this.applyPassivePerksFromActiveState();
-    this.applyActivePowerUpEffects(true);
-    this.updatePowerUpUI();
-    this.updateActivePowerUps(0);
-    this.updateHUD();
+    this.powerUpManager.reapplyAll(true);
+    this.updateHUDDisplay();
+    this.powerUpManager.update(0);
+    this.updateHUDDisplay();
   }
 
-  private applyActivePowerUpEffects(silent: boolean) {
-    this.player.setTripleShot(this.activePowerUps.has(PowerUpType.TRIPLE_SHOT));
-    this.player.setShield(this.activePowerUps.has(PowerUpType.SHIELD));
-    this.player.setCannonCooling(this.activePowerUps.has(PowerUpType.CANNON_COOLING));
-    this.player.setSlowMotionVisual(this.activePowerUps.has(PowerUpType.SLOW_MOTION));
-    this.player.setBlackHoleVisual(this.activePowerUps.has(PowerUpType.BLACK_HOLE));
-    if (this.activePowerUps.has(PowerUpType.GHOST_PHASE)) {
-      this.applyGhost(true, silent);
-    } else {
-      this.applyGhost(false, true);
-    }
-    if (this.activePowerUps.has(PowerUpType.SLOW_MOTION)) {
-      this.applySlowMo(true);
-    } else {
-      this.applySlowMo(false);
-    }
-    if (this.activePowerUps.has(PowerUpType.WINGMAN_DRONES)) {
-      this.spawnDrones();
-    } else {
-      this.removeDrones();
-    }
-    if (this.activePowerUps.has(PowerUpType.BLACK_HOLE)) {
-      this.spawnBlackHole();
-    } else {
-      this.removeBlackHole();
-    }
-    if (this.activePowerUps.has(PowerUpType.SHIELD_BUNKER)) {
-      this.spawnShieldBunkers();
-    } else {
-      this.removeShieldBunkers();
-    }
-    this.player.setMagnetic(this.powerUpTimer > 0);
-    if (this.powerUpTimer <= 0) this.powerUpBar.clear();
-  }
+  // Moved to PowerUpManager.reapplyAll()
 
   private clearCurrentPowerUps() {
-    this.activePowerUps.clear();
+    this.powerUpManager.cleanup();
     this.powerUpTimer = 0;
     this.powerUpBarRefreshMs = 0;
     this.clearProximityMines();
@@ -2180,7 +1920,6 @@ export default class MainScene extends Phaser.Scene {
     this.removeBlackHole();
     this.removeShieldBunkers();
     this.powerUpBar.clear();
-    this.lastPowerUpList = '';
     this.powerUpListText.setText('');
   }
 
@@ -2217,19 +1956,16 @@ export default class MainScene extends Phaser.Scene {
 
   private clearTransitionHazardPowerUps() {
     let changed = false;
-    if (this.activePowerUps.delete(PowerUpType.BLACK_HOLE)) {
-      this.player.setBlackHoleVisual(false);
+    if (this.powerUpManager.isActive(PowerUpType.BLACK_HOLE)) {
+      this.powerUpManager.deactivate(PowerUpType.BLACK_HOLE);
       changed = true;
     }
-    if (this.activePowerUps.delete(PowerUpType.SHIELD_BUNKER)) {
+    if (this.powerUpManager.isActive(PowerUpType.SHIELD_BUNKER)) {
+      this.powerUpManager.deactivate(PowerUpType.SHIELD_BUNKER);
       changed = true;
     }
     if (!changed) return;
-    this.removeBlackHole();
     this.stopShieldBunkerWarning(true);
-    this.removeShieldBunkers();
-    this.syncActivePowerUpsToState();
-    this.activeStateSyncMs = 0;
   }
 
   private preparePlayfieldForLevelTransition() {
@@ -2252,7 +1988,7 @@ export default class MainScene extends Phaser.Scene {
     this.enemyManager.resetSpawnController(Phaser.Math.Between(520, 900));
     this.ufoSpawnTimer = this.computeNextUFOSpawnDelay();
     this.skyRaiderManager.resetSpawnController(Phaser.Math.Between(1400, 2600));
-    this.updateHUD();
+    this.updateHUDDisplay();
   }
 
   private createTurnOverlay() {
@@ -2835,7 +2571,7 @@ export default class MainScene extends Phaser.Scene {
     if (this.spawnProtectionTimerMs > 0) return;
     this.spawnProtectionTimerMs = 0;
     this.stopSpawnProtectionVisuals();
-    const ghostActive = this.activePowerUps.has(PowerUpType.GHOST_PHASE);
+    const ghostActive = this.powerUpManager.isActive(PowerUpType.GHOST_PHASE);
     if (this.player.body) {
       this.player.body.enable = !ghostActive;
     }
@@ -2899,83 +2635,6 @@ export default class MainScene extends Phaser.Scene {
     this.turnPointerHandler = () => proceed();
     this.input.keyboard?.on('keydown', this.turnKeyHandler);
     this.input.on('pointerdown', this.turnPointerHandler);
-  }
-
-  private activatePowerUp(type: PowerUpType) {
-    if (type === PowerUpType.MINE_LAYER) {
-      this.addMineDeployCharges(1);
-      return;
-    }
-    this.activePowerUps.set(type, this.getPowerUpDuration(type));
-    this.syncActivePowerUpsToState();
-    this.activeStateSyncMs = 180;
-    switch (type) {
-      case PowerUpType.TRIPLE_SHOT:
-        this.player.setTripleShot(true);
-        break;
-      case PowerUpType.SLOW_MOTION:
-        this.player.setSlowMotionVisual(true);
-        this.applySlowMo(true);
-        break;
-      case PowerUpType.SHIELD:
-        this.player.setShield(true);
-        break;
-      case PowerUpType.EMP_WAVE:
-        this.triggerEMP();
-        break;
-      case PowerUpType.GHOST_PHASE:
-        this.applyGhost(true);
-        break;
-      case PowerUpType.WINGMAN_DRONES:
-        this.spawnDrones();
-        break;
-      case PowerUpType.CANNON_COOLING:
-        this.player.setCannonCooling(true);
-        break;
-      case PowerUpType.BLACK_HOLE:
-        this.player.setBlackHoleVisual(true);
-        this.spawnBlackHole();
-        break;
-      case PowerUpType.SHIELD_BUNKER:
-        this.stopShieldBunkerWarning(true);
-        this.spawnShieldBunkers();
-        break;
-    }
-  }
-
-  private deactivatePowerUp(type: PowerUpType) {
-    switch (type) {
-      case PowerUpType.TRIPLE_SHOT:
-        this.player.setTripleShot(false);
-        break;
-      case PowerUpType.SLOW_MOTION:
-        this.player.setSlowMotionVisual(false);
-        this.applySlowMo(false);
-        break;
-      case PowerUpType.SHIELD:
-        this.player.setShield(false);
-        break;
-      case PowerUpType.GHOST_PHASE:
-        this.applyGhost(false);
-        break;
-      case PowerUpType.WINGMAN_DRONES:
-        this.removeDrones();
-        break;
-      case PowerUpType.CANNON_COOLING:
-        this.player.setCannonCooling(false);
-        break;
-      case PowerUpType.BLACK_HOLE:
-        this.player.setBlackHoleVisual(false);
-        this.removeBlackHole();
-        break;
-      case PowerUpType.SHIELD_BUNKER:
-        this.removeShieldBunkers();
-        break;
-      case PowerUpType.MINE_LAYER:
-        break;
-    }
-    this.syncActivePowerUpsToState();
-    this.activeStateSyncMs = 180;
   }
 
   private applySlowMo(active: boolean) {
@@ -3312,7 +2971,7 @@ export default class MainScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
       onComplete: () => {
         this.shieldBunkerWarningTween = undefined;
-        if (!this.activePowerUps.has(PowerUpType.SHIELD_BUNKER)) return;
+        if (!this.powerUpManager.isActive(PowerUpType.SHIELD_BUNKER)) return;
         for (const bunker of this.getActiveShieldBunkers()) {
           bunker.setAlpha(SHIELD_BUNKER_TUNING.idleAlpha);
         }
@@ -3343,30 +3002,28 @@ export default class MainScene extends Phaser.Scene {
     }
   }
 
-  private handleBulletHitShieldBunker(obj1: any, obj2: any) {
-    const bullet = (this.bullets.contains(obj1) ? obj1 : obj2) as Bullet;
+  private handleBulletHitShieldBunker(bullet: Bullet, _bunker: Phaser.Physics.Arcade.Sprite) {
     if (!bullet?.active) return;
     bullet.disableBody(true, true);
   }
 
-  private handleUFOProjectileHitShieldBunker(obj1: any, obj2: any) {
-    const projectiles = this.ufo.getProjectiles();
-    if (!projectiles) return;
-    const shot = (projectiles.contains(obj1) ? obj1 : obj2) as UFOProjectile;
+  private handleUFOProjectileHitShieldBunker(
+    projectile: UFOProjectile,
+    _bunker: Phaser.Physics.Arcade.Sprite,
+  ) {
+    if (!projectile?.active) return;
+    projectile.disableBody(true, true);
+  }
+
+  private handleSkyRaiderShotHitShieldBunker(
+    shot: SkyRaiderShot,
+    _bunker: Phaser.Physics.Arcade.Sprite,
+  ) {
     if (!shot?.active) return;
     shot.disableBody(true, true);
   }
 
-  private handleSkyRaiderShotHitShieldBunker(obj1: any, obj2: any) {
-    const projectiles = this.skyRaiderManager.getProjectiles();
-    const shot = (projectiles.contains(obj1) ? obj1 : obj2) as SkyRaiderShot;
-    if (!shot?.active) return;
-    shot.disableBody(true, true);
-  }
-
-  private handleSkyRaiderHitShieldBunker(obj1: any, obj2: any) {
-    const raiders = this.skyRaiderManager.getRaiders();
-    const raider = (raiders.contains(obj1) ? obj1 : obj2) as SkyRaider;
+  private handleSkyRaiderHitShieldBunker(raider: SkyRaider, _bunker: Phaser.Physics.Arcade.Sprite) {
     if (!raider?.active) return;
     const x = raider.x;
     const y = raider.y;
@@ -3375,8 +3032,7 @@ export default class MainScene extends Phaser.Scene {
     this.audio.playExplosion();
   }
 
-  private handleAsteroidHitShieldBunker(obj1: any, obj2: any) {
-    const enemy = (this.enemyManager.enemies.contains(obj1) ? obj1 : obj2) as Enemy;
+  private handleAsteroidHitShieldBunker(enemy: Enemy, _bunker: Phaser.Physics.Arcade.Sprite) {
     if (!enemy?.active) return;
     const x = enemy.x;
     const y = enemy.y;
@@ -3391,7 +3047,7 @@ export default class MainScene extends Phaser.Scene {
 
   private hasActiveShieldBunkers() {
     return (
-      this.activePowerUps.has(PowerUpType.SHIELD_BUNKER) ||
+      this.powerUpManager.isActive(PowerUpType.SHIELD_BUNKER) ||
       (this.shieldBunkers?.countActive(true) ?? 0) > 0
     );
   }
@@ -3401,7 +3057,7 @@ export default class MainScene extends Phaser.Scene {
     if (this.scene.isPaused('MainScene') || !this.scene.isActive('MainScene')) return;
     if (this.hasActiveShieldBunkers()) return;
     this.audio.playPickup();
-    this.activatePowerUp(PowerUpType.SHIELD_BUNKER);
+    this.powerUpManager.activate(PowerUpType.SHIELD_BUNKER);
   }
 
   private handleMineDeployPointerDown(
@@ -3441,7 +3097,7 @@ export default class MainScene extends Phaser.Scene {
     if (amount <= 0) return;
     this.mineDeployCharges += amount;
     this.syncMineDeployChargesToState();
-    this.updateHUD();
+    this.updateHUDDisplay();
   }
 
   private clearProximityMines() {
@@ -3482,7 +3138,7 @@ export default class MainScene extends Phaser.Scene {
     if (deployed <= 0) return;
     this.mineDeployCharges = Math.max(0, this.mineDeployCharges - 1);
     this.syncMineDeployChargesToState();
-    this.updateHUD();
+    this.updateHUDDisplay();
     this.audio.playPickup();
   }
 
@@ -3619,9 +3275,7 @@ export default class MainScene extends Phaser.Scene {
     mine.setAlpha(1);
   }
 
-  private handleMineHitEnemy(obj1: any, obj2: any) {
-    const mine = (this.proximityMines.contains(obj1) ? obj1 : obj2) as Phaser.Physics.Arcade.Image;
-    const enemy = (this.enemyManager.enemies.contains(obj1) ? obj1 : obj2) as Enemy;
+  private handleMineHitEnemy(mine: Phaser.Physics.Arcade.Image, enemy: Enemy) {
     if (!mine?.active || !enemy?.active) return;
     if (!this.isArmedMine(mine)) return;
 
@@ -3641,10 +3295,7 @@ export default class MainScene extends Phaser.Scene {
     if (wasSwarm) this.onSwarmEnemyKilled(enemy, x, y);
   }
 
-  private handleMineHitSkyRaider(obj1: any, obj2: any) {
-    const raiders = this.skyRaiderManager.getRaiders();
-    const mine = (this.proximityMines.contains(obj1) ? obj1 : obj2) as Phaser.Physics.Arcade.Image;
-    const raider = (raiders.contains(obj1) ? obj1 : obj2) as SkyRaider;
+  private handleMineHitSkyRaider(mine: Phaser.Physics.Arcade.Image, raider: SkyRaider) {
     if (!mine?.active || !raider?.active) return;
     if (!this.isArmedMine(mine)) return;
 
@@ -3661,21 +3312,19 @@ export default class MainScene extends Phaser.Scene {
     this.addScore(this.comboManager.registerKill(x, y, points, this.time.now));
   }
 
-  private handleMineHitUFO(obj1: any, obj2: any) {
-    const mine = (this.proximityMines.contains(obj1) ? obj1 : obj2) as Phaser.Physics.Arcade.Image;
-    const ufo = (obj1 === this.ufo ? obj1 : obj2) as UFO;
+  private handleMineHitUFO(mine: Phaser.Physics.Arcade.Image, ufo: UFO) {
     if (!mine?.active || !ufo?.active) return;
     if (!this.isArmedMine(mine)) return;
 
-    const ufoX = this.ufo.x;
-    const ufoY = this.ufo.y;
-    const variant = this.ufo.getVariant();
-    const bossPhase = this.ufo.getBossPhase?.() ?? 0;
+    const ufoX = ufo.x;
+    const ufoY = ufo.y;
+    const variant = ufo.getVariant();
+    const bossPhase = ufo.getBossPhase?.() ?? 0;
     this.consumeMine(mine);
 
     if (variant === 'scout') {
       this.powerUpDirector.onUfoDestroyed(ufoX, ufoY, 'scout');
-      this.ufo.deactivate();
+      ufo.deactivate();
       this.triggerUFODestructionFX(ufoX, ufoY, 'scout');
       this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(5000));
       this.player.setMagnetic(true);
@@ -3692,7 +3341,7 @@ export default class MainScene extends Phaser.Scene {
     }
 
     this.powerUpDirector.onUfoDestroyed(ufoX, ufoY, 'boss');
-    this.ufo.deactivate();
+    ufo.deactivate();
     this.triggerUFODestructionFX(ufoX, ufoY, 'boss');
     this.registerSpecialKillForLevel();
     this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(7000));
@@ -3700,7 +3349,7 @@ export default class MainScene extends Phaser.Scene {
     if (Phaser.Math.Between(0, 99) < 45) {
       const rewardPool = [PowerUpType.SHIELD, PowerUpType.CANNON_COOLING, PowerUpType.TRIPLE_SHOT];
       const reward = Phaser.Utils.Array.GetRandom(rewardPool);
-      this.activatePowerUp(reward);
+      this.powerUpManager.activate(reward);
     }
     const bossPoints = 1800 + this.level * 220 + bossPhase * 120;
     this.addScore(this.comboManager.registerKill(ufoX, ufoY, bossPoints, this.time.now));
@@ -3715,15 +3364,13 @@ export default class MainScene extends Phaser.Scene {
     }
   }
 
-  private handlePlayerHitPowerUp(_player: any, obj2: any) {
-    const powerUp = obj2 as PowerUp;
+  private handlePlayerHitPowerUp(_player: Player, powerUp: PowerUp) {
     this.audio.playPickup();
-    this.activatePowerUp(powerUp.type);
+    this.powerUpManager.activate(powerUp.type);
     powerUp.deactivate();
   }
 
-  private handlePlayerHitSkyRaiderShot(obj1: any, obj2: any) {
-    const shot = (obj1 === this.player ? obj2 : obj1) as SkyRaiderShot;
+  private handlePlayerHitSkyRaiderShot(_player: Player, shot: SkyRaiderShot) {
     if (!shot.active) return;
     const hitX = shot.x;
     const hitY = shot.y;
@@ -3739,8 +3386,7 @@ export default class MainScene extends Phaser.Scene {
     this.handlePlayerHitEnemy(this.player, proxyEnemy);
   }
 
-  private handlePlayerHitSkyRaider(obj1: any, obj2: any) {
-    const raider = (obj1 === this.player ? obj2 : obj1) as SkyRaider;
+  private handlePlayerHitSkyRaider(_player: Player, raider: SkyRaider) {
     if (!raider.active) return;
     const hitX = raider.x;
     const hitY = raider.y;
@@ -3756,10 +3402,7 @@ export default class MainScene extends Phaser.Scene {
     this.handlePlayerHitEnemy(this.player, proxyEnemy);
   }
 
-  private handleBulletHitSkyRaider(obj1: any, obj2: any) {
-    const raiders = this.skyRaiderManager.getRaiders();
-    const bullet = (this.bullets.contains(obj1) ? obj1 : obj2) as Bullet;
-    const raider = (raiders.contains(obj1) ? obj1 : obj2) as SkyRaider;
+  private handleBulletHitSkyRaider(bullet: Bullet, raider: SkyRaider) {
     if (!bullet?.active || !raider?.active) return;
 
     bullet.disableBody(true, true);
@@ -3794,14 +3437,13 @@ export default class MainScene extends Phaser.Scene {
     this.applyImpactShake(120, variant === 'lancer' ? 0.0062 : 0.0046);
   }
 
-  private handleBulletHitUFO(obj1: any, obj2: any) {
-    const bullet = (obj1 === this.ufo ? obj2 : obj1) as Bullet;
-    if (!this.ufo.active || !bullet.active) return;
+  private handleBulletHitUFO(bullet: Bullet, ufo: UFO) {
+    if (!ufo.active || !bullet.active) return;
 
-    const ufoX = this.ufo.x;
-    const ufoY = this.ufo.y;
-    const variant = this.ufo.getVariant();
-    const bossPhase = this.ufo.getBossPhase?.() ?? 0;
+    const ufoX = ufo.x;
+    const ufoY = ufo.y;
+    const variant = ufo.getVariant();
+    const bossPhase = ufo.getBossPhase?.() ?? 0;
     bullet.disableBody(true, true);
     bullet.setActive(false);
     bullet.setVisible(false);
@@ -3809,7 +3451,7 @@ export default class MainScene extends Phaser.Scene {
     if (variant === 'scout') {
       // Scout should always pop instantly on hit to avoid stale/frozen visual states.
       this.powerUpDirector.onUfoDestroyed(ufoX, ufoY, 'scout');
-      this.ufo.deactivate();
+      ufo.deactivate();
       this.triggerUFODestructionFX(ufoX, ufoY, 'scout');
       this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(5000));
       this.player.setMagnetic(true);
@@ -3825,9 +3467,9 @@ export default class MainScene extends Phaser.Scene {
       return;
     }
 
-    const hitResult = this.ufo.applyBulletHit(1);
+    const hitResult = ufo.applyBulletHit(1);
     if (!hitResult.destroyed) {
-      this.ufo.ensureCombatReady();
+      ufo.ensureCombatReady();
       this.explosionManager.triggerExplosion(ufoX, ufoY);
       this.audio.playExplosion();
       this.triggerHitStop(
@@ -3837,7 +3479,7 @@ export default class MainScene extends Phaser.Scene {
       );
       this.applyImpactShake(95, 0.0038);
       this.spawnImpactRing(ufoX, ufoY, 0x9ef8ff, 18, 58, 160);
-      this.updateHUD();
+      this.updateHUDDisplay();
       return;
     }
 
@@ -3850,7 +3492,7 @@ export default class MainScene extends Phaser.Scene {
     if (Phaser.Math.Between(0, 99) < 45) {
       const rewardPool = [PowerUpType.SHIELD, PowerUpType.CANNON_COOLING, PowerUpType.TRIPLE_SHOT];
       const reward = Phaser.Utils.Array.GetRandom(rewardPool);
-      this.activatePowerUp(reward);
+      this.powerUpManager.activate(reward);
     }
     const bossPoints = 1800 + this.level * 220 + bossPhase * 120;
     this.addScore(this.comboManager.registerKill(ufoX, ufoY, bossPoints, this.time.now));
@@ -3962,12 +3604,11 @@ export default class MainScene extends Phaser.Scene {
     });
   }
 
-  private handlePlayerHitUFOProjectile(obj1: any, obj2: any) {
-    const shot = (obj1 === this.player ? obj2 : obj1) as UFOProjectile;
-    if (!shot.active) return;
-    const hitX = shot.x;
-    const hitY = shot.y;
-    shot.disableBody(true, true);
+  private handlePlayerHitUFOProjectile(_player: Player, projectile: UFOProjectile) {
+    if (!projectile.active) return;
+    const hitX = projectile.x;
+    const hitY = projectile.y;
+    projectile.disableBody(true, true);
 
     const proxyEnemy = {
       active: true,
@@ -3979,9 +3620,7 @@ export default class MainScene extends Phaser.Scene {
     this.handlePlayerHitEnemy(this.player, proxyEnemy);
   }
 
-  private handleBulletHitEnemy(obj1: any, obj2: any) {
-    const bullet = obj1 as Bullet;
-    const enemy = obj2 as Enemy;
+  private handleBulletHitEnemy(bullet: Bullet, enemy: Enemy) {
     if (bullet.active && enemy.active) {
       const x = enemy.x;
       const y = enemy.y;
@@ -4194,13 +3833,11 @@ export default class MainScene extends Phaser.Scene {
     return 'none';
   }
 
-  private handlePlayerHitEnemy(_obj1: any, obj2: any) {
+  private handlePlayerHitEnemy(_player: Player, enemy: Enemy) {
     if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
-    const enemy = obj2 as Enemy;
     if (!enemy.active) return;
     if (this.player.getShieldActive()) {
-      this.player.setShield(false);
-      this.activePowerUps.delete(PowerUpType.SHIELD);
+      this.powerUpManager.deactivate(PowerUpType.SHIELD);
       this.explosionManager.triggerExplosion(enemy.x, enemy.y);
       this.audio.playExplosion();
       enemy.disableBody(true, true);
@@ -4211,7 +3848,7 @@ export default class MainScene extends Phaser.Scene {
     if (this.playerStates[this.activePlayerIndex]) {
       this.playerStates[this.activePlayerIndex].lives = this.lives;
     }
-    this.updateHUD();
+    this.updateHUDDisplay();
     this.explosionManager.triggerPlayerDeathExplosion(this.player.x, this.player.y);
     this.audio.playPlayerDeath();
     this.triggerHitStop(
@@ -4408,6 +4045,61 @@ export default class MainScene extends Phaser.Scene {
         color: '#9effd0',
       })
       .setDepth(100);
+
+    // Initialize HUDManager
+    const hudComponents: HUDComponents = {
+      p1ScoreText: this.p1ScoreText,
+      p2ScoreText: this.p2ScoreText,
+      p1LivesText: this.p1LivesText,
+      p2LivesText: this.p2LivesText,
+      levelText: this.levelText,
+      mineChargesText: this.mineChargesText,
+      perkText: this.perkText,
+      powerUpBar: this.powerUpBar,
+      heatBar: this.heatBar,
+      activeMarkerLeft: this.activeMarkerLeft,
+      activeMarkerRight: this.activeMarkerRight,
+    };
+    const hudConfig: HUDManagerConfig = {
+      gameWidth: GAME_WIDTH,
+    };
+    this.hudManager = new HUDManager(this, hudComponents, hudConfig);
+
+    // Initialize PowerUpManager with callbacks to existing methods
+    const powerUpCallbacks: PowerUpCallbacks = {
+      onTripleShotChanged: (active) => this.player.setTripleShot(active),
+      onSlowMotionChanged: (active) => this.applySlowMo(active),
+      onShieldChanged: (active) => this.player.setShield(active),
+      onGhostPhaseChanged: (active, silent) => this.applyGhost(active, silent),
+      onCannonCoolingChanged: (active) => this.player.setCannonCooling(active),
+      onBlackHoleVisualChanged: (active) => this.player.setBlackHoleVisual(active),
+      onDronesSpawn: () => this.spawnDrones(),
+      onDronesRemove: () => this.removeDrones(),
+      onBlackHoleSpawn: () => this.spawnBlackHole(),
+      onBlackHoleRemove: () => this.removeBlackHole(),
+      onShieldBunkersSpawn: () => this.spawnShieldBunkers(),
+      onShieldBunkersRemove: () => this.removeShieldBunkers(),
+      onEMPTrigger: () => this.triggerEMP(),
+      onMineChargesAdd: (charges) => this.addMineDeployCharges(charges),
+      onPowerUpAudioPlay: (type) => {
+        // Audio handled by specific callbacks (EMP, Drones, Ghost already play)
+        if (
+          type !== PowerUpType.EMP_WAVE &&
+          type !== PowerUpType.WINGMAN_DRONES &&
+          type !== PowerUpType.GHOST_PHASE
+        ) {
+          this.audio.playPickup();
+        }
+      },
+      onActivePowerUpsChanged: (activePowerUps) => this.syncActivePowerUpsToState(activePowerUps),
+    };
+    const powerUpConfig: PowerUpManagerConfig = {
+      getDuration: (type) => this.getPowerUpDuration(type),
+    };
+    this.powerUpManager = new PowerUpManager(powerUpCallbacks, powerUpConfig);
+    const initialPowerUps = this.playerStates[this.activePlayerIndex]?.activePowerUps ?? new Map();
+    this.powerUpManager.loadState(initialPowerUps);
+
     this.milestoneText = this.add
       .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.32, '', {
         fontFamily: '"Press Start 2P"',
@@ -4434,8 +4126,7 @@ export default class MainScene extends Phaser.Scene {
     this.setDebugOverlayVisible(this.debugOverlayEnabled);
     if (this.debugOverlayEnabled) {
       this.debugRefreshMs = 0;
-      this.powerUpTextRefreshMs = 0;
-      this.updatePerkHUD();
+      this.updateHUDDisplay();
     }
     const pauseBtn = this.add
       .text(GAME_WIDTH - hudMarginX, pauseButtonY, '|| PAUSE (P)', {
@@ -4491,13 +4182,11 @@ export default class MainScene extends Phaser.Scene {
     this.setDebugOverlayVisible(this.debugOverlayEnabled);
     if (this.debugOverlayEnabled) {
       this.debugRefreshMs = 0;
-      this.powerUpTextRefreshMs = 0;
-      this.updatePerkHUD();
+      this.updateHUDDisplay();
       return;
     }
     this.lastDebugLine = '';
     this.lastDebugStatsLine = '';
-    this.lastPowerUpList = '';
     this.debugText.setText('');
     this.debugStatsText.setText('');
     this.powerUpListText.setText('');
@@ -5234,7 +4923,7 @@ export default class MainScene extends Phaser.Scene {
         eliteDroneActive: Boolean(this.eliteDrone?.active),
         topRaidersActive: this.skyRaiderManager.getActiveRaiderCount(),
         topRaiderShotsActive: this.skyRaiderManager.getActiveProjectileCount(),
-        shieldBunkerActive: this.activePowerUps.has(PowerUpType.SHIELD_BUNKER),
+        shieldBunkerActive: this.powerUpManager.isActive(PowerUpType.SHIELD_BUNKER),
         shieldBunkerCount: this.shieldBunkers?.countActive(true) ?? 0,
         mineDeployCharges: this.mineDeployCharges,
         activeMines: this.proximityMines?.countActive(true) ?? 0,

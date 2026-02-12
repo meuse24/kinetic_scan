@@ -24,6 +24,7 @@ import { musicManager } from './MusicManager';
 import { isDebugOverlayEnabled, toggleDebugOverlayEnabled } from './DebugSettings';
 import { mergeLeaderboardEntries, remoteStatsService } from './RemoteStatsService';
 import SceneBackground from './SceneBackground';
+import { SettingsOverlayController } from './ui/SettingsOverlayController';
 
 type PlayerButton = {
   requiredCredits: number;
@@ -69,16 +70,6 @@ type AttractNebulaLayer = {
   baseAlpha: number;
   alphaWave: number;
   phase: number;
-};
-
-type SettingsVolumeSlider = {
-  getter: () => number;
-  setter: (v: number) => void;
-  trackX: number;
-  sliderWidth: number;
-  fill: Phaser.GameObjects.Rectangle;
-  handle: Phaser.GameObjects.Rectangle;
-  valueText: Phaser.GameObjects.Text;
 };
 
 const ATTRACT_DECOR_TUNING = {
@@ -152,6 +143,7 @@ export default class AttractScene extends Phaser.Scene {
   private ambientEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   private highScoreGroup!: Phaser.GameObjects.Container;
   private dailyChallengeGroup!: Phaser.GameObjects.Container;
+  private dailyChallengeOriginalY: number = 0;
   private serverStatsGroup!: Phaser.GameObjects.Container;
   private serverStatsUsersText?: Phaser.GameObjects.Text;
   private serverStatsCoinsText?: Phaser.GameObjects.Text;
@@ -170,16 +162,7 @@ export default class AttractScene extends Phaser.Scene {
   private eventBannerTween: Phaser.Tweens.Tween | null = null;
   private difficultyKey: DifficultyPresetKey = getCurrentDifficultyKey();
   private settingsOverlayOpen: boolean = false;
-  private settingsOverlay?: Phaser.GameObjects.Container;
-  private settingsBackdrop?: Phaser.GameObjects.Rectangle;
-  private settingsPanel?: Phaser.GameObjects.Rectangle;
-  private settingsSoundValue?: Phaser.GameObjects.Text;
-  private settingsFullscreenValue?: Phaser.GameObjects.Text;
-  private settingsDifficultyValue?: Phaser.GameObjects.Text;
-  private settingsDebugValue?: Phaser.GameObjects.Text;
-  private settingsCrtValue?: Phaser.GameObjects.Text;
-  private settingsHint?: Phaser.GameObjects.Text;
-  private settingsVolumeSliders: SettingsVolumeSlider[] = [];
+  private settingsOverlayController?: SettingsOverlayController;
   private titleLogoContainer?: Phaser.GameObjects.Container;
   private powerUpPreviewContainer?: Phaser.GameObjects.Container;
   private highScoreRows: Phaser.GameObjects.Text[] = [];
@@ -449,17 +432,9 @@ export default class AttractScene extends Phaser.Scene {
 
       this.sceneBackground?.destroy();
       this.sceneBackground = undefined;
-      this.settingsOverlay?.destroy(true);
-      this.settingsOverlay = undefined;
-      this.settingsBackdrop = undefined;
-      this.settingsPanel = undefined;
-      this.settingsSoundValue = undefined;
-      this.settingsFullscreenValue = undefined;
-      this.settingsDifficultyValue = undefined;
-      this.settingsDebugValue = undefined;
-      this.settingsCrtValue = undefined;
-      this.settingsHint = undefined;
-      this.settingsVolumeSliders.length = 0;
+      this.settingsOverlayController?.destroy();
+      this.settingsOverlayController = undefined;
+      this.settingsOverlayOpen = false;
       this.titleLogoContainer = undefined;
       this.powerUpPreviewContainer = undefined;
       this.highScoreRows.length = 0;
@@ -563,7 +538,7 @@ export default class AttractScene extends Phaser.Scene {
   private toggleSound() {
     void this.audio.resume();
     soundManager.toggle();
-    this.refreshSettingsOverlayLabels();
+    this.settingsOverlayController?.refresh();
   }
 
   private toggleFullscreen() {
@@ -573,13 +548,13 @@ export default class AttractScene extends Phaser.Scene {
     } else {
       this.scale.startFullscreen();
     }
-    this.refreshSettingsOverlayLabels();
+    this.settingsOverlayController?.refresh();
   }
 
   private toggleCrt() {
     if (!performanceMonitor.isCrtSupported()) return;
     performanceMonitor.toggleCrtUserEnabled();
-    this.refreshSettingsOverlayLabels();
+    this.settingsOverlayController?.refresh();
   }
 
   private getSoundLabel() {
@@ -612,12 +587,12 @@ export default class AttractScene extends Phaser.Scene {
     this.audio.setDifficultyMix(this.difficultyKey);
     this.enemyManager.setDifficultyPreset(preset);
     this.ufo.setDifficultyPreset(preset);
-    this.refreshSettingsOverlayLabels();
+    this.settingsOverlayController?.refresh();
   }
 
   private toggleDebugSetting() {
     toggleDebugOverlayEnabled();
-    this.refreshSettingsOverlayLabels();
+    this.settingsOverlayController?.refresh();
   }
 
   private openHelp() {
@@ -631,301 +606,41 @@ export default class AttractScene extends Phaser.Scene {
     if (this.settingsOverlayOpen) return;
     if (this.scene.isActive('HelpScene')) return;
     this.settingsOverlayOpen = true;
-    this.refreshSettingsOverlayLabels();
-    this.settingsOverlay?.setVisible(true);
+    this.settingsOverlayController?.open();
     this.settingsText.setColor('#ffffff');
   }
 
   private closeSettingsOverlay() {
     if (!this.settingsOverlayOpen) return;
     this.settingsOverlayOpen = false;
-    this.settingsOverlay?.setVisible(false);
+    this.settingsOverlayController?.close();
     this.settingsText.setColor('#9be7ff');
   }
 
   private buildSettingsOverlay(depth: number) {
-    if (this.settingsOverlay) return;
-    const centerX = GAME_WIDTH / 2;
-    const centerY = GAME_HEIGHT / 2;
-    const showCrtToggle = performanceMonitor.isCrtSupported();
-    const panelWidth = Math.min(760, GAME_WIDTH - 120);
-    const panelHeight = Math.min(560, GAME_HEIGHT - 140);
-    const settingsItemCount = showCrtToggle ? 8 : 7;
-    const layoutTopY = centerY - panelHeight * 0.24;
-    const layoutBottomY = centerY + panelHeight * 0.22;
-    const layoutStep =
-      settingsItemCount > 1 ? (layoutBottomY - layoutTopY) / (settingsItemCount - 1) : 0;
-    let layoutIndex = 0;
-    const nextLayoutY = () => layoutTopY + layoutStep * layoutIndex++;
-    const soundY = nextLayoutY();
-    const masterSliderY = nextLayoutY();
-    const sfxSliderY = nextLayoutY();
-    const bgmSliderY = nextLayoutY();
-    const fullscreenY = nextLayoutY();
-    const difficultyY = nextLayoutY();
-    const debugY = nextLayoutY();
-    const crtY = showCrtToggle ? nextLayoutY() : 0;
-    const valueStyle: Phaser.Types.GameObjects.Text.TextStyle = {
-      fontFamily: '"Press Start 2P"',
-      fontSize: '16px',
-      color: '#ffffff',
-    };
-
-    this.settingsBackdrop = this.add
-      .rectangle(centerX, centerY, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.78)
-      .setDepth(depth)
-      .setInteractive();
-    this.settingsPanel = this.add
-      .rectangle(centerX, centerY, panelWidth, panelHeight, 0x111827, 0.94)
-      .setStrokeStyle(2, 0x6ee7ff)
-      .setDepth(depth + 1);
-    const title = this.add
-      .text(centerX, centerY - panelHeight * 0.39, 'SETTINGS', {
-        fontFamily: '"Press Start 2P"',
-        fontSize: '26px',
-        color: '#9be7ff',
-      })
-      .setOrigin(0.5)
-      .setDepth(depth + 2);
-
-    this.settingsSoundValue = this.add
-      .text(centerX, soundY, '', valueStyle)
-      .setOrigin(0.5)
-      .setDepth(depth + 2)
-      .setInteractive({ useHandCursor: true });
-    this.settingsSoundValue.on('pointerdown', () => this.toggleSound());
-
-    this.settingsFullscreenValue = this.add
-      .text(centerX, fullscreenY, '', valueStyle)
-      .setOrigin(0.5)
-      .setDepth(depth + 2)
-      .setInteractive({ useHandCursor: !IS_TOUCH });
-    this.settingsFullscreenValue.on('pointerdown', () => this.toggleFullscreen());
-
-    this.settingsDifficultyValue = this.add
-      .text(centerX, difficultyY, '', valueStyle)
-      .setOrigin(0.5)
-      .setDepth(depth + 2)
-      .setInteractive({ useHandCursor: true });
-    this.settingsDifficultyValue.on('pointerdown', () => this.cycleDifficulty(1));
-
-    this.settingsDebugValue = this.add
-      .text(centerX, debugY, '', valueStyle)
-      .setOrigin(0.5)
-      .setDepth(depth + 2)
-      .setInteractive({ useHandCursor: true });
-    this.settingsDebugValue.on('pointerdown', () => this.toggleDebugSetting());
-
-    if (showCrtToggle) {
-      this.settingsCrtValue = this.add
-        .text(centerX, crtY, '', valueStyle)
-        .setOrigin(0.5)
-        .setDepth(depth + 2)
-        .setInteractive({ useHandCursor: true });
-      this.settingsCrtValue.on('pointerdown', () => this.toggleCrt());
-    } else {
-      this.settingsCrtValue = undefined;
-    }
-
-    this.settingsVolumeSliders.length = 0;
-    const sliderDepth = depth + 2;
-    const sliderObjects: Phaser.GameObjects.GameObject[] = [];
-    sliderObjects.push(
-      ...this.createSettingsVolumeSlider(
-        centerX,
-        masterSliderY,
-        'MASTER',
-        () => soundManager.masterVolume,
-        (v: number) => soundManager.setMasterVolume(v),
-        sliderDepth,
-      ),
-    );
-    sliderObjects.push(
-      ...this.createSettingsVolumeSlider(
-        centerX,
-        sfxSliderY,
-        'SFX',
-        () => soundManager.sfxVolume,
-        (v: number) => soundManager.setSfxVolume(v),
-        sliderDepth,
-      ),
-    );
-    sliderObjects.push(
-      ...this.createSettingsVolumeSlider(
-        centerX,
-        bgmSliderY,
-        'BGM',
-        () => soundManager.bgmVolume,
-        (v: number) => soundManager.setBgmVolume(v),
-        sliderDepth,
-      ),
-    );
-
-    this.settingsHint = this.add
-      .text(
-        centerX,
-        centerY + panelHeight * 0.33,
-        showCrtToggle
-          ? 'SOUND[S]  FS[F]  DIFF[A/D]  DEBUG[G]  CRT[C]'
-          : 'SOUND[S]  FS[F]  DIFF[A/D]  DEBUG[G]',
-        {
-          fontFamily: '"Press Start 2P"',
-          fontSize: '10px',
-          color: '#9ca3af',
-        },
-      )
-      .setOrigin(0.5)
-      .setDepth(depth + 2);
-
-    const backText = this.add
-      .text(centerX, centerY + panelHeight * 0.4, 'BACK (ESC / B / O)', {
-        fontFamily: '"Press Start 2P"',
-        fontSize: '14px',
-        color: '#ffdd88',
-      })
-      .setOrigin(0.5)
-      .setDepth(depth + 2)
-      .setInteractive({ useHandCursor: true });
-    backText.on('pointerdown', () => this.closeSettingsOverlay());
-
-    this.settingsOverlay = this.add.container(0, 0, [
-      this.settingsBackdrop,
-      this.settingsPanel,
-      title,
-      this.settingsSoundValue,
-      this.settingsFullscreenValue,
-      this.settingsDifficultyValue,
-      this.settingsDebugValue,
-      this.settingsHint,
-      backText,
-      ...sliderObjects,
-    ]);
-    if (this.settingsCrtValue) {
-      this.settingsOverlay.add(this.settingsCrtValue);
-    }
-    this.settingsOverlay.setDepth(depth);
-    this.settingsOverlay.setVisible(false);
+    if (this.settingsOverlayController) return;
+    this.settingsOverlayController = new SettingsOverlayController({
+      scene: this,
+      depth,
+      isTouch: IS_TOUCH,
+      isCrtSupported: () => performanceMonitor.isCrtSupported(),
+      getSoundLabel: () => this.getSoundLabel(),
+      getFullscreenLabel: () => this.getFullscreenLabel(),
+      getDifficultyLabel: () => this.getDifficultyLabel(),
+      getDebugLabel: () => this.getDebugLabel(),
+      getCrtLabel: () => this.getCrtLabel(),
+      onToggleSound: () => this.toggleSound(),
+      onToggleFullscreen: () => this.toggleFullscreen(),
+      onChangeDifficulty: (direction) => this.cycleDifficulty(direction),
+      onToggleDebug: () => this.toggleDebugSetting(),
+      onToggleCrt: () => this.toggleCrt(),
+      onCloseRequested: () => this.closeSettingsOverlay(),
+    });
+    this.settingsOverlayController.build();
   }
 
   private refreshSettingsOverlayLabels() {
-    this.settingsSoundValue?.setText(this.getSoundLabel());
-    this.settingsFullscreenValue?.setText(this.getFullscreenLabel());
-    this.settingsDifficultyValue?.setText(this.getDifficultyLabel());
-    this.settingsDebugValue?.setText(this.getDebugLabel());
-    this.settingsCrtValue?.setText(this.getCrtLabel());
-    if (this.settingsFullscreenValue?.input) {
-      this.settingsFullscreenValue.input.enabled = !IS_TOUCH;
-      this.settingsFullscreenValue.setAlpha(IS_TOUCH ? 0.45 : 1);
-    }
-    if (this.settingsCrtValue?.input) {
-      const enableCrtToggle = performanceMonitor.isCrtSupported();
-      this.settingsCrtValue.input.enabled = enableCrtToggle;
-      this.settingsCrtValue.setAlpha(enableCrtToggle ? 1 : 0.45);
-    }
-    this.refreshSettingsVolumeSliders();
-  }
-
-  private createSettingsVolumeSlider(
-    centerX: number,
-    y: number,
-    label: string,
-    getter: () => number,
-    setter: (v: number) => void,
-    depth: number,
-  ): Phaser.GameObjects.GameObject[] {
-    const sliderWidth = 210;
-    const sliderHeight = 10;
-    const handleSize = 16;
-    const labelX = centerX - sliderWidth / 2 - 90;
-    const trackX = centerX;
-    const initialValue = Phaser.Math.Clamp(getter(), 0, 1);
-
-    const labelText = this.add
-      .text(labelX, y, label, {
-        fontFamily: '"Press Start 2P"',
-        fontSize: '10px',
-        color: '#9ca3af',
-      })
-      .setOrigin(0, 0.5)
-      .setDepth(depth);
-    const track = this.add
-      .rectangle(trackX, y, sliderWidth, sliderHeight, 0x334155, 0.96)
-      .setOrigin(0.5)
-      .setDepth(depth);
-    const fill = this.add
-      .rectangle(trackX - sliderWidth / 2, y, sliderWidth * initialValue, sliderHeight, 0x00cc88)
-      .setOrigin(0, 0.5)
-      .setDepth(depth);
-    const handle = this.add
-      .rectangle(
-        trackX - sliderWidth / 2 + sliderWidth * initialValue,
-        y,
-        handleSize,
-        handleSize,
-        0xf8fafc,
-      )
-      .setDepth(depth)
-      .setInteractive({ useHandCursor: true, draggable: true });
-    this.input.setDraggable(handle);
-    const valueText = this.add
-      .text(trackX + sliderWidth / 2 + 20, y, `${Math.round(initialValue * 100)}%`, {
-        fontFamily: '"Press Start 2P"',
-        fontSize: '9px',
-        color: '#cbd5e1',
-      })
-      .setOrigin(0, 0.5)
-      .setDepth(depth);
-
-    const setValue = (value: number) => {
-      const clamped = Phaser.Math.Clamp(value, 0, 1);
-      const minX = trackX - sliderWidth / 2;
-      handle.x = minX + sliderWidth * clamped;
-      fill.width = sliderWidth * clamped;
-      valueText.setText(`${Math.round(clamped * 100)}%`);
-      setter(clamped);
-    };
-
-    handle.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number) => {
-      const minX = trackX - sliderWidth / 2;
-      const maxX = trackX + sliderWidth / 2;
-      const clampedX = Phaser.Math.Clamp(dragX, minX, maxX);
-      const value = (clampedX - minX) / sliderWidth;
-      setValue(value);
-    });
-
-    const trackHitArea = this.add
-      .rectangle(trackX, y, sliderWidth + 20, 30, 0x000000, 0)
-      .setDepth(depth)
-      .setInteractive({ useHandCursor: true });
-    trackHitArea.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      const minX = trackX - sliderWidth / 2;
-      const maxX = trackX + sliderWidth / 2;
-      const clampedX = Phaser.Math.Clamp(pointer.x, minX, maxX);
-      const value = (clampedX - minX) / sliderWidth;
-      setValue(value);
-    });
-
-    this.settingsVolumeSliders.push({
-      getter,
-      setter,
-      trackX,
-      sliderWidth,
-      fill,
-      handle,
-      valueText,
-    });
-
-    return [labelText, track, fill, handle, valueText, trackHitArea];
-  }
-
-  private refreshSettingsVolumeSliders() {
-    this.settingsVolumeSliders.forEach((slider) => {
-      const value = Phaser.Math.Clamp(slider.getter(), 0, 1);
-      const minX = slider.trackX - slider.sliderWidth / 2;
-      slider.handle.x = minX + slider.sliderWidth * value;
-      slider.fill.width = slider.sliderWidth * value;
-      slider.valueText.setText(`${Math.round(value * 100)}%`);
-    });
+    this.settingsOverlayController?.refresh();
   }
 
   private applyAttractAudioVolume() {
@@ -950,7 +665,8 @@ export default class AttractScene extends Phaser.Scene {
       'soft',
     );
 
-    const infoAlpha = this.attractDisplayState === 0 ? 1 : 0;
+    const coinTextAlpha = this.attractDisplayState === 0 || this.attractDisplayState === 2 ? 1 : 0;
+    const infoBlockAlpha = this.attractDisplayState === 0 ? 1 : 0;
     const scoresAlpha = this.attractDisplayState === 1 ? 1 : 0;
     const dailyAlpha = this.attractDisplayState === 2 ? 1 : 0;
     const statsAlpha = this.attractDisplayState === 3 ? 1 : 0;
@@ -958,9 +674,10 @@ export default class AttractScene extends Phaser.Scene {
     const duration = 400;
     const ease = 'Sine.easeInOut';
 
-    // Infoblock
-    this.tweens.add({ targets: this.coinText, alpha: infoAlpha, duration, ease });
-    this.tweens.add({ targets: this.coinInfoText, alpha: infoAlpha, duration, ease });
+    // INSERT COIN text (visible in states 0 and 2)
+    this.tweens.add({ targets: this.coinText, alpha: coinTextAlpha, duration, ease });
+    // Info block (only visible in state 0)
+    this.tweens.add({ targets: this.coinInfoText, alpha: infoBlockAlpha, duration, ease });
     // Keep primary navigation actions always visible in attract mode.
     this.tweens.add({ targets: this.helpText, alpha: 1, duration, ease });
     this.tweens.add({ targets: this.settingsText, alpha: 1, duration, ease });
@@ -968,8 +685,18 @@ export default class AttractScene extends Phaser.Scene {
     // Scores
     this.tweens.add({ targets: this.highScoreGroup, alpha: scoresAlpha, duration, ease });
 
-    // Daily Challenge
-    this.tweens.add({ targets: this.dailyChallengeGroup, alpha: dailyAlpha, duration, ease });
+    // Daily Challenge - position higher when visible (state 2)
+    const dailyY =
+      this.attractDisplayState === 2
+        ? this.dailyChallengeOriginalY - 60
+        : this.dailyChallengeOriginalY;
+    this.tweens.add({
+      targets: this.dailyChallengeGroup,
+      alpha: dailyAlpha,
+      y: dailyY,
+      duration,
+      ease,
+    });
 
     // Runtime stats (coins/users)
     this.tweens.add({ targets: this.serverStatsGroup, alpha: statsAlpha, duration, ease });
@@ -1915,6 +1642,7 @@ export default class AttractScene extends Phaser.Scene {
     this.centerInfoBlockAtY(rotatingCenterY);
     this.centerObjectAtY(this.highScoreGroup, rotatingCenterY);
     this.centerObjectAtY(this.dailyChallengeGroup, rotatingCenterY);
+    this.dailyChallengeOriginalY = this.dailyChallengeGroup.y;
     this.centerObjectAtY(this.serverStatsGroup, rotatingCenterY);
 
     if (this.eventBanner) {

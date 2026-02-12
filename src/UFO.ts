@@ -3,6 +3,8 @@ import { AudioManager } from './AudioManager';
 import { getDifficultyPreset } from './Difficulty';
 import type { DifficultyPreset } from './Difficulty';
 import { JUICE_TUNING } from './MainSceneTuning';
+import { UFOCombatSystem } from './entities/ufo/UFOCombatSystem';
+import { UFOMovementSystem } from './entities/ufo/UFOMovementSystem';
 
 export type UFOVariant = 'scout' | 'boss';
 
@@ -382,22 +384,37 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
   private bossPhase: 1 | 2 | 3 = 1;
   private shotPatternIndex: number = 0;
   private bossModifier: BossModifier = 'none';
-  private regenAccumulatorMs: number = 0;
   private lastBerserkScale: number = 1;
   private tentaclePhases: number[] = [0, 0.9, 1.8, 2.7, 3.6, 4.5];
   private visualRefreshAccumulatorMs: number = 0;
   private forceVisualRefresh: boolean = true;
-  private dodgeRefreshMs: number = 0;
-  private cachedDodgeOffset: number = 0;
   private bossHitsLabelCache: string = '';
   private bossHitsColorCache: string = '#ffffff';
   private reducedVisualDetail: boolean = false;
+
+  // Refactored systems (Phase 6)
+  private combatSystem: UFOCombatSystem;
+  private movementSystem: UFOMovementSystem;
 
   constructor(scene: Phaser.Scene, audio: AudioManager, options: UFOOptions = {}) {
     ensureUFOTextures(scene);
     super(scene, -100, -100, 'ufo_hitbox');
     this.audioManager = audio;
     this.combatEnabled = Boolean(options.combatEnabled);
+
+    // Initialize combat and movement systems
+    this.combatSystem = new UFOCombatSystem({
+      variant: this.variant,
+      maxHitPoints: this.variant === 'boss' ? 6 : 1,
+    });
+    this.movementSystem = new UFOMovementSystem({
+      variant: this.variant,
+      startX: 0,
+      startY: 0,
+      movementSeed: 0,
+      difficultyLevel: this.difficultyLevel,
+      reducedVisualDetail: this.reducedVisualDetail,
+    });
 
     scene.add.existing(this);
     scene.physics.add.existing(this);
@@ -472,7 +489,15 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     if (this.reducedVisualDetail === reduced) return;
     this.reducedVisualDetail = reduced;
     this.forceVisualRefresh = true;
-    this.dodgeRefreshMs = 0;
+    // Reset movement system with new reduced visual detail setting
+    this.movementSystem.reset({
+      variant: this.variant,
+      startX: this.startX,
+      startY: this.startY,
+      movementSeed: this.movementSeed,
+      difficultyLevel: this.difficultyLevel,
+      reducedVisualDetail: reduced,
+    });
   }
 
   public getProjectiles() {
@@ -501,7 +526,12 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
 
   public setBossModifier(mod: BossModifier) {
     this.bossModifier = mod;
-    this.regenAccumulatorMs = 0;
+    // Reset combat system with new modifier
+    this.combatSystem.reset({
+      variant: this.variant,
+      maxHitPoints: this.maxHitPoints,
+      modifier: mod,
+    });
   }
 
   public getBossModifier(): BossModifier {
@@ -544,12 +574,9 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.displayHitPoints = 1;
     this.visualRefreshAccumulatorMs = 0;
     this.forceVisualRefresh = true;
-    this.dodgeRefreshMs = 0;
-    this.cachedDodgeOffset = 0;
     this.bossHitsLabelCache = '';
     this.bossHitsColorCache = '#ffffff';
     this.bossModifier = 'none';
-    this.regenAccumulatorMs = 0;
     this.lastBerserkScale = 1;
 
     if (this.variant === 'boss') {
@@ -595,44 +622,45 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.domeSprite.setAlpha(0.95);
     this.visualGraphics.setVisible(true);
     this.audioManager.startUFOSound();
+
+    // Reset combat and movement systems
+    this.combatSystem.reset({
+      variant: this.variant,
+      maxHitPoints: this.maxHitPoints,
+      modifier: this.bossModifier,
+    });
+    this.movementSystem.reset({
+      variant: this.variant,
+      startX: this.startX,
+      startY: this.startY,
+      movementSeed: this.movementSeed,
+      difficultyLevel: this.difficultyLevel,
+      reducedVisualDetail: this.reducedVisualDetail,
+    });
   }
 
   public applyBulletHit(damage: number = 1) {
-    if (!this.active) {
-      return {
-        destroyed: false,
-        variant: this.variant,
-        health: this.hitPoints,
-        maxHealth: this.maxHitPoints,
-      };
-    }
-    if (this.variant === 'boss') {
-      if (!Number.isFinite(this.maxHitPoints) || this.maxHitPoints < 2) {
-        this.maxHitPoints = 6;
+    // Delegate to combat system
+    const result = this.combatSystem.applyDamage(damage, this.active);
+
+    // Sync local fields for rendering
+    this.hitPoints = result.health;
+    this.maxHitPoints = result.maxHealth;
+    this.displayHitPoints = this.combatSystem.getDisplayHitPoints();
+    this.bossPhase = this.combatSystem.getBossPhase();
+
+    if (this.active) {
+      this.hitFlashUntil = this.scene.time.now + 120;
+      this.forceVisualRefresh = true;
+
+      if (result.destroyed) {
+        this.deactivate();
+      } else {
+        this.ensureCombatReady();
       }
-      if (!Number.isFinite(this.hitPoints) || this.hitPoints < 1) {
-        this.hitPoints = this.maxHitPoints;
-        this.displayHitPoints = this.maxHitPoints;
-      }
     }
-    const effectiveDamage = this.bossModifier === 'armored' ? damage * 0.5 : damage;
-    const prevHitPoints = this.hitPoints;
-    this.hitPoints = Math.max(0, prevHitPoints - effectiveDamage);
-    this.displayHitPoints = prevHitPoints;
-    this.hitFlashUntil = this.scene.time.now + 120;
-    this.forceVisualRefresh = true;
-    if (this.hitPoints <= 0) {
-      const variant = this.variant;
-      this.deactivate();
-      return { destroyed: true, variant, health: 0, maxHealth: this.maxHitPoints };
-    }
-    this.ensureCombatReady();
-    return {
-      destroyed: false,
-      variant: this.variant,
-      health: this.hitPoints,
-      maxHealth: this.maxHitPoints,
-    };
+
+    return result;
   }
 
   preUpdate(time: number, delta: number) {
@@ -640,30 +668,38 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     if (!this.active) return;
 
     this.timeAlive += delta * 0.001;
+
+    // Update combat system (boss phase, HP smoothing, regen)
+    this.combatSystem.update(delta);
+    this.hitPoints = this.combatSystem.getHitPoints();
+    this.displayHitPoints = this.combatSystem.getDisplayHitPoints();
+    this.bossPhase = this.combatSystem.getBossPhase();
+
+    // Update movement system
     if (this.variant === 'boss') {
-      this.bossPhase = this.resolveBossPhase();
-      const lerpToLiveHealth = Phaser.Math.Clamp(delta * 0.012, 0.12, 0.28);
-      this.displayHitPoints = Phaser.Math.Linear(
-        this.displayHitPoints,
-        this.hitPoints,
-        lerpToLiveHealth,
+      const movementState = this.movementSystem.updateBoss(
+        this.x,
+        this.y,
+        this.timeAlive,
+        delta,
+        time,
+        this.bossPhase,
+        this.scene.scale.width,
+        this.scene.scale.height,
+        (this.evasionThreats as any) ?? undefined,
       );
-      if (Math.abs(this.displayHitPoints - this.hitPoints) < 0.02) {
-        this.displayHitPoints = this.hitPoints;
+      this.x = movementState.x;
+      this.y = movementState.y;
+      this.travelDir = movementState.travelDir;
+      this.startY = movementState.startY;
+      if (this.body) {
+        this.body.velocity.x = movementState.velocityX;
+        this.body.velocity.y = movementState.velocityY;
       }
-      // Shielded: slow HP regen (0.2 HP/sec)
-      if (this.bossModifier === 'shielded' && this.hitPoints < this.maxHitPoints) {
-        this.regenAccumulatorMs += delta;
-        if (this.regenAccumulatorMs >= 1000) {
-          this.regenAccumulatorMs -= 1000;
-          this.hitPoints = Math.min(this.maxHitPoints, this.hitPoints + 0.2);
-          this.forceVisualRefresh = true;
-        }
-      }
+
       // Berserk: speed increases as HP decreases
       if (this.bossModifier === 'berserk' && this.body) {
-        const hpRatio = this.hitPoints / Math.max(1, this.maxHitPoints);
-        const berserkScale = 1 + (1 - hpRatio) * 0.6;
+        const berserkScale = this.combatSystem.getBerserkScale();
         const baseVx = this.body.velocity.x;
         if (Math.abs(baseVx) > 10) {
           const sign = baseVx > 0 ? 1 : -1;
@@ -672,9 +708,19 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
           this.body.velocity.x = sign * absSpeed * berserkScale;
         }
       }
-      this.updateBossMovement(time, delta);
     } else {
-      this.updateScoutMovement();
+      const movementState = this.movementSystem.updateScout(
+        this.x,
+        this.y,
+        this.timeAlive,
+        this.scene.scale.width,
+      );
+      this.y = movementState.y;
+      this.travelDir = movementState.travelDir;
+      if (this.body) {
+        this.body.velocity.x = movementState.velocityX;
+        this.body.velocity.y = movementState.velocityY;
+      }
     }
 
     if (time >= this.retreatAt && this.body) {
@@ -727,92 +773,8 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     this.bossTelegraphUntil = 0;
     this.visualRefreshAccumulatorMs = 0;
     this.forceVisualRefresh = true;
-    this.dodgeRefreshMs = 0;
-    this.cachedDodgeOffset = 0;
     this.clearProjectiles();
     this.audioManager.stopUFOSound();
-  }
-
-  private updateScoutMovement() {
-    const bob = Math.sin(this.timeAlive * 2.3) * 34 + Math.cos(this.timeAlive * 0.9) * 9;
-    this.y = this.startY + bob;
-  }
-
-  private resolveBossPhase(): 1 | 2 | 3 {
-    if (this.maxHitPoints <= 0) return 1;
-    const ratio = this.hitPoints / this.maxHitPoints;
-    if (ratio <= 0.25 || this.timeAlive >= 12) return 3;
-    if (ratio <= 0.5 || this.timeAlive >= 6) return 2;
-    return 1;
-  }
-
-  private updateBossMovement(time: number, delta: number) {
-    const width = this.scene.scale.width;
-    const phase = this.resolveBossPhase();
-    const phaseAggression = 1 + (phase - 1) * 0.22;
-    const amplitudeX = (85 + this.difficultyLevel * 3) * phaseAggression;
-    this.dodgeRefreshMs -= delta;
-    if (this.dodgeRefreshMs <= 0) {
-      this.cachedDodgeOffset = this.computeBossDodgeOffset(phase);
-      this.dodgeRefreshMs = phase === 3 ? 52 : phase === 2 ? 64 : 78;
-    }
-    const dodgeOffset = this.cachedDodgeOffset;
-    const targetX = Phaser.Math.Clamp(
-      this.startX + Math.sin(this.timeAlive * 1.35 + this.movementSeed) * amplitudeX + dodgeOffset,
-      125,
-      width - 125,
-    );
-    this.x = Phaser.Math.Linear(this.x, targetX, 0.085 + (phase - 1) * 0.015);
-
-    const yWave =
-      Math.sin(this.timeAlive * (1.95 + (phase - 1) * 0.2) + this.movementSeed * 0.5) * 52 +
-      Math.cos(this.timeAlive * 0.85 + this.movementSeed) * 14;
-    this.y = this.startY + yWave;
-
-    if (this.body) {
-      this.body.velocity.x = 0;
-      this.body.velocity.y = 0;
-    }
-
-    if (this.x < 140) this.travelDir = 1;
-    else if (this.x > width - 140) this.travelDir = -1;
-
-    if (Math.floor(time / 2400) % 2 === 0) {
-      this.startY = Phaser.Math.Clamp(
-        this.startY + Math.sin(time * 0.0007 + this.movementSeed) * (0.65 + (phase - 1) * 0.35),
-        120,
-        this.scene.scale.height * 0.55,
-      );
-    }
-  }
-
-  private computeBossDodgeOffset(phase: 1 | 2 | 3) {
-    if (!this.evasionThreats) return 0;
-    const bulletChildren = this.evasionThreats.getChildren() as Phaser.Physics.Arcade.Sprite[];
-    let dodgeAccumulator = 0;
-    let considered = 0;
-    const maxDistanceSq = 290 * 290;
-    const maxSamples = this.reducedVisualDetail ? 8 : 14;
-
-    for (const bullet of bulletChildren) {
-      if (!bullet.active) continue;
-      const body = bullet.body as Phaser.Physics.Arcade.Body | undefined;
-      if (!body || body.velocity.y >= 0) continue;
-      const dx = bullet.x - this.x;
-      const dy = bullet.y - this.y;
-      if (dy < -210 || dy > 230) continue;
-      const distSq = dx * dx + dy * dy;
-      if (distSq > maxDistanceSq) continue;
-      const pressure = 1 - distSq / maxDistanceSq;
-      dodgeAccumulator += (dx < 0 ? 1 : -1) * pressure;
-      considered += 1;
-      if (considered >= maxSamples) break;
-    }
-
-    if (considered === 0) return 0;
-    const baseDodge = 20 + (phase - 1) * 9 + this.difficultyLevel * 1.4;
-    const scaled = (dodgeAccumulator / considered) * baseDodge;
-    return Phaser.Math.Clamp(scaled, -72, 72);
   }
 
   private clearProjectiles() {
@@ -842,7 +804,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     const bob = Math.sin(time * 0.003 + this.movementSeed) * 1.6;
     if (this.variant === 'boss') {
       const hpRatio = Phaser.Math.Clamp(this.hitPoints / Math.max(1, this.maxHitPoints), 0, 1);
-      const phase = this.resolveBossPhase();
+      const phase = this.combatSystem.getBossPhase();
       const pulse = 0.5 + Math.sin(time * 0.005 + this.movementSeed) * 0.5;
       const berserkBoost =
         this.bossModifier === 'berserk'
@@ -961,7 +923,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
     const pulse = 0.5 + Math.sin(time * 0.007 + this.movementSeed) * 0.5;
     const hpRatio = this.maxHitPoints > 0 ? this.hitPoints / this.maxHitPoints : 0;
     const displayRatio = this.maxHitPoints > 0 ? this.displayHitPoints / this.maxHitPoints : 0;
-    const phase = this.resolveBossPhase();
+    const phase = this.combatSystem.getBossPhase();
     const tentacleCount = this.reducedVisualDetail ? 5 : 8;
     const hullAccent = phase === 3 ? 0xff4eb8 : phase === 2 ? 0xff73d8 : 0xff58cf;
     const energyAccent = phase === 3 ? 0xff91ff : phase === 2 ? 0x9df6ff : 0x5ee1ff;
@@ -1193,7 +1155,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
         return;
       }
       if (time < this.nextShotAt) return;
-      const phase = this.resolveBossPhase();
+      const phase = this.combatSystem.getBossPhase();
       const activeCap = phase === 3 ? 16 : phase === 2 ? 13 : 10;
       if (this.projectiles.countActive(true) >= activeCap) {
         this.nextShotAt = time + Phaser.Math.Between(1100, 1700);
@@ -1246,7 +1208,7 @@ export class UFO extends Phaser.Physics.Arcade.Sprite {
 
   private fireBossVolley(time: number) {
     if (!this.combatTarget?.body || !this.projectiles) return;
-    const phase = this.resolveBossPhase();
+    const phase = this.combatSystem.getBossPhase();
 
     const target = this.combatTarget;
     const targetBody = target.body as Phaser.Physics.Arcade.Body;

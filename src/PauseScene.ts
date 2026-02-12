@@ -6,6 +6,7 @@ import { DEFAULT_VOLUME } from './AudioManager';
 import { performanceMonitor } from './PerformanceMonitor';
 import { isDebugOverlayEnabled, toggleDebugOverlayEnabled } from './DebugSettings';
 import SceneBackground from './SceneBackground';
+import { UIComponentFactory } from './ui/UIComponentFactory';
 
 export default class PauseScene extends Phaser.Scene {
   private soundText!: Phaser.GameObjects.Text;
@@ -126,29 +127,41 @@ export default class PauseScene extends Phaser.Scene {
 
     // Volume Sliders
     const sliderStartY = centerY + 195;
-    const sliderLabels = ['MASTER', 'SFX', 'BGM'];
-    const sliderValues = [
-      soundManager.masterVolume,
-      soundManager.sfxVolume,
-      soundManager.bgmVolume,
+    const sliderConfigs = [
+      {
+        label: 'MASTER',
+        getter: () => soundManager.masterVolume,
+        setter: (v: number) => soundManager.setMasterVolume(v),
+      },
+      {
+        label: 'SFX',
+        getter: () => soundManager.sfxVolume,
+        setter: (v: number) => soundManager.setSfxVolume(v),
+      },
+      {
+        label: 'BGM',
+        getter: () => soundManager.bgmVolume,
+        setter: (v: number) => soundManager.setBgmVolume(v),
+      },
     ];
-    const sliderSetters = [
-      (v: number) => soundManager.setMasterVolume(v),
-      (v: number) => soundManager.setSfxVolume(v),
-      (v: number) => soundManager.setBgmVolume(v),
-    ];
-    const sliderValueTexts: Phaser.GameObjects.Text[] = [];
 
-    for (let i = 0; i < sliderLabels.length; i++) {
+    for (let i = 0; i < sliderConfigs.length; i++) {
       const y = sliderStartY + i * 42;
-      this.createVolumeSlider(
+      UIComponentFactory.createVolumeSlider({
+        scene: this,
         centerX,
         y,
-        sliderLabels[i],
-        sliderValues[i],
-        sliderSetters[i],
-        sliderValueTexts,
-      );
+        label: sliderConfigs[i].label,
+        getter: sliderConfigs[i].getter,
+        setter: sliderConfigs[i].setter,
+        sliderWidth: 200,
+        handleSize: 18,
+        labelColor: '#aaaaaa',
+        valueColor: '#cccccc',
+        trackColor: 0x444444,
+        fillColor: 0x00cc00,
+        handleColor: 0xffffff,
+      });
     }
 
     this.soundListener = (muted: boolean) => {
@@ -212,89 +225,6 @@ export default class PauseScene extends Phaser.Scene {
       if (this.volumeListener) {
         soundManager.offVolumeChange(this.volumeListener, this);
       }
-    });
-  }
-
-  private createVolumeSlider(
-    centerX: number,
-    y: number,
-    label: string,
-    initialValue: number,
-    setter: (v: number) => void,
-    valueTexts: Phaser.GameObjects.Text[],
-  ) {
-    const sliderWidth = 200;
-    const sliderHeight = 10;
-    const handleSize = 18;
-    const labelX = centerX - sliderWidth / 2 - 80;
-
-    // Label
-    this.add
-      .text(labelX, y, label, {
-        fontFamily: '"Press Start 2P"',
-        fontSize: '10px',
-        color: '#aaaaaa',
-      })
-      .setOrigin(0, 0.5);
-
-    // Track background
-    const trackX = centerX;
-    this.add.rectangle(trackX, y, sliderWidth, sliderHeight, 0x444444).setOrigin(0.5);
-
-    // Fill bar
-    const fill = this.add
-      .rectangle(trackX - sliderWidth / 2, y, sliderWidth * initialValue, sliderHeight, 0x00cc00)
-      .setOrigin(0, 0.5);
-
-    // Handle
-    const handleX = trackX - sliderWidth / 2 + sliderWidth * initialValue;
-    const handle = this.add
-      .rectangle(handleX, y, handleSize, handleSize, 0xffffff)
-      .setInteractive({ useHandCursor: true, draggable: true });
-
-    // Value text
-    const valueText = this.add
-      .text(trackX + sliderWidth / 2 + 20, y, `${Math.round(initialValue * 100)}%`, {
-        fontFamily: '"Press Start 2P"',
-        fontSize: '9px',
-        color: '#cccccc',
-      })
-      .setOrigin(0, 0.5);
-    valueTexts.push(valueText);
-
-    // Drag handler
-    this.input.on(
-      'drag',
-      (
-        _pointer: Phaser.Input.Pointer,
-        gameObject: Phaser.GameObjects.GameObject,
-        dragX: number,
-      ) => {
-        if (gameObject !== handle) return;
-        const minX = trackX - sliderWidth / 2;
-        const maxX = trackX + sliderWidth / 2;
-        const clampedX = Phaser.Math.Clamp(dragX, minX, maxX);
-        handle.x = clampedX;
-        const value = (clampedX - minX) / sliderWidth;
-        fill.width = sliderWidth * value;
-        valueText.setText(`${Math.round(value * 100)}%`);
-        setter(value);
-      },
-    );
-
-    // Click on track to set value
-    const trackHitArea = this.add
-      .rectangle(trackX, y, sliderWidth + 20, 30, 0x000000, 0)
-      .setInteractive({ useHandCursor: true });
-    trackHitArea.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      const minX = trackX - sliderWidth / 2;
-      const maxX = trackX + sliderWidth / 2;
-      const clampedX = Phaser.Math.Clamp(pointer.x, minX, maxX);
-      handle.x = clampedX;
-      const value = (clampedX - minX) / sliderWidth;
-      fill.width = sliderWidth * value;
-      valueText.setText(`${Math.round(value * 100)}%`);
-      setter(value);
     });
   }
 
