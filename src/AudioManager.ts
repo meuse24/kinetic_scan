@@ -237,6 +237,49 @@ export class AudioManager {
     });
   }
 
+  public playRescue() {
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
+    const now = this.audioContext.currentTime;
+
+    const main = this.audioContext.createOscillator();
+    const harmony = this.audioContext.createOscillator();
+    const gain = this.audioContext.createGain();
+
+    main.type = 'triangle';
+    harmony.type = 'sine';
+    main.frequency.setValueAtTime(520, now);
+    main.frequency.exponentialRampToValueAtTime(1220, now + 0.24);
+    harmony.frequency.setValueAtTime(760, now);
+    harmony.frequency.exponentialRampToValueAtTime(1490, now + 0.24);
+
+    gain.gain.setValueAtTime(0.26, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.28);
+    main.connect(gain);
+    harmony.connect(gain);
+    this.connectWithPan(gain, Phaser.Math.FloatBetween(-0.12, 0.12));
+
+    const sparkle = this.audioContext.createBufferSource();
+    const sparkleBuffer = this.getNoiseBuffer(0.14);
+    if (!sparkleBuffer) return;
+    sparkle.buffer = sparkleBuffer;
+    const sparkleFilter = this.audioContext.createBiquadFilter();
+    sparkleFilter.type = 'highpass';
+    sparkleFilter.frequency.setValueAtTime(1800, now);
+    const sparkleGain = this.audioContext.createGain();
+    sparkleGain.gain.setValueAtTime(0.08, now);
+    sparkleGain.gain.exponentialRampToValueAtTime(0.01, now + 0.16);
+    sparkle.connect(sparkleFilter);
+    sparkleFilter.connect(sparkleGain);
+    this.connectWithPan(sparkleGain, Phaser.Math.FloatBetween(-0.22, 0.22));
+
+    main.start(now);
+    harmony.start(now);
+    main.stop(now + 0.28);
+    harmony.stop(now + 0.28);
+    sparkle.start(now);
+    sparkle.stop(now + 0.16);
+  }
+
   public playCoin() {
     if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
     const now = this.audioContext.currentTime;
@@ -523,6 +566,80 @@ export class AudioManager {
     if (this.ufoGain) {
       this.ufoGain.disconnect();
       this.ufoGain = null;
+    }
+  }
+
+  public playPhantomDecloak(pan: number = 0) {
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
+    const now = this.audioContext.currentTime;
+    const osc = this.audioContext.createOscillator();
+    const gain = this.audioContext.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(2000, now);
+    osc.frequency.exponentialRampToValueAtTime(500, now + 0.2);
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+    osc.connect(gain);
+    this.connectWithPan(gain, pan);
+    osc.start(now);
+    osc.stop(now + 0.2);
+  }
+
+  public playBomberDrop(pan: number = 0) {
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
+    const now = this.audioContext.currentTime;
+    const osc = this.audioContext.createOscillator();
+    const gain = this.audioContext.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.exponentialRampToValueAtTime(80, now + 0.3);
+    gain.gain.setValueAtTime(0.4, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+    osc.connect(gain);
+    this.connectWithPan(gain, pan);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  }
+
+  public playGrenadeExplode(pan: number = 0) {
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
+    const now = this.audioContext.currentTime;
+    const bufferSize = this.audioContext.sampleRate * 0.4;
+    const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = this.audioContext.createBufferSource();
+    noise.buffer = buffer;
+    const filter = this.audioContext.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(800, now);
+    filter.frequency.exponentialRampToValueAtTime(60, now + 0.4);
+    const gain = this.audioContext.createGain();
+    gain.gain.setValueAtTime(0.55, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+    noise.connect(filter);
+    filter.connect(gain);
+    this.connectWithPan(gain, pan);
+    noise.start(now);
+    noise.stop(now + 0.4);
+  }
+
+  public playWeaponEventActivate() {
+    if (!this.audioContext || !this.masterGain || this.audioContext.state !== 'running') return;
+    const now = this.audioContext.currentTime;
+    const notes = [440, 554.37, 659.25];
+    for (let i = 0; i < notes.length; i++) {
+      const t = now + i * 0.08;
+      const osc = this.audioContext.createOscillator();
+      const gain = this.audioContext.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(notes[i], t);
+      gain.gain.setValueAtTime(0.22, t);
+      gain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(t);
+      osc.stop(t + 0.15);
     }
   }
 

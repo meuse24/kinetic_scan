@@ -74,6 +74,12 @@ export interface HUDState {
   playerActive: boolean;
   playerOverheated: boolean;
   heatBarAnchor: { x: number; y: number };
+
+  // Weapon event
+  weaponEventActive: boolean;
+  weaponEventLabel: string;
+  weaponEventTimeLeftMs: number;
+  weaponEventColor: string;
 }
 
 /**

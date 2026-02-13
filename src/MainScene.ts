@@ -26,8 +26,11 @@ import {
   LEVEL_PROGRESS_TUNING,
   LEVEL_TRANSITION_TUNING,
   MILESTONE_TUNING,
+  MINI_EVENT_TUNING,
+  RESCUE_STREAK_TUNING,
   SHIELD_BUNKER_TUNING,
   SPAWN_PROTECTION_TUNING,
+  WEAPON_EVENT_TUNING,
   type BackgroundDecorTier,
   type EliteDroneDeactivateReason,
   type IntRange,
@@ -99,6 +102,32 @@ interface PendingEnemyHit {
 }
 
 type CollisionSourceMix = 'none' | 'bullet' | 'emp' | 'mixed';
+
+type MiniEventKey = keyof typeof MINI_EVENT_TUNING.events;
+type WeaponEventKey = keyof typeof WEAPON_EVENT_TUNING.events;
+
+interface MiniEventState {
+  key: MiniEventKey;
+  label: string;
+  timeLeftMs: number;
+  auxTimerMs: number;
+  windX: number;
+}
+
+interface WeaponEventState {
+  key: WeaponEventKey;
+  label: string;
+  timeLeftMs: number;
+  overlayColor: number;
+}
+
+const RAIDER_SCORE: Record<SkyRaiderVariant, { base: number; perLevel: number }> = {
+  stalker: { base: 280, perLevel: 22 },
+  lancer: { base: 420, perLevel: 34 },
+  phantom: { base: 380, perLevel: 30 },
+  bomber: { base: 500, perLevel: 40 },
+  interceptor: { base: 320, perLevel: 26 },
+};
 
 interface CollisionPressureMetrics {
   queuedTotal: number;
@@ -208,6 +237,25 @@ export default class MainScene extends Phaser.Scene {
   private backgroundDecor: BackgroundDecorState[] = [];
   private nebulaLayers: NebulaLayerState[] = [];
   private nebulaProfileKey: string = 'off';
+  private baseRuntimeIntensity: number = 1;
+
+  private rescueStreakCount: number = 0;
+  private rescueStreakMultiplier: number = 1;
+  private rescueStreakLastAtMs: number = -999999;
+  private rescueStreakText!: Phaser.GameObjects.Text;
+
+  private miniEvent: MiniEventState | null = null;
+  private miniEventTriggerTimerMs: number = 0;
+  private miniEventOverlay!: Phaser.GameObjects.Rectangle;
+  private miniEventStatusText!: Phaser.GameObjects.Text;
+  private miniEventAnnounceText!: Phaser.GameObjects.Text;
+  private lastMiniEventKey: MiniEventKey | null = null;
+
+  private weaponEvent: WeaponEventState | null = null;
+  private weaponEventTriggerTimerMs: number = 0;
+  private weaponEventStatusText!: Phaser.GameObjects.Text;
+  private weaponEventAnnounceText!: Phaser.GameObjects.Text;
+  private lastWeaponEventKey: WeaponEventKey | null = null;
 
   private p1ScoreText!: Phaser.GameObjects.Text;
   private p2ScoreText?: Phaser.GameObjects.Text;
@@ -316,6 +364,16 @@ export default class MainScene extends Phaser.Scene {
     this.backgroundDecor = [];
     this.nebulaLayers = [];
     this.nebulaProfileKey = 'off';
+    this.baseRuntimeIntensity = 1;
+    this.rescueStreakCount = 0;
+    this.rescueStreakMultiplier = 1;
+    this.rescueStreakLastAtMs = -999999;
+    this.miniEvent = null;
+    this.lastMiniEventKey = null;
+    this.miniEventTriggerTimerMs = 0;
+    this.weaponEvent = null;
+    this.lastWeaponEventKey = null;
+    this.weaponEventTriggerTimerMs = 0;
     this.levelBonusPayoutTween = undefined;
     this.playerStates = [];
     for (let i = 0; i < this.playerCount; i++) {
@@ -494,6 +552,8 @@ export default class MainScene extends Phaser.Scene {
     this.heatBar = this.add.graphics().setDepth(120);
     this.createHUD();
     this.createDamageOverlay();
+    this.createMiniEventOverlay();
+    this.createWeaponEventOverlay();
     this.createTurnOverlay();
     this.createLevelTransitionOverlay();
     this.createSmokeEmitter();
@@ -501,6 +561,9 @@ export default class MainScene extends Phaser.Scene {
     this.updateHUDDisplay();
     this.powerUpManager.reapplyAll(true);
     this.resetLevelOpeningState();
+    this.resetRescueStreak();
+    this.scheduleNextMiniEvent(true);
+    this.scheduleNextWeaponEvent(true);
     this.applySpawnProtection(SPAWN_PROTECTION_TUNING.startGraceMs, true);
     this.showTutorialHints();
     this.ufoSpawnTimer = this.computeNextUFOSpawnDelay();
@@ -596,6 +659,8 @@ export default class MainScene extends Phaser.Scene {
       safeClearGroup(this.impactRingPool as any);
       this.audio.destroy();
       musicManager.stopGameplay();
+      this.stopMiniEvent(true);
+      this.stopWeaponEvent(true);
       this.clearWorldEvents('reset');
       this.pendingEnemyHits.length = 0;
       const bunkerGroup = this.shieldBunkers as any;
@@ -605,6 +670,12 @@ export default class MainScene extends Phaser.Scene {
       this.powerUpManager.cleanup();
       this.powerUpBar.destroy();
       this.heatBar.destroy();
+      this.rescueStreakText?.destroy();
+      this.miniEventStatusText?.destroy();
+      this.miniEventAnnounceText?.destroy();
+      this.miniEventOverlay?.destroy();
+      this.weaponEventStatusText?.destroy();
+      this.weaponEventAnnounceText?.destroy();
       this.damageOverlayTween?.stop();
       this.damageOverlay?.destroy();
       if (this.slowMoColorMatrixFx) {
@@ -654,6 +725,9 @@ export default class MainScene extends Phaser.Scene {
     this.ufo.setCombatTarget(this.player.active ? this.player : null);
     this.skyRaiderManager.setCombatTarget(this.player.active ? this.player : null);
     this.updateLevelOpeningBalance(delta);
+    this.updateMiniEvents(delta, time);
+    this.updateWeaponEvents(delta);
+    this.updateRescueStreak(time);
     this.updateSpawnProtection(delta);
     this.updateGuaranteedSupportDrop(delta);
     this.updateDynamicBulletCap(delta);
@@ -842,6 +916,12 @@ export default class MainScene extends Phaser.Scene {
       playerActive: this.player.active,
       playerOverheated: this.player.isOverheated(),
       heatBarAnchor: this.player.getHeatBarAnchor(),
+      weaponEventActive: Boolean(this.weaponEvent),
+      weaponEventLabel: this.weaponEvent?.label ?? '',
+      weaponEventTimeLeftMs: this.weaponEvent?.timeLeftMs ?? 0,
+      weaponEventColor: this.weaponEvent
+        ? '#' + this.weaponEvent.overlayColor.toString(16).padStart(6, '0')
+        : '#ffffff',
     };
     this.hudManager.update(hudState);
   }
@@ -918,6 +998,476 @@ export default class MainScene extends Phaser.Scene {
         });
       });
     }
+  }
+
+  private createMiniEventOverlay() {
+    this.miniEventOverlay = this.add
+      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0xffffff, 0)
+      .setDepth(9);
+    this.miniEventStatusText = this.add
+      .text(GAME_WIDTH / 2, GAME_WIDTH <= 720 ? 52 : 74, '', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: GAME_WIDTH <= 720 ? '10px' : '12px',
+        color: '#ffe6b5',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(121)
+      .setVisible(false);
+    this.miniEventAnnounceText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.28, '', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: GAME_WIDTH <= 720 ? '16px' : '20px',
+        color: '#ffe6b5',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(143)
+      .setVisible(false)
+      .setAlpha(0);
+  }
+
+  private getRescueStreakTier(rescues: number) {
+    let tier = RESCUE_STREAK_TUNING
+      .thresholds[0] as (typeof RESCUE_STREAK_TUNING.thresholds)[number];
+    for (const next of RESCUE_STREAK_TUNING.thresholds) {
+      if (rescues >= next.minRescues) tier = next;
+      else break;
+    }
+    return tier;
+  }
+
+  private resetRescueStreak() {
+    this.rescueStreakCount = 0;
+    this.rescueStreakMultiplier = 1;
+    this.rescueStreakLastAtMs = -999999;
+    if (this.rescueStreakText) {
+      this.rescueStreakText.setVisible(false);
+      this.rescueStreakText.setAlpha(0);
+      this.rescueStreakText.setText('');
+    }
+  }
+
+  private registerRescueStreak(nowMs: number) {
+    const withinWindow = nowMs - this.rescueStreakLastAtMs <= RESCUE_STREAK_TUNING.windowMs;
+    this.rescueStreakCount = withinWindow ? this.rescueStreakCount + 1 : 1;
+    this.rescueStreakLastAtMs = nowMs;
+
+    const previousMultiplier = this.rescueStreakMultiplier;
+    const tier = this.getRescueStreakTier(this.rescueStreakCount);
+    this.rescueStreakMultiplier = tier.multiplier;
+    this.refreshRescueStreakHud(nowMs, tier.color);
+
+    return {
+      multiplier: this.rescueStreakMultiplier,
+      color: tier.color,
+      leveledUp: this.rescueStreakMultiplier > previousMultiplier,
+    };
+  }
+
+  private refreshRescueStreakHud(nowMs: number, color?: string) {
+    if (!this.rescueStreakText) return;
+    if (this.rescueStreakCount <= 0) {
+      this.rescueStreakText.setVisible(false);
+      this.rescueStreakText.setAlpha(0);
+      this.rescueStreakText.setText('');
+      return;
+    }
+
+    const timeLeftMs = Math.max(
+      0,
+      RESCUE_STREAK_TUNING.windowMs - (nowMs - this.rescueStreakLastAtMs),
+    );
+    const pulse = 0.68 + (Math.sin(nowMs * RESCUE_STREAK_TUNING.hudPulseSpeed) * 0.5 + 0.5) * 0.32;
+    this.rescueStreakText
+      .setVisible(true)
+      .setAlpha(this.rescueStreakMultiplier > 1 ? pulse : 0.76)
+      .setColor(color ?? this.rescueStreakText.style.color)
+      .setText(
+        `RESCUE x${this.rescueStreakMultiplier}  ${Math.max(0.1, timeLeftMs / 1000).toFixed(1)}s`,
+      );
+  }
+
+  private updateRescueStreak(nowMs: number) {
+    if (this.rescueStreakCount <= 0) return;
+    const timeSinceRescue = nowMs - this.rescueStreakLastAtMs;
+    if (timeSinceRescue > RESCUE_STREAK_TUNING.windowMs) {
+      this.resetRescueStreak();
+      return;
+    }
+    const tier = this.getRescueStreakTier(this.rescueStreakCount);
+    this.refreshRescueStreakHud(nowMs, tier.color);
+  }
+
+  private getMiniEventIntensityMultiplier() {
+    if (!this.miniEvent) return 1;
+    return MINI_EVENT_TUNING.events[this.miniEvent.key].runtimeIntensityMultiplier;
+  }
+
+  private setBaseRuntimeIntensity(intensity: number) {
+    this.baseRuntimeIntensity = Phaser.Math.Clamp(intensity, 0.6, 1.25);
+    this.applyRuntimeIntensity();
+  }
+
+  private applyRuntimeIntensity() {
+    const combinedIntensity = Phaser.Math.Clamp(
+      this.baseRuntimeIntensity * this.getMiniEventIntensityMultiplier(),
+      0.6,
+      1.25,
+    );
+    this.enemyManager.setRuntimeIntensity(combinedIntensity);
+    this.skyRaiderManager.setRuntimeIntensity(combinedIntensity);
+  }
+
+  private scheduleNextMiniEvent(initial: boolean = false) {
+    const range = initial ? MINI_EVENT_TUNING.initialDelayMs : MINI_EVENT_TUNING.intervalMs;
+    this.miniEventTriggerTimerMs = this.rollRange(range);
+  }
+
+  private pickNextMiniEventKey(): MiniEventKey {
+    const keys = Object.keys(MINI_EVENT_TUNING.events) as MiniEventKey[];
+    if (keys.length <= 1) return keys[0];
+    const filtered = keys.filter((key) => key !== this.lastMiniEventKey);
+    return Phaser.Utils.Array.GetRandom(filtered.length > 0 ? filtered : keys);
+  }
+
+  private activateMiniEvent() {
+    const key = this.pickNextMiniEventKey();
+    const config = MINI_EVENT_TUNING.events[key];
+    let auxTimerMs = 0;
+    let windX = 0;
+
+    if (key === 'swarm_rush') {
+      auxTimerMs = this.rollRange(MINI_EVENT_TUNING.events.swarm_rush.swarmSpawnIntervalMs);
+    } else if (key === 'solar_storm') {
+      auxTimerMs = MINI_EVENT_TUNING.events.solar_storm.flashIntervalMs;
+      windX =
+        MINI_EVENT_TUNING.events.solar_storm.windForceX *
+        (Phaser.Math.Between(0, 1) === 0 ? -1 : 1);
+    }
+
+    this.miniEvent = {
+      key,
+      label: config.label,
+      timeLeftMs: this.rollRange(config.durationMs),
+      auxTimerMs,
+      windX,
+    };
+    this.lastMiniEventKey = key;
+    this.applyRuntimeIntensity();
+    this.powerUpNotices.showCustom(config.label, '#ffe6b5');
+
+    this.miniEventAnnounceText.setText(config.label).setVisible(true).setAlpha(0).setScale(0.92);
+    this.tweens.killTweensOf(this.miniEventAnnounceText);
+    this.tweens.add({
+      targets: this.miniEventAnnounceText,
+      alpha: 1,
+      scale: 1,
+      yoyo: true,
+      hold: Math.max(200, MINI_EVENT_TUNING.announceDurationMs - 560),
+      duration: 280,
+      onComplete: () => {
+        this.miniEventAnnounceText.setVisible(false);
+      },
+    });
+
+    this.miniEventStatusText.setVisible(true).setText(config.label);
+  }
+
+  private stopMiniEvent(resetAll: boolean = false) {
+    this.miniEvent = null;
+    this.miniEventOverlay?.setAlpha(0);
+    this.miniEventStatusText?.setVisible(false);
+    this.miniEventAnnounceText?.setVisible(false).setAlpha(0);
+    this.tweens.killTweensOf(this.miniEventAnnounceText);
+    if (resetAll) {
+      this.miniEventTriggerTimerMs = 0;
+      this.lastMiniEventKey = null;
+    }
+    this.applyRuntimeIntensity();
+  }
+
+  private applyMiniEventWind(
+    group: Phaser.Physics.Arcade.Group,
+    forceX: number,
+    delta: number,
+    damping: number,
+  ) {
+    const children = group.getChildren() as Phaser.GameObjects.GameObject[];
+    for (const child of children) {
+      const actor = child as Phaser.GameObjects.GameObject & {
+        active?: boolean;
+        body?: Phaser.Physics.Arcade.Body;
+      };
+      if (!actor?.active || !actor.body || !actor.body.enable) continue;
+      actor.body.velocity.x = actor.body.velocity.x * damping + forceX * (delta / 1000);
+    }
+  }
+
+  private applyMiniEventVerticalDamping(group: Phaser.Physics.Arcade.Group, damping: number) {
+    const children = group.getChildren() as Phaser.GameObjects.GameObject[];
+    for (const child of children) {
+      const actor = child as Phaser.GameObjects.GameObject & {
+        active?: boolean;
+        body?: Phaser.Physics.Arcade.Body;
+      };
+      if (!actor?.active || !actor.body || !actor.body.enable) continue;
+      actor.body.velocity.y *= damping;
+    }
+  }
+
+  private applyActiveMiniEventEffects(delta: number) {
+    if (!this.miniEvent) return;
+
+    if (this.miniEvent.key === 'solar_storm') {
+      const config = MINI_EVENT_TUNING.events.solar_storm;
+      this.applyMiniEventWind(this.enemyManager.enemies, this.miniEvent.windX, delta, 0.984);
+      this.applyMiniEventWind(
+        this.skyRaiderManager.getRaiders(),
+        this.miniEvent.windX * 0.72,
+        delta,
+        0.988,
+      );
+      this.applyMiniEventWind(
+        this.skyRaiderManager.getProjectiles(),
+        this.miniEvent.windX * 0.82,
+        delta,
+        0.992,
+      );
+      this.miniEvent.auxTimerMs -= delta;
+      if (this.miniEvent.auxTimerMs <= 0) {
+        this.miniEvent.auxTimerMs = config.flashIntervalMs;
+        this.cameras.main.flash(70, 255, 180, 92, false);
+      }
+      return;
+    }
+
+    if (this.miniEvent.key === 'low_gravity') {
+      const config = MINI_EVENT_TUNING.events.low_gravity;
+      this.applyMiniEventVerticalDamping(this.enemyManager.enemies, config.verticalDamping);
+      this.applyMiniEventVerticalDamping(
+        this.skyRaiderManager.getRaiders(),
+        config.verticalDamping,
+      );
+      this.applyMiniEventVerticalDamping(
+        this.skyRaiderManager.getProjectiles(),
+        config.verticalDamping,
+      );
+      return;
+    }
+
+    const config = MINI_EVENT_TUNING.events.swarm_rush;
+    this.miniEvent.auxTimerMs -= delta;
+    if (this.miniEvent.auxTimerMs > 0) return;
+    this.miniEvent.auxTimerMs = this.rollRange(config.swarmSpawnIntervalMs);
+    const count = this.rollRange(config.swarmCountRange);
+    this.enemyManager.spawnSwarm(
+      count,
+      config.swarmScale,
+      config.swarmSpeed,
+      config.swarmSpacingX,
+      config.swarmSpacingY,
+    );
+    this.cameras.main.flash(55, 255, 145, 220, false);
+  }
+
+  private updateMiniEvents(delta: number, nowMs: number) {
+    if (!this.miniEvent) {
+      this.miniEventTriggerTimerMs -= delta;
+      if (this.miniEventTriggerTimerMs <= 0) {
+        this.activateMiniEvent();
+      }
+      return;
+    }
+
+    const config = MINI_EVENT_TUNING.events[this.miniEvent.key];
+    this.miniEvent.timeLeftMs -= delta;
+    this.applyActiveMiniEventEffects(delta);
+    const pulse = Math.sin(nowMs * MINI_EVENT_TUNING.overlayPulseSpeed) * 0.5 + 0.5;
+    const overlayAlpha = config.overlayBaseAlpha + pulse * config.overlayPulseAlpha;
+    this.miniEventOverlay.setFillStyle(config.overlayColor, overlayAlpha);
+    this.miniEventStatusText.setText(
+      `${config.label} ${Math.max(0.1, this.miniEvent.timeLeftMs / 1000).toFixed(1)}s`,
+    );
+
+    if (this.miniEvent.timeLeftMs > 0) return;
+
+    this.stopMiniEvent(false);
+    this.scheduleNextMiniEvent(false);
+  }
+
+  // --- Weapon Event System ---
+  private createWeaponEventOverlay() {
+    const yOffset = GAME_WIDTH <= 720 ? 66 : 90;
+    this.weaponEventStatusText = this.add
+      .text(GAME_WIDTH / 2, yOffset, '', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: GAME_WIDTH <= 720 ? '10px' : '12px',
+        color: '#ffe6b5',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(122)
+      .setVisible(false);
+    this.weaponEventAnnounceText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT * 0.36, '', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: GAME_WIDTH <= 720 ? '16px' : '20px',
+        color: '#ffe6b5',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(143)
+      .setVisible(false)
+      .setAlpha(0);
+  }
+
+  private scheduleNextWeaponEvent(initial: boolean) {
+    const range = initial ? WEAPON_EVENT_TUNING.initialDelayMs : WEAPON_EVENT_TUNING.intervalMs;
+    this.weaponEventTriggerTimerMs = this.rollRange(range);
+  }
+
+  private pickNextWeaponEventKey(): WeaponEventKey {
+    const keys = Object.keys(WEAPON_EVENT_TUNING.events) as WeaponEventKey[];
+    if (keys.length <= 1) return keys[0];
+    const filtered = keys.filter((k) => k !== this.lastWeaponEventKey);
+    return Phaser.Utils.Array.GetRandom(filtered.length > 0 ? filtered : keys);
+  }
+
+  private activateWeaponEvent() {
+    const key = this.pickNextWeaponEventKey();
+    const config = WEAPON_EVENT_TUNING.events[key];
+    this.weaponEvent = {
+      key,
+      label: config.label,
+      timeLeftMs: config.durationMs,
+      overlayColor: config.overlayColor,
+    };
+    this.lastWeaponEventKey = key;
+
+    this.player.setWeaponMode(
+      key as 'double_fire' | 'rapid_fire' | 'grenade_launcher',
+      config.fireRateMultiplier,
+      config.heatMultiplier,
+    );
+
+    this.powerUpNotices.showCustom(config.label, '#ffe6b5');
+
+    this.weaponEventAnnounceText.setText(config.label).setVisible(true).setAlpha(0).setScale(0.92);
+    this.tweens.killTweensOf(this.weaponEventAnnounceText);
+    this.tweens.add({
+      targets: this.weaponEventAnnounceText,
+      alpha: 1,
+      scale: 1,
+      yoyo: true,
+      hold: Math.max(200, WEAPON_EVENT_TUNING.announceDurationMs - 560),
+      duration: 280,
+      onComplete: () => {
+        this.weaponEventAnnounceText.setVisible(false);
+      },
+    });
+
+    this.weaponEventStatusText.setVisible(true).setText(config.label);
+    this.audio.playWeaponEventActivate();
+    this.cameras.main.flash(180, 255, 255, 200);
+  }
+
+  private stopWeaponEvent(resetAll: boolean = false) {
+    this.weaponEvent = null;
+    this.weaponEventStatusText?.setVisible(false);
+    this.weaponEventAnnounceText?.setVisible(false).setAlpha(0);
+    this.tweens.killTweensOf(this.weaponEventAnnounceText);
+    this.player.resetWeaponMode();
+    if (resetAll) {
+      this.weaponEventTriggerTimerMs = 0;
+      this.lastWeaponEventKey = null;
+    }
+  }
+
+  private updateWeaponEvents(delta: number) {
+    if (!this.weaponEvent) {
+      this.weaponEventTriggerTimerMs -= delta;
+      if (this.weaponEventTriggerTimerMs <= 0) {
+        this.activateWeaponEvent();
+      }
+      return;
+    }
+
+    this.weaponEvent.timeLeftMs -= delta;
+    const colorHex = Phaser.Display.Color.IntegerToColor(this.weaponEvent.overlayColor);
+    const label = `${this.weaponEvent.label} ${Math.max(0.1, this.weaponEvent.timeLeftMs / 1000).toFixed(1)}s`;
+    this.weaponEventStatusText
+      .setText(label)
+      .setColor(`#${colorHex.color.toString(16).padStart(6, '0')}`);
+
+    if (this.weaponEvent.timeLeftMs > 0) return;
+
+    this.stopWeaponEvent(false);
+    this.scheduleNextWeaponEvent(false);
+  }
+
+  public onGrenadeExplode(x: number, y: number) {
+    const splashRadius = 80;
+    const splashDamage = 2;
+
+    // Check enemies (asteroids)
+    const enemies = this.enemyManager.enemies.getChildren() as Phaser.GameObjects.GameObject[];
+    for (const child of enemies) {
+      const enemy = child as any;
+      if (!enemy.active) continue;
+      const dx = enemy.x - x;
+      const dy = enemy.y - y;
+      if (dx * dx + dy * dy <= splashRadius * splashRadius) {
+        if (typeof enemy.applyDamage === 'function') {
+          enemy.applyDamage(splashDamage);
+        } else {
+          enemy.disableBody?.(true, true);
+        }
+        this.explosionManager.triggerExplosion(enemy.x, enemy.y);
+      }
+    }
+
+    // Check SkyRaiders
+    const skyRaiders = this.skyRaiderManager.getRaiders().getChildren() as unknown as SkyRaider[];
+    for (const raider of skyRaiders) {
+      if (!raider.active) continue;
+      const dx = raider.x - x;
+      const dy = raider.y - y;
+      if (dx * dx + dy * dy <= splashRadius * splashRadius) {
+        const result = raider.applyBulletHit(splashDamage);
+        if (result.destroyed) {
+          this.triggerSkyRaiderDestructionFX(raider.x, raider.y, result.variant);
+          this.powerUpDirector.onSkyRaiderDestroyed(raider.x, raider.y);
+          this.worldEvents.spawnAstronautFromEnemyShip(raider.x, raider.y);
+          this.registerSpecialKillForLevel();
+          const raiderScore = RAIDER_SCORE[result.variant];
+          const points = raiderScore.base + this.level * raiderScore.perLevel;
+          this.addScore(this.comboManager.registerKill(raider.x, raider.y, points, this.time.now));
+        }
+      }
+    }
+
+    // Check UFO
+    if (this.ufo?.active) {
+      const dx = this.ufo.x - x;
+      const dy = this.ufo.y - y;
+      if (dx * dx + dy * dy <= splashRadius * splashRadius) {
+        // Delegate to existing UFO hit handler by simulating bullet hit
+        this.ufo.applyBulletHit(splashDamage);
+      }
+    }
+
+    // FX
+    this.explosionManager.triggerExplosion(x, y);
+    this.spawnImpactRing(x, y, 0x33ff66, 20, 90, 280);
+    this.applyImpactShake(100, 0.006);
+    this.audio.playGrenadeExplode(
+      Phaser.Math.Clamp((x / Math.max(1, this.scale.width)) * 2 - 1, -1, 1),
+    );
   }
 
   private checkLevelProgression() {
@@ -1046,6 +1596,7 @@ export default class MainScene extends Phaser.Scene {
     this.ufo.setDifficultyLevel(this.level);
     this.skyRaiderManager.setDifficultyPreset(this.difficultyPreset);
     this.skyRaiderManager.setDifficultyLevel(this.level);
+    this.applyRuntimeIntensity();
     if (!silent) {
       this.updateHUDDisplay();
     }
@@ -1056,10 +1607,7 @@ export default class MainScene extends Phaser.Scene {
       difficultyKey: this.difficultyKey,
       progressionScore: this.progressionScore,
       rollRange: (range) => this.rollRange(range),
-      setRuntimeIntensity: (intensity) => {
-        this.enemyManager.setRuntimeIntensity(intensity);
-        this.skyRaiderManager.setRuntimeIntensity(intensity);
-      },
+      setRuntimeIntensity: (intensity) => this.setBaseRuntimeIntensity(intensity),
     });
   }
 
@@ -1070,10 +1618,7 @@ export default class MainScene extends Phaser.Scene {
       isGameOver: this.isGameOver,
       progressionScore: this.progressionScore,
       nextLevelScore: this.nextLevelScore,
-      setRuntimeIntensity: (intensity) => {
-        this.enemyManager.setRuntimeIntensity(intensity);
-        this.skyRaiderManager.setRuntimeIntensity(intensity);
-      },
+      setRuntimeIntensity: (intensity) => this.setBaseRuntimeIntensity(intensity),
     });
   }
 
@@ -1462,7 +2007,9 @@ export default class MainScene extends Phaser.Scene {
     if (!astronaut.active) return;
     const x = astronaut.x;
     const y = astronaut.y;
-    const rescuePoints = 680 + this.level * 42;
+    const baseRescuePoints = 680 + this.level * 42;
+    const streak = this.registerRescueStreak(this.time.now);
+    const rescuePoints = Math.round(baseRescuePoints * streak.multiplier);
 
     this.audio.playRescue();
     this.addScore(rescuePoints);
@@ -1472,10 +2019,10 @@ export default class MainScene extends Phaser.Scene {
     this.cameras.main.flash(85, 140, 235, 210, false);
 
     const pop = this.add
-      .text(x, y - 28, `RESCUE +${rescuePoints}`, {
+      .text(x, y - 28, `RESCUE x${streak.multiplier} +${rescuePoints}`, {
         fontFamily: '"Press Start 2P"',
         fontSize: '13px',
-        color: '#d4fbff',
+        color: streak.color,
         stroke: '#001721',
         strokeThickness: 3,
       })
@@ -1490,7 +2037,12 @@ export default class MainScene extends Phaser.Scene {
       onComplete: () => pop.destroy(),
     });
 
-    this.powerUpNotices.showCustom('ASTRONAUT RESCUED', '#d4fbff');
+    if (streak.leveledUp && streak.multiplier > 1) {
+      this.powerUpNotices.showCustom(`RESCUE STREAK x${streak.multiplier}`, streak.color);
+      this.cameras.main.flash(65, 180, 255, 245, false);
+    } else {
+      this.powerUpNotices.showCustom(`ASTRONAUT RESCUED x${streak.multiplier}`, streak.color);
+    }
     this.worldEvents.deactivateAstronaut(astronaut, 'rescued');
   }
 
@@ -1550,6 +2102,7 @@ export default class MainScene extends Phaser.Scene {
   private loadActivePlayerState(index: number) {
     const state = this.playerStates[index];
     if (!state) return;
+    this.resetRescueStreak();
     this.score = state.score;
     this.lives = state.lives;
     this.powerUpTimer = state.powerUpTimer;
@@ -1603,6 +2156,11 @@ export default class MainScene extends Phaser.Scene {
 
   private resetPlayfield() {
     this.pendingEnemyHits.length = 0;
+    this.stopMiniEvent(true);
+    this.stopWeaponEvent(true);
+    this.scheduleNextMiniEvent(true);
+    this.scheduleNextWeaponEvent(true);
+    this.resetRescueStreak();
     this.deactivateAllBullets();
     this.deactivateAllEnemies();
     this.clearProximityMines();
@@ -1634,6 +2192,11 @@ export default class MainScene extends Phaser.Scene {
 
   private preparePlayfieldForLevelTransition() {
     this.pendingEnemyHits.length = 0;
+    this.stopMiniEvent(true);
+    this.stopWeaponEvent(true);
+    this.scheduleNextMiniEvent(true);
+    this.scheduleNextWeaponEvent(true);
+    this.resetRescueStreak();
     this.stopShieldBunkerWarning(true);
     this.spawnProtectionTimerMs = 0;
     this.stopSpawnProtectionVisuals();
@@ -2187,6 +2750,7 @@ export default class MainScene extends Phaser.Scene {
       const dx = raider.x - px;
       const dy = raider.y - py;
       if (dx * dx + dy * dy <= radiusSq) {
+        this.worldEvents.spawnAstronautFromEnemyShip(raider.x, raider.y);
         raider.deactivate();
       }
     }
@@ -2506,6 +3070,7 @@ export default class MainScene extends Phaser.Scene {
     const x = raider.x;
     const y = raider.y;
     raider.deactivate();
+    this.worldEvents.spawnAstronautFromEnemyShip(x, y);
     this.explosionManager.triggerExplosion(x, y);
     this.audio.playExplosion();
   }
@@ -2631,10 +3196,11 @@ export default class MainScene extends Phaser.Scene {
     this.consumeMine(mine);
     this.powerUpDirector.onSkyRaiderDestroyed(x, y);
     raider.deactivate();
+    this.worldEvents.spawnAstronautFromEnemyShip(x, y);
     this.triggerSkyRaiderDestructionFX(x, y, variant);
     this.registerSpecialKillForLevel();
-    const basePoints = variant === 'lancer' ? 420 : 280;
-    const points = basePoints + this.level * (variant === 'lancer' ? 34 : 22);
+    const raiderScore = RAIDER_SCORE[variant];
+    const points = raiderScore.base + this.level * raiderScore.perLevel;
     this.addScore(this.comboManager.registerKill(x, y, points, this.time.now));
   }
 
@@ -2718,6 +3284,7 @@ export default class MainScene extends Phaser.Scene {
     const hitX = raider.x;
     const hitY = raider.y;
     raider.deactivate();
+    this.worldEvents.spawnAstronautFromEnemyShip(hitX, hitY);
 
     const proxyEnemy = {
       active: true,
@@ -2747,21 +3314,34 @@ export default class MainScene extends Phaser.Scene {
 
     this.triggerSkyRaiderDestructionFX(x, y, variant);
     this.powerUpDirector.onSkyRaiderDestroyed(x, y);
+    this.worldEvents.spawnAstronautFromEnemyShip(x, y);
     this.registerSpecialKillForLevel();
-    const basePoints = variant === 'lancer' ? 420 : 280;
-    const points = basePoints + this.level * (variant === 'lancer' ? 34 : 22);
+    const raiderScore = RAIDER_SCORE[variant];
+    const points = raiderScore.base + this.level * raiderScore.perLevel;
     this.addScore(this.comboManager.registerKill(x, y, points, this.time.now));
   }
 
   private triggerSkyRaiderDestructionFX(x: number, y: number, variant: SkyRaiderVariant) {
+    const fxMap: Record<
+      SkyRaiderVariant,
+      { color: number; startR: number; endR: number; shake: number }
+    > = {
+      stalker: { color: 0x95f7ff, startR: 16, endR: 82, shake: 0.0046 },
+      lancer: { color: 0xff9be8, startR: 20, endR: 104, shake: 0.0062 },
+      phantom: { color: 0xb366ff, startR: 18, endR: 94, shake: 0.0054 },
+      bomber: { color: 0xff6633, startR: 24, endR: 120, shake: 0.0072 },
+      interceptor: { color: 0x33ffaa, startR: 16, endR: 82, shake: 0.0046 },
+    };
+    const fx = fxMap[variant];
     this.explosionManager.triggerExplosion(x, y);
-    this.explosionManager.triggerUFODebrisRing(x, y, variant === 'lancer' ? 'boss' : 'scout');
+    this.explosionManager.triggerUFODebrisRing(
+      x,
+      y,
+      variant === 'lancer' || variant === 'bomber' ? 'boss' : 'scout',
+    );
     this.audio.playExplosion();
-    const color = variant === 'lancer' ? 0xff9be8 : 0x95f7ff;
-    const startRadius = variant === 'lancer' ? 20 : 16;
-    const endRadius = variant === 'lancer' ? 104 : 82;
-    this.spawnImpactRing(x, y, color, startRadius, endRadius, 220);
-    this.applyImpactShake(120, variant === 'lancer' ? 0.0062 : 0.0046);
+    this.spawnImpactRing(x, y, fx.color, fx.startR, fx.endR, 220);
+    this.applyImpactShake(120, fx.shake);
   }
 
   private handleBulletHitUFO(bullet: Bullet, ufo: UFO) {
@@ -3189,6 +3769,7 @@ export default class MainScene extends Phaser.Scene {
     this.spawnImpactRing(this.player.x, this.player.y, 0xff8c8c, 22, 98, 220);
     this.powerUpDirector.resetDamageFreeTime();
     this.comboManager.reset();
+    this.resetRescueStreak();
     statsManager.onDeath();
 
     if (this.playerCount === 1) {
@@ -3227,6 +3808,9 @@ export default class MainScene extends Phaser.Scene {
 
   private endGame() {
     this.isGameOver = true;
+    this.stopMiniEvent(true);
+    this.stopWeaponEvent(true);
+    this.resetRescueStreak();
     this.spawnProtectionTimerMs = 0;
     this.stopSpawnProtectionVisuals();
     this.finishLevelTransitionCountdown(false);
@@ -3336,6 +3920,18 @@ export default class MainScene extends Phaser.Scene {
       .setDepth(100);
     const comboHudY = levelRowY + (isCompactHud ? 18 : 22);
     this.comboManager.createHUD(comboHudY, isCompactHud);
+    this.rescueStreakText = this.add
+      .text(GAME_WIDTH / 2, comboHudY + (isCompactHud ? 13 : 16), '', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: isCompactHud ? '9px' : '10px',
+        color: '#d4fbff',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(121)
+      .setVisible(false)
+      .setAlpha(0);
     const debugY =
       this.playerCount === 2
         ? isCompactHud
@@ -3886,6 +4482,26 @@ export default class MainScene extends Phaser.Scene {
         backgroundDecorTier: this.backgroundDecorTier,
         backgroundDecorCount: this.backgroundDecor.length,
         nebulaLayerCount: this.nebulaLayers.length,
+      },
+      rescueStreak: {
+        count: this.rescueStreakCount,
+        multiplier: this.rescueStreakMultiplier,
+        timeLeftMs:
+          this.rescueStreakCount > 0
+            ? Math.max(
+                0,
+                Math.round(
+                  RESCUE_STREAK_TUNING.windowMs - (this.time.now - this.rescueStreakLastAtMs),
+                ),
+              )
+            : 0,
+      },
+      miniEvent: {
+        active: Boolean(this.miniEvent),
+        key: this.miniEvent?.key ?? null,
+        label: this.miniEvent?.label ?? null,
+        timeLeftMs: this.miniEvent ? Math.max(0, Math.round(this.miniEvent.timeLeftMs)) : 0,
+        nextInMs: this.miniEvent ? 0 : Math.max(0, Math.round(this.miniEventTriggerTimerMs)),
       },
       spawnProtectionMs: Math.max(0, Math.round(this.spawnProtectionTimerMs)),
       levelOpening: {

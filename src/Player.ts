@@ -161,7 +161,43 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
       ctx.fillStyle = 'rgba(255, 167, 79, 0.9)';
       ctx.fill();
     });
+
+    // Grenade texture — oval, olive green with orange fuse
+    Bullet.createCanvasTexture(scene, 'bullet_grenade', 24, 24, (ctx) => {
+      // Shadow
+      ctx.beginPath();
+      ctx.ellipse(12.6, 13, 9, 7, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.fill();
+
+      // Main body
+      ctx.beginPath();
+      ctx.ellipse(12, 12, 9, 7, 0, 0, Math.PI * 2);
+      const bodyGrad = ctx.createRadialGradient(12, 10, 1, 12, 12, 9);
+      bodyGrad.addColorStop(0, '#8aad52');
+      bodyGrad.addColorStop(0.5, '#5c7a2e');
+      bodyGrad.addColorStop(1, '#3a4f1a');
+      ctx.fillStyle = bodyGrad;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(160, 200, 100, 0.7)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Fuse dot
+      ctx.beginPath();
+      ctx.arc(12, 4, 3, 0, Math.PI * 2);
+      const fuseGrad = ctx.createRadialGradient(12, 4, 0.3, 12, 4, 3);
+      fuseGrad.addColorStop(0, '#ffee88');
+      fuseGrad.addColorStop(0.5, '#ff8833');
+      fuseGrad.addColorStop(1, '#cc4400');
+      ctx.fillStyle = fuseGrad;
+      ctx.fill();
+    });
   }
+
+  private isGrenade: boolean = false;
+  private fuseTimeMs: number = 1200;
+  private fuseStartTime: number = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     Bullet.ensureBulletTextures(scene);
@@ -169,6 +205,7 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
   }
 
   fire(x: number, y: number, magnetic: boolean = false, angle: number = -Math.PI / 2) {
+    this.isGrenade = false;
     this.isMagnetic = magnetic;
     this.homingTarget = null;
     this.nextRetargetAt = 0;
@@ -177,16 +214,48 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
     this.setScale(1);
     this.setAlpha(1);
     this.enableBody(true, x, y, true, true);
+    const body = this.body as Phaser.Physics.Arcade.Body;
+    if (body) body.setGravityY(0);
     this.rotation = angle + Math.PI / 2;
     const speed = 600;
     this.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+  }
+
+  fireGrenade(x: number, y: number) {
+    this.isGrenade = true;
+    this.isMagnetic = false;
+    this.homingTarget = null;
+    this.nextRetargetAt = 0;
+    this.fuseStartTime = this.scene.time.now;
+    this.setTexture('bullet_grenade');
+    this.setBlendMode(Phaser.BlendModes.NORMAL);
+    this.setScale(1);
+    this.setAlpha(1);
+    this.enableBody(true, x, y, true, true);
+    this.rotation = 0;
+    this.setVelocity(Phaser.Math.Between(-30, 30), -320);
+    const body = this.body as Phaser.Physics.Arcade.Body;
+    if (body) body.setGravityY(180);
   }
 
   preUpdate(time: number, delta: number) {
     super.preUpdate(time, delta);
     if (!this.active) return;
 
-    if (this.isMagnetic) {
+    // Grenade fuse timer
+    if (this.isGrenade) {
+      this.rotation += delta * 0.008;
+      if (time - this.fuseStartTime >= this.fuseTimeMs) {
+        const sceneAny = this.scene as any;
+        if (typeof sceneAny.onGrenadeExplode === 'function') {
+          sceneAny.onGrenadeExplode(this.x, this.y);
+        }
+        const body = this.body as Phaser.Physics.Arcade.Body;
+        if (body) body.setGravityY(0);
+        this.disableBody(true, true);
+        return;
+      }
+    } else if (this.isMagnetic) {
       const pulse = Math.sin(time * 0.02 + this.x * 0.04);
       this.setScale(1.03 + (pulse * 0.5 + 0.5) * 0.12);
       this.setAlpha(0.78 + (pulse * 0.5 + 0.5) * 0.2);
@@ -200,6 +269,8 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
     const h = this.scene.scale.height;
     const pad = 150;
     if (this.y < -pad || this.y > h + pad || this.x < -pad || this.x > w + pad) {
+      const body = this.body as Phaser.Physics.Arcade.Body;
+      if (this.isGrenade && body) body.setGravityY(0);
       this.disableBody(true, true);
     }
   }
@@ -266,6 +337,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   public bullets: Phaser.Physics.Arcade.Group;
   private minBoundY: number = 0;
   private maxBoundY: number = 1000;
+  private readonly mobileBottomBoundMarginRatio: number = 0.06;
+  private readonly mobileBottomBoundMarginMin: number = 18;
+  private readonly mobileBottomBoundMarginMax: number = 54;
   private isMagnetic: boolean = false;
   private isTripleShot: boolean = false;
   private hasShield: boolean = false;
@@ -278,6 +352,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private heatDecayPerSec: number = 28;
   private overheatUntil: number = 0;
   private passiveCoolingMultiplier: number = 1;
+  private activeWeaponMode: 'normal' | 'double_fire' | 'rapid_fire' | 'grenade_launcher' = 'normal';
+  private weaponFireRateMultiplier: number = 1;
+  private weaponHeatMultiplier: number = 1;
   private firedThisFrame: boolean = false;
   private muzzleFlashes!: Phaser.GameObjects.Group;
   private spaceKey?: Phaser.Input.Keyboard.Key;
@@ -505,7 +582,15 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
 
   public updateBounds(_width: number, height: number) {
     this.minBoundY = height * 0.66;
-    this.maxBoundY = height;
+    const mobileBottomInset = this.isDesktop
+      ? 0
+      : Phaser.Math.Clamp(
+          Math.round(height * this.mobileBottomBoundMarginRatio),
+          this.mobileBottomBoundMarginMin,
+          this.mobileBottomBoundMarginMax,
+        );
+    this.maxBoundY = height - mobileBottomInset;
+    this.y = Phaser.Math.Clamp(this.y, this.minBoundY, this.maxBoundY);
   }
 
   public setMagnetic(active: boolean) {
@@ -573,6 +658,26 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.overheatUntil = 0;
     this.fireBuffer = 0;
     this.setTint(0xffffff);
+  }
+
+  public setWeaponMode(
+    mode: 'normal' | 'double_fire' | 'rapid_fire' | 'grenade_launcher',
+    fireRateMul: number,
+    heatMul: number,
+  ) {
+    this.activeWeaponMode = mode;
+    this.weaponFireRateMultiplier = fireRateMul;
+    this.weaponHeatMultiplier = heatMul;
+  }
+
+  public resetWeaponMode() {
+    this.activeWeaponMode = 'normal';
+    this.weaponFireRateMultiplier = 1;
+    this.weaponHeatMultiplier = 1;
+  }
+
+  public getWeaponMode() {
+    return this.activeWeaponMode;
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer) {
@@ -794,12 +899,13 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       if (canFire && time >= this.nextFireTime && (useBuffer || fireHeld)) {
         this.fireBullet(time, true);
         if (useBuffer) this.fireBuffer--;
-        const interval = useBuffer ? this.fireRateTap : this.fireRateHold;
+        const interval =
+          (useBuffer ? this.fireRateTap : this.fireRateHold) * this.weaponFireRateMultiplier;
         this.nextFireTime = time + interval;
       }
     } else if (canFire && time >= this.nextFireTime && pointer.isDown) {
       this.fireBullet(time, false);
-      this.nextFireTime = time + this.autoFireRate;
+      this.nextFireTime = time + this.autoFireRate * this.weaponFireRateMultiplier;
     }
     if (!this.firedThisFrame) {
       this.coolHeat(delta);
@@ -810,21 +916,42 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private fireBullet(time: number, manual: boolean) {
     if (!this.hasCannonCooling && time < this.overheatUntil) return;
     let didFire = false;
-    const trySpawnBullet = (x: number, y: number, angle: number) => {
+    const trySpawnBullet = (x: number, y: number, angle: number, isGrenade: boolean = false) => {
       if (!this.canSpawnBullet()) return false;
       const bullet = this.bullets.get(x, y) as Bullet;
       if (!bullet) return false;
-      bullet.fire(x, y, this.isMagnetic, angle);
+      if (isGrenade) {
+        bullet.fireGrenade(x, y);
+      } else {
+        bullet.fire(x, y, this.isMagnetic, angle);
+      }
       return true;
     };
 
-    if (this.isTripleShot) {
-      const angles = [-Math.PI / 2 - 0.2, -Math.PI / 2, -Math.PI / 2 + 0.2];
-      for (const angle of angles) {
-        didFire = trySpawnBullet(this.x, this.y - 25, angle) || didFire;
-      }
+    const wm = this.activeWeaponMode;
+
+    // Grenade launcher: fires a single grenade projectile
+    if (wm === 'grenade_launcher') {
+      didFire = trySpawnBullet(this.x, this.y - 25, -Math.PI / 2, true);
     } else {
-      didFire = trySpawnBullet(this.x, this.y - 25, -Math.PI / 2) || didFire;
+      // Base bullet pattern
+      const baseAngles: number[] = this.isTripleShot
+        ? [-Math.PI / 2 - 0.2, -Math.PI / 2, -Math.PI / 2 + 0.2]
+        : [-Math.PI / 2];
+
+      for (const baseAngle of baseAngles) {
+        if (wm === 'double_fire') {
+          // Two parallel bullets with slight offset
+          didFire = trySpawnBullet(this.x - 12, this.y - 25, baseAngle) || didFire;
+          didFire = trySpawnBullet(this.x + 12, this.y - 25, baseAngle) || didFire;
+        } else if (wm === 'rapid_fire') {
+          // Single bullet with slight random spread
+          const spread = Phaser.Math.FloatBetween(-0.05, 0.05);
+          didFire = trySpawnBullet(this.x, this.y - 25, baseAngle + spread) || didFire;
+        } else {
+          didFire = trySpawnBullet(this.x, this.y - 25, baseAngle) || didFire;
+        }
+      }
     }
 
     if (this.wingmanDrones) {
@@ -864,7 +991,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
       return;
     }
     const wasOverheated = time < this.overheatUntil;
-    this.heat = Math.min(100, this.heat + this.heatPerShot);
+    this.heat = Math.min(100, this.heat + this.heatPerShot * this.weaponHeatMultiplier);
     if (this.heat >= 100 && !wasOverheated) {
       const overheatDuration = Math.round(2000 / this.passiveCoolingMultiplier);
       this.overheatUntil = time + overheatDuration;

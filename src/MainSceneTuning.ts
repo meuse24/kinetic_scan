@@ -141,15 +141,134 @@ export const ASTRONAUT_TUNING = {
   scoutSpawnSpreadX: 64,
   scoutSpawnSpreadY: 18,
   scoutEjectSpeedX: 22,
-  lifetimeMs: [11000, 16000] as IntRange,
   glideDownSpeedRange: [22, 38] as IntRange,
+  minDownwardSpeed: 18,
+  despawnNearBottomPadding: 78,
   horizontalDriftRange: [-16, 16] as FloatRange,
   driftSpeedX: 12,
   bobSpeed: 0.0022,
   bobAmplitude: 9,
   avoidPlayerStrength: 3,
-  waveFrameIntervalMs: [120, 200] as IntRange,
+  waveFrameIntervalMs: [85, 145] as IntRange,
+  waveLeanSpeed: 0.0084,
+  waveLeanAmplitude: 0.22,
+  bubbleEmitIntervalMs: [95, 170] as IntRange,
   outOfBoundsPadding: 120,
+} as const;
+
+export const RESCUE_STREAK_TUNING = {
+  windowMs: 5600,
+  thresholds: [
+    { minRescues: 1, multiplier: 1, color: '#d4fbff' },
+    { minRescues: 2, multiplier: 2, color: '#8ef5ff' },
+    { minRescues: 4, multiplier: 3, color: '#5ae5ff' },
+    { minRescues: 6, multiplier: 4, color: '#ffd36e' },
+    { minRescues: 9, multiplier: 5, color: '#ff8dc2' },
+  ] as const,
+  hudPulseSpeed: 0.009,
+} as const;
+
+export const MINI_EVENT_TUNING = {
+  initialDelayMs: [22000, 32000] as IntRange,
+  intervalMs: [30000, 45000] as IntRange,
+  announceDurationMs: 1250,
+  overlayPulseSpeed: 0.0045,
+  events: {
+    solar_storm: {
+      label: 'SOLAR STORM',
+      durationMs: [9200, 12400] as IntRange,
+      runtimeIntensityMultiplier: 1.18,
+      overlayColor: 0xffa34a,
+      overlayBaseAlpha: 0.05,
+      overlayPulseAlpha: 0.1,
+      windForceX: 24,
+      flashIntervalMs: 920,
+    },
+    low_gravity: {
+      label: 'LOW GRAVITY',
+      durationMs: [9800, 13200] as IntRange,
+      runtimeIntensityMultiplier: 0.82,
+      overlayColor: 0x74d8ff,
+      overlayBaseAlpha: 0.04,
+      overlayPulseAlpha: 0.09,
+      verticalDamping: 0.974,
+    },
+    swarm_rush: {
+      label: 'SWARM RUSH',
+      durationMs: [8600, 11600] as IntRange,
+      runtimeIntensityMultiplier: 1.12,
+      overlayColor: 0xff79db,
+      overlayBaseAlpha: 0.05,
+      overlayPulseAlpha: 0.11,
+      swarmSpawnIntervalMs: [1550, 2350] as IntRange,
+      swarmCountRange: [3, 5] as IntRange,
+      swarmScale: 0.5,
+      swarmSpeed: 285,
+      swarmSpacingX: 46,
+      swarmSpacingY: 24,
+    },
+  },
+} as const;
+
+export const SKY_RAIDER_VARIANT_TUNING = {
+  phantom: {
+    cloakAlpha: 0.2,
+    decloakDurationMs: 400,
+    recloakDelayMs: 1200,
+    splineRefreshIntervalMs: 3200,
+    splinePointCount: 5,
+    shotSpeedMultiplier: 1.3,
+    shotSpread: 0.04,
+    decloakRange: 300,
+  },
+  bomber: {
+    clusterCount: [3, 5] as IntRange,
+    clusterSpreadRad: 0.35,
+    clusterShotSpeedScale: 0.85,
+    clusterShotTint: 0xffaa66,
+    clusterShotScale: 1.3,
+    fireRateMultiplier: 1.5,
+    patrolSineAmplitudeX: 120,
+    patrolSineFrequency: 0.0016,
+  },
+  interceptor: {
+    formationSpacing: 80,
+    trackingLerp: 0.04,
+    bezierIntervalMs: [2000, 3000] as IntRange,
+    bezierDurationMs: 1800,
+    burstShotCount: 3,
+    burstShotIntervalMs: 80,
+    burstProgressRange: [0.3, 0.7] as readonly [number, number],
+  },
+} as const;
+
+export const WEAPON_EVENT_TUNING = {
+  initialDelayMs: [25000, 40000] as IntRange,
+  intervalMs: [25000, 40000] as IntRange,
+  announceDurationMs: 1250,
+  events: {
+    double_fire: {
+      label: 'DOUBLE FIRE',
+      durationMs: 12000,
+      fireRateMultiplier: 0.85,
+      heatMultiplier: 1.1,
+      overlayColor: 0xffaa33,
+    },
+    rapid_fire: {
+      label: 'RAPID FIRE',
+      durationMs: 10000,
+      fireRateMultiplier: 0.33,
+      heatMultiplier: 0.5,
+      overlayColor: 0xff3333,
+    },
+    grenade_launcher: {
+      label: 'GRENADE LAUNCHER',
+      durationMs: 8000,
+      fireRateMultiplier: 3.0,
+      heatMultiplier: 2.0,
+      overlayColor: 0x33ff66,
+    },
+  },
 } as const;
 
 export const SHIELD_BUNKER_TUNING = {
