@@ -32,7 +32,7 @@ Audio is hybrid:
 Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/lazy-loader) -> **AttractScene** (title/menu) -> **MainScene** (gameplay) -> **GameOverScene** -> back to AttractScene. **PauseScene** and **HelpScene** overlay during gameplay. **BezelScene** runs as a persistent overlay providing a CRT monitor bezel frame.
 
 - `src/AttractScene.ts` — Title screen with attract-mode demo, credit system, 1P/2P start buttons, high scores, daily challenge button, live server stats block (`TOTAL USERS`, `COINS USED`), and occasional demo UFO shots
-- `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, 2-player turn switching, combo system, perk integration, swarm spawning, boss modifiers, score milestones, tutorial hints, daily challenge mode, mine-layer deploy input (`M` or double-click/double-tap with charges; each run starts with 2), debug bunker trigger (`B`)
+- `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, scout-UFO astronaut rescue bursts (2-3 astronauts ejected on scout kill), 2-player turn switching, combo system, perk integration, swarm spawning, boss modifiers, score milestones, tutorial hints, daily challenge mode, mine-layer deploy input (`M` or double-click/double-tap with charges; each run starts with 2), debug bunker trigger (`B`)
 - `src/GameOverScene.ts` — Game over screen with high score entry (keyboard, touch swipe/tap, mouse wheel), separate daily challenge leaderboard
 - `src/PauseScene.ts` — Pause overlay with sound toggle and master/SFX/BGM volume sliders
 - `src/HelpScene.ts` — Controls/help overlay with scrollable content, `BACK (ESC/H)`, and a dedicated click hit-area for reliable pointer input
@@ -54,7 +54,7 @@ Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/l
 - `src/PerkSystem.ts` — Rogue-lite perk registry (13 perks, including `MINE STOCK`) with stacking logic, state save/load, and modifier getters
 - `src/PerkSelectScene.ts` — Post-boss overlay showing 3 random perk cards; keyboard (1/2/3) or click selection with 15s auto-timeout
 - `src/StatsManager.ts` — Persistent lifetime stats (kills, deaths, boss kills, combo, level, playtime, total score) and 5 unlockable ship skins via localStorage
-- `src/MainSceneTuning.ts` — Central tuning constants for transitions, early-level ramp, spawn protection, background decor, shield bunker timing/layout, swarm spawning, and score milestones
+- `src/MainSceneTuning.ts` — Central tuning constants for transitions, early-level ramp, spawn protection, background decor, shield bunker timing/layout, swarm spawning, score milestones, and scout-UFO astronaut burst/glide behavior
 - `src/ExplosionManager.ts` — Particle emitter pools for asteroid and player death explosions
 - `src/AudioManager.ts` — Web Audio API synthesizer for all game sounds (shoot, explode, power-up, UFO hum, milestone sting, etc.)
 - `src/MusicManager.ts` — BGM controller for scene-specific loops (`song.mp3` in menu-like scenes, `gameloop.mp3` during gameplay at reduced volume so SFX remain dominant)
@@ -68,9 +68,9 @@ Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/l
 
 MainScene was originally a 5,287-line "God Class" handling all gameplay logic. A comprehensive refactoring extracted specialized managers using dependency injection and callback patterns:
 
-- **`src/managers/CollisionManager.ts`** — Collision handler registration and coordination. Handles 15+ collision types (bullets vs enemies/UFO/bunkers, player vs enemies/powerups/projectiles, mines vs threats). CRITICAL: Implements identity checks to work around Phaser 3.90 overlap callback argument-order bug (arguments can be swapped).
+- **`src/managers/CollisionManager.ts`** — Collision handler registration and coordination. Handles 15+ collision types (bullets vs enemies/UFO/bunkers, player vs enemies/powerups/projectiles/astronauts, mines vs threats). CRITICAL: Implements identity checks to work around Phaser 3.90 overlap callback argument-order bug (arguments can be swapped).
 
-- **`src/managers/SpawnManager.ts`** — Wormhole, Elite Drone, Swarm, and Background Decor spawning coordination. Uses `SpawnTimer` utility (`src/utils/SpawnTimer.ts`) for randomized spawn intervals with auto-reset.
+- **`src/systems/MainWorldEvents.ts`** — Wormhole, Elite Drone, Swarm, and astronaut world-event coordination. Scout UFO kills trigger `2-3` astronaut burst spawns that are updated/rescued individually via pooled sprites.
 
 - **`src/managers/HUDManager.ts`** — HUD rendering and update logic (scores, lives, level, power-up bar, heat bar, mine charges, boss energy, combo, perks, active player markers). Implements change-detection optimization with cached state to minimize unnecessary text updates.
 

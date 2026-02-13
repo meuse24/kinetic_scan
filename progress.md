@@ -1776,3 +1776,52 @@ TODOs for next agent
   - `npm run build` pass
   - `npm run test -- --run` pass (178 tests)
   - `npm run test:smoke` pass (8/8, no console errors)
+- 2026-02-13: Astronaut behavior polish (requested): waving animation + top-entry spawn.
+  - Updated `ASTRONAUT_TUNING` in `src/MainSceneTuning.ts`:
+    - spawn now starts above screen (`spawnYRatio` negative),
+    - movement window expanded upward (`motionYRatio`),
+    - added entry velocity ranges (`entryVerticalSpeedRange`, `horizontalSpeedRange`),
+    - added wave timing (`waveFrameIntervalMs`).
+  - Updated `src/MainSceneGraphics.ts`:
+    - replaced single astronaut texture generation with helper that builds two textures:
+      - `rescue_astronaut` (normal pose)
+      - `rescue_astronaut_wave` (raised arm + wave accent)
+  - Updated `src/systems/MainWorldEvents.ts` astronaut runtime:
+    - spawn path now biases downward from off-screen top,
+    - wave frame toggles via texture swap timer,
+    - small wave lean added to rotation while raised-arm frame is active,
+    - reset/deactivate now restores base astronaut texture and clears wave state.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test:smoke` pass (8 passed, 0 failed)
+  - Targeted Playwright capture run for astronaut event:
+    - `tests/screenshots/astronaut_wave_t0.png`
+    - `tests/screenshots/astronaut_wave_t2s.png`
+    - `tests/screenshots/astronaut_wave_t4s.png`
+    - state confirmed `difficulty.worldEvents.astronautActive = true` during capture.
+- 2026-02-13: Astronaut spawn flow corrected per request (scout UFO burst spawn).
+  - Removed timed/random astronaut world-event spawning and switched to event-driven spawn from scout UFO destruction.
+  - `MainWorldEvents` now manages astronauts as a pooled group with per-astronaut runtime state (label, lifetime, wave frame timer, drift vectors).
+  - New behavior:
+    - on each destroyed `scout` UFO, `spawnAstronautBurstFromScout(x, y)` spawns `2-3` astronauts directly from the UFO location,
+    - astronauts drift slowly downward with mild side drift and waving animation,
+    - each astronaut can be rescued individually and deactivates independently.
+  - Wiring updates:
+    - `MainScene.handleBulletHitUFO` and `MainScene.handleMineHitUFO` now trigger astronaut burst spawn for scout kills.
+    - Collision registration switched from single astronaut sprite to astronaut group.
+    - Rescue callback now deactivates only the collided astronaut (`deactivateAstronaut(astronaut, 'rescued')`).
+  - Telemetry update:
+    - added `worldEvents.astronautCount` to `getDifficultyState()` for runtime verification.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run src/managers/__tests__/CollisionManager.test.ts` pass (27 tests)
+  - `npm run test:smoke` pass (8 passed, 0 failed)
+  - Targeted Playwright runtime verification:
+    - detected scout presence and post-kill burst spawn (`spawn_ok astronauts=3 sawScout=true`)
+    - screenshots:
+      - `tests/screenshots/astronaut_scout_spawn_t0.png`
+      - `tests/screenshots/astronaut_scout_spawn_t18.png`
+  - Documentation/UI consistency:
+    - updated Help scene astronaut hint to describe scout-UFO burst behavior (`2-3` ejected astronauts).

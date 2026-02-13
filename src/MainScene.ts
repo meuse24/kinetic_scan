@@ -516,6 +516,8 @@ export default class MainScene extends Phaser.Scene {
       onPlayerHitEnemy: (player, enemy) => this.handlePlayerHitEnemy(player, enemy),
       onPlayerHitPowerUp: (player, powerUp) => this.handlePlayerHitPowerUp(player, powerUp),
       onPlayerRescueEliteDrone: (player, drone) => this.handlePlayerRescueEliteDrone(player, drone),
+      onPlayerRescueAstronaut: (player, astronaut) =>
+        this.handlePlayerRescueAstronaut(player, astronaut),
       onPlayerHitUFOProjectile: (player, projectile) =>
         this.handlePlayerHitUFOProjectile(player, projectile),
       onPlayerHitSkyRaider: (player, raider) => this.handlePlayerHitSkyRaider(player, raider),
@@ -543,6 +545,7 @@ export default class MainScene extends Phaser.Scene {
       ufo: this.ufo,
       powerUps: this.powerUpDirector.getGroup(),
       eliteDrone: this.worldEvents.getEliteDrone(),
+      astronaut: this.worldEvents.getAstronautGroup(),
       ufoProjectiles: this.ufo.getProjectiles() || undefined,
       shieldBunkers: this.shieldBunkers,
       proximityMines: this.proximityMines,
@@ -714,12 +717,14 @@ export default class MainScene extends Phaser.Scene {
         const activeSkyRaiders = this.skyRaiderManager.getActiveRaiderCount();
         const activeSkyRaiderProjectiles = this.skyRaiderManager.getActiveProjectileCount();
         const activeBunkers = this.shieldBunkers.countActive(true);
+        const activeAstronaut = this.worldEvents.isAstronautActive();
         const physicsBodies = (this.physics.world as any)?.bodies?.size ?? 0;
         const nextDebugStatsLine =
           `OBJ E ${activeEnemies} | P ${activePowerUps} | UP ${activeUFOProjectiles} | ` +
           `SR ${activeSkyRaiders}/${activeSkyRaiderProjectiles} | ` +
           `BNK ${activeBunkers} | DEC ${this.backgroundDecor.length}(${this.backgroundDecorTier}) | ` +
-          `WH ${this.worldEvents.isWormholeActive() ? 1 : 0} | ED ${this.worldEvents.isEliteDroneActive() ? 1 : 0} | BOD ${physicsBodies}`;
+          `WH ${this.worldEvents.isWormholeActive() ? 1 : 0} | ED ${this.worldEvents.isEliteDroneActive() ? 1 : 0} | ` +
+          `AST ${activeAstronaut ? 1 : 0} | BOD ${physicsBodies}`;
         if (nextDebugStatsLine !== this.lastDebugStatsLine) {
           this.debugStatsText.setText(nextDebugStatsLine);
           this.lastDebugStatsLine = nextDebugStatsLine;
@@ -1450,6 +1455,43 @@ export default class MainScene extends Phaser.Scene {
     this.audio.playPickup();
     this.grantElitePerk('rescued', x, y);
     this.deactivateEliteDrone('rescued');
+  }
+
+  private handlePlayerRescueAstronaut(_player: Player, astronaut: Phaser.Physics.Arcade.Sprite) {
+    if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
+    if (!astronaut.active) return;
+    const x = astronaut.x;
+    const y = astronaut.y;
+    const rescuePoints = 680 + this.level * 42;
+
+    this.audio.playRescue();
+    this.addScore(rescuePoints);
+    this.comboManager.spawnClusterPopup(x, y - 20, rescuePoints);
+    this.spawnImpactRing(x, y, 0xb6f7ff, 12, 58, 200);
+    this.applyImpactShake(95, 0.0033);
+    this.cameras.main.flash(85, 140, 235, 210, false);
+
+    const pop = this.add
+      .text(x, y - 28, `RESCUE +${rescuePoints}`, {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '13px',
+        color: '#d4fbff',
+        stroke: '#001721',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(142);
+    this.tweens.add({
+      targets: pop,
+      y: y - 66,
+      alpha: 0,
+      duration: 820,
+      ease: 'Sine.easeOut',
+      onComplete: () => pop.destroy(),
+    });
+
+    this.powerUpNotices.showCustom('ASTRONAUT RESCUED', '#d4fbff');
+    this.worldEvents.deactivateAstronaut(astronaut, 'rescued');
   }
 
   private handleBulletHitEliteDrone(bullet: Bullet, drone: Phaser.Physics.Arcade.Sprite) {
@@ -2610,6 +2652,7 @@ export default class MainScene extends Phaser.Scene {
       this.powerUpDirector.onUfoDestroyed(ufoX, ufoY, 'scout');
       ufo.deactivate();
       this.triggerUFODestructionFX(ufoX, ufoY, 'scout');
+      this.worldEvents.spawnAstronautBurstFromScout(ufoX, ufoY);
       this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(5000));
       this.player.setMagnetic(true);
       this.registerSpecialKillForLevel();
@@ -2737,6 +2780,7 @@ export default class MainScene extends Phaser.Scene {
       this.powerUpDirector.onUfoDestroyed(ufoX, ufoY, 'scout');
       ufo.deactivate();
       this.triggerUFODestructionFX(ufoX, ufoY, 'scout');
+      this.worldEvents.spawnAstronautBurstFromScout(ufoX, ufoY);
       this.powerUpTimer = Math.max(this.powerUpTimer, this.getScaledMagneticDuration(5000));
       this.player.setMagnetic(true);
       this.registerSpecialKillForLevel();
@@ -3831,6 +3875,8 @@ export default class MainScene extends Phaser.Scene {
       worldEvents: {
         wormholeActive: this.worldEvents.isWormholeActive(),
         eliteDroneActive: this.worldEvents.isEliteDroneActive(),
+        astronautActive: this.worldEvents.isAstronautActive(),
+        astronautCount: this.worldEvents.getAstronautActiveCount(),
         topRaidersActive: this.skyRaiderManager.getActiveRaiderCount(),
         topRaiderShotsActive: this.skyRaiderManager.getActiveProjectileCount(),
         shieldBunkerActive: this.powerUpManager.isActive(PowerUpType.SHIELD_BUNKER),

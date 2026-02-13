@@ -22,6 +22,7 @@ describe('CollisionManager', () => {
   let mockPlayer: any;
   let mockPowerUp: any;
   let mockEliteDrone: any;
+  let mockAstronaut: any;
   let mockMine: any;
   let mockSkyRaider: any;
   let mockUFOProjectile: any;
@@ -46,6 +47,7 @@ describe('CollisionManager', () => {
     mockPlayer = { active: true, x: 50, y: 50 };
     mockPowerUp = { active: true, x: 150, y: 150 };
     mockEliteDrone = { active: true, x: 250, y: 250 };
+    mockAstronaut = { active: true, x: 275, y: 225 };
     mockMine = { active: true, x: 350, y: 350 };
     mockSkyRaider = { active: true, x: 400, y: 400, getVariant: vi.fn(() => 'scout') };
     mockUFOProjectile = { active: true, x: 450, y: 450 };
@@ -64,6 +66,7 @@ describe('CollisionManager', () => {
       ufo: mockUFO,
       powerUps: createMockGroup([mockPowerUp]),
       eliteDrone: mockEliteDrone,
+      astronaut: createMockGroup([mockAstronaut]),
       ufoProjectiles: createMockGroup([mockUFOProjectile]),
       shieldBunkers: createMockGroup([mockShieldBunker]),
       proximityMines: createMockGroup([mockMine]),
@@ -81,6 +84,7 @@ describe('CollisionManager', () => {
       onPlayerHitEnemy: vi.fn(),
       onPlayerHitPowerUp: vi.fn(),
       onPlayerRescueEliteDrone: vi.fn(),
+      onPlayerRescueAstronaut: vi.fn(),
       onPlayerHitUFOProjectile: vi.fn(),
       onPlayerHitSkyRaider: vi.fn(),
       onPlayerHitSkyRaiderShot: vi.fn(),
@@ -324,6 +328,17 @@ describe('CollisionManager', () => {
         mockPlayer,
         mockEliteDrone,
       );
+    });
+
+    it('should invoke onPlayerRescueAstronaut callback', () => {
+      const playerAstronautCall = mockScene.physics.add.overlap.mock.calls.find(
+        (call) => call[0] === mockGroups.player && call[1] === mockGroups.astronaut,
+      );
+      const handler = playerAstronautCall[2];
+
+      handler(mockPlayer, mockAstronaut);
+
+      expect(mockCallbacks.onPlayerRescueAstronaut).toHaveBeenCalledWith(mockPlayer, mockAstronaut);
     });
 
     it('should invoke onPlayerHitUFOProjectile callback', () => {

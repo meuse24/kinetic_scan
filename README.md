@@ -14,6 +14,7 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 - Two UFO variants:
   - `Scout`: light pressure, occasional aimed shots, single-hit destroy.
   - `Boss`: procedural animated silhouette with tentacles, 3-phase escalation (attack patterns intensify as health drops), dodge AI that reads incoming bullet trajectories, multi-hit energy bar with segmented display and numeric hit label. Boss modifiers from level 3+: shielded (HP regen), summoner (spawns mini-swarms), berserk (speed scales with HP loss), armored (50% damage reduction).
+- Rescue event: destroying a scout UFO ejects `2-3` stranded astronauts that glide downward; touching them rescues each astronaut for bonus points.
 - Top-entry invaders (`SkyRaider`): two AI enemy variants intermittently dive in from above, attack the player, then retreat off-screen if not destroyed. Spawn pressure scales by difficulty and level.
 - Level progression with transition overlay between levels (`LEVEL N`, `3, 2, 1, GO!`).
 - Mandatory boss phase at level end before level can advance.
@@ -189,6 +190,7 @@ Automation helpers are exposed on `window`:
 - `src/gameConfig.ts`: renderer/scaling configuration.
 - `src/MainScene.ts`: core gameplay loop (player, enemies, level/boss flow, overlays, mine-layer ability).
 - `src/UFO.ts`: scout/boss UFO logic, procedural visuals (animated tentacles, hull, energy bar), projectile volleys.
+- `src/systems/MainWorldEvents.ts`: wormhole/elite/swarm world events and scout-UFO astronaut burst spawning + astronaut movement/rescue state.
 - `src/Player.ts`: player movement/fire/heat + visual indicators.
 - `src/EnemyManager.ts`: asteroid spawning/splitting/difficulty scaling.
 - `src/PowerUpDirector.ts`: drop logic and support triggers.
@@ -209,6 +211,7 @@ Automation helpers are exposed on `window`:
 - Boss hit-flash and damage-drain animation visible on each hit.
 - Boss modifiers visible from level 3+ (shielded/summoner/berserk/armored).
 - Scout/Boss destruction uses full explosion and cleanup without freeze states.
+- Destroyed scout UFOs eject `2-3` astronauts; astronauts glide down slowly, can be rescued individually, and disappear correctly when collected or expired.
 - Attract-mode UFO occasionally fires demo shots.
 - In-game background loop (`gameloop.mp3`) is audible but quieter than gameplay SFX.
 - Perk selection overlay appears after boss defeat (pick 1 of 3 upgrades).

@@ -194,6 +194,152 @@ export function bootstrapMainSceneGraphics(
     }
   }
 
+  const drawRescueAstronautTexture = (textureKey: string, waveArmRaised: boolean) => {
+    if (scene.textures.exists(textureKey)) return;
+    const texture = scene.textures.createCanvas(textureKey, 44, 54);
+    if (!texture) return;
+    const ctx = texture.getContext();
+    ctx.clearRect(0, 0, 44, 54);
+
+    const shadow = ctx.createRadialGradient(22, 48, 3, 22, 48, 14);
+    shadow.addColorStop(0, 'rgba(0,0,0,0.42)');
+    shadow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shadow;
+    ctx.beginPath();
+    ctx.ellipse(22, 48, 14, 4.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const backpackGrad = ctx.createLinearGradient(10, 20, 18, 40);
+    backpackGrad.addColorStop(0, '#5e6976');
+    backpackGrad.addColorStop(1, '#1f2833');
+    ctx.fillStyle = backpackGrad;
+    ctx.beginPath();
+    ctx.roundRect(11, 23, 7, 13, 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(214,230,246,0.38)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    const suitGrad = ctx.createLinearGradient(16, 16, 29, 44);
+    suitGrad.addColorStop(0, '#f4f9ff');
+    suitGrad.addColorStop(0.48, '#b9cadf');
+    suitGrad.addColorStop(1, '#6a7f9a');
+    ctx.fillStyle = suitGrad;
+    ctx.beginPath();
+    ctx.roundRect(16, 18, 14, 22, 4.6);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(236,246,255,0.86)';
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
+
+    const torsoGlow = ctx.createLinearGradient(18, 19, 18, 40);
+    torsoGlow.addColorStop(0, 'rgba(255,255,255,0.44)');
+    torsoGlow.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = torsoGlow;
+    ctx.fillRect(18, 19, 4.5, 21);
+
+    const armGrad = ctx.createLinearGradient(0, 0, 0, 14);
+    armGrad.addColorStop(0, '#e6f2ff');
+    armGrad.addColorStop(1, '#7f93ad');
+    ctx.fillStyle = armGrad;
+    ctx.beginPath();
+    ctx.roundRect(12, 24, 4, 11, 2.2);
+    if (waveArmRaised) {
+      ctx.save();
+      ctx.translate(31.8, 29.5);
+      ctx.rotate(-0.92);
+      ctx.roundRect(-2, -8.7, 4, 11, 2.2);
+      ctx.restore();
+    } else {
+      ctx.roundRect(30, 24, 4, 11, 2.2);
+    }
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(226,240,255,0.7)';
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+
+    const gloveGrad = ctx.createLinearGradient(0, 0, 0, 6);
+    gloveGrad.addColorStop(0, '#5ec9ff');
+    gloveGrad.addColorStop(1, '#1e7cad');
+    ctx.fillStyle = gloveGrad;
+    ctx.beginPath();
+    ctx.arc(13.8, 36.5, 1.9, 0, Math.PI * 2);
+    ctx.arc(waveArmRaised ? 35.8 : 32.2, waveArmRaised ? 16.8 : 36.5, 1.9, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (waveArmRaised) {
+      ctx.strokeStyle = 'rgba(150, 223, 255, 0.78)';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.arc(38.9, 13.7, 1.9, -0.88, -0.1);
+      ctx.arc(39.9, 17, 2.6, -1.02, -0.14);
+      ctx.stroke();
+    }
+
+    const legGrad = ctx.createLinearGradient(0, 37, 0, 49);
+    legGrad.addColorStop(0, '#d7e6f7');
+    legGrad.addColorStop(1, '#748aa5');
+    ctx.fillStyle = legGrad;
+    ctx.beginPath();
+    ctx.roundRect(18, 37, 5, 10, 2);
+    ctx.roundRect(23, 37, 5, 10, 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(232,243,255,0.65)';
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+
+    const bootGrad = ctx.createLinearGradient(0, 0, 0, 6);
+    bootGrad.addColorStop(0, '#4a5f7b');
+    bootGrad.addColorStop(1, '#1c2531');
+    ctx.fillStyle = bootGrad;
+    ctx.beginPath();
+    ctx.roundRect(17, 45.5, 6.2, 3.6, 1.2);
+    ctx.roundRect(22.8, 45.5, 6.2, 3.6, 1.2);
+    ctx.fill();
+
+    const helmetRim = ctx.createLinearGradient(0, 0, 0, 26);
+    helmetRim.addColorStop(0, '#f0f8ff');
+    helmetRim.addColorStop(1, '#879bb4');
+    ctx.fillStyle = helmetRim;
+    ctx.beginPath();
+    ctx.ellipse(22, 15.2, 10.6, 11.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const visor = ctx.createRadialGradient(20, 12.8, 1.2, 22, 15.5, 9.8);
+    visor.addColorStop(0, 'rgba(223,251,255,0.95)');
+    visor.addColorStop(0.42, 'rgba(124,214,255,0.78)');
+    visor.addColorStop(1, 'rgba(38,92,133,0.92)');
+    ctx.fillStyle = visor;
+    ctx.beginPath();
+    ctx.ellipse(22, 15.5, 8.7, 9.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(232,247,255,0.88)';
+    ctx.lineWidth = 0.95;
+    ctx.stroke();
+
+    const visorHighlight = ctx.createLinearGradient(14, 9, 24, 19);
+    visorHighlight.addColorStop(0, 'rgba(255,255,255,0.62)');
+    visorHighlight.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = visorHighlight;
+    ctx.beginPath();
+    ctx.ellipse(18.7, 11.7, 3.6, 2.4, -0.45, 0, Math.PI * 2);
+    ctx.fill();
+
+    const beacon = ctx.createRadialGradient(22, 3.8, 0.4, 22, 3.8, 3.2);
+    beacon.addColorStop(0, 'rgba(255,255,255,0.95)');
+    beacon.addColorStop(0.52, 'rgba(136,245,255,0.92)');
+    beacon.addColorStop(1, 'rgba(76,171,224,0)');
+    ctx.fillStyle = beacon;
+    ctx.beginPath();
+    ctx.arc(22, 3.8, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    texture.refresh();
+  };
+
+  drawRescueAstronautTexture('rescue_astronaut', false);
+  drawRescueAstronautTexture('rescue_astronaut_wave', true);
+
   if (!scene.textures.exists(config.wingmanDroneTextureKey)) {
     const texture = scene.textures.createCanvas(config.wingmanDroneTextureKey, 34, 26);
     if (texture) {

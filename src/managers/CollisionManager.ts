@@ -32,6 +32,7 @@ export interface CollisionCallbacks {
   onPlayerHitEnemy: (player: Player, enemy: Enemy) => void;
   onPlayerHitPowerUp: (player: Player, powerUp: PowerUp) => void;
   onPlayerRescueEliteDrone: (player: Player, drone: Phaser.Physics.Arcade.Sprite) => void;
+  onPlayerRescueAstronaut: (player: Player, astronaut: Phaser.Physics.Arcade.Sprite) => void;
   onPlayerHitUFOProjectile: (player: Player, projectile: UFOProjectile) => void;
   onPlayerHitSkyRaider: (player: Player, raider: SkyRaider) => void;
   onPlayerHitSkyRaiderShot: (player: Player, shot: SkyRaiderShot) => void;
@@ -64,6 +65,7 @@ export interface CollisionGroups {
   ufo: UFO;
   powerUps: Phaser.Physics.Arcade.Group;
   eliteDrone: Phaser.Physics.Arcade.Sprite;
+  astronaut: Phaser.Physics.Arcade.Group;
   ufoProjectiles?: Phaser.Physics.Arcade.Group;
   shieldBunkers: Phaser.Physics.Arcade.StaticGroup;
   proximityMines: Phaser.Physics.Arcade.Group;
@@ -148,6 +150,14 @@ export class CollisionManager {
       groups.player,
       groups.eliteDrone,
       (obj1, obj2) => this.handlePlayerEliteDroneCollision(obj1, obj2, groups),
+      undefined,
+      this,
+    );
+
+    this.scene.physics.add.overlap(
+      groups.player,
+      groups.astronaut,
+      (obj1, obj2) => this.handlePlayerAstronautCollision(obj1, obj2, groups),
       undefined,
       this,
     );
@@ -319,6 +329,18 @@ export class CollisionManager {
     if (!player?.active || !drone?.active) return;
 
     this.callbacks.onPlayerRescueEliteDrone(player, drone);
+  }
+
+  private handlePlayerAstronautCollision(obj1: any, obj2: any, groups: CollisionGroups): void {
+    // CRITICAL: Arguments can be swapped
+    const player = (obj1 === groups.player ? obj1 : obj2) as Player;
+    const astronaut = groups.astronaut.contains(obj1)
+      ? (obj1 as Phaser.Physics.Arcade.Sprite)
+      : (obj2 as Phaser.Physics.Arcade.Sprite);
+
+    if (!player?.active || !astronaut?.active) return;
+
+    this.callbacks.onPlayerRescueAstronaut(player, astronaut);
   }
 
   private handlePlayerUFOProjectileCollision(obj1: any, obj2: any, groups: CollisionGroups): void {

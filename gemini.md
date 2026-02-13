@@ -64,8 +64,10 @@
 - **Autoplay Compliance:** Audio context is resumed upon the first user interaction (coin insert or start selection).
 
 ### 8. Bonus System & Homing Missiles
-- **Bonus Ship (UFO):** A rare UFO (every 30-60s) moves across the screen on a sinusoidal path and emits a distinct spherical sound.
+- **Bonus Ship (UFO):** Scout UFOs appear during gameplay and can be destroyed in one hit; boss UFOs are end-of-level mandatory encounters.
 - **Power-up: Magnetic Bullets:** Shooting the UFO activates magnetic homing for 5 seconds.
+- **Scout Rescue Burst:** Each destroyed scout UFO ejects **2-3 stranded astronauts** at the destruction point.
+- **Astronaut Behavior:** Ejected astronauts drift slowly downward with mild side drift and can be rescued individually on player contact for bonus score.
 - **Homing Logic:** While active, projectiles seek the nearest asteroid and steer toward it smoothly.
 - **Visual & Audio Feedback:** Magnetic Bullets glow cyan. A pulsing HUD timer visualizes remaining duration.
 

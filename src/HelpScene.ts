@@ -335,6 +335,9 @@ export default class HelpScene extends Phaser.Scene {
       'WORMHOLE ANOMALY: A drifting anomaly can appear and bend both asteroid movement and bullet trajectories nearby.',
     );
     addParagraph(
+      'LOST ASTRONAUT: Destroyed scout UFOs can eject 2-3 astronauts with "Rescue Me!". Touch them with your ship to rescue them and earn bonus points.',
+    );
+    addParagraph(
       'ELITE DRONE: Rare rescue/salvage target. Touch or shoot it to earn a permanent run perk (extra life, better cooling, or longer magnetic effect).',
     );
 

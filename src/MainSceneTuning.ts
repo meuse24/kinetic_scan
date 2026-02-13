@@ -4,6 +4,7 @@ export type IntRange = readonly [number, number];
 export type FloatRange = readonly [number, number];
 
 export type EliteDroneDeactivateReason = 'rescued' | 'shot' | 'expired' | 'reset';
+export type AstronautDeactivateReason = 'rescued' | 'expired' | 'reset';
 export type BackgroundDecorTier = 'off' | 'low' | 'medium' | 'high';
 
 export const LEVEL_TRANSITION_TUNING = {
@@ -133,6 +134,22 @@ export const ELITE_DRONE_TUNING = {
   speedPerLevel: 8,
   speedBonusCap: 120,
   outOfBoundsPadding: 140,
+} as const;
+
+export const ASTRONAUT_TUNING = {
+  scoutBurstCount: [2, 3] as IntRange,
+  scoutSpawnSpreadX: 64,
+  scoutSpawnSpreadY: 18,
+  scoutEjectSpeedX: 22,
+  lifetimeMs: [11000, 16000] as IntRange,
+  glideDownSpeedRange: [22, 38] as IntRange,
+  horizontalDriftRange: [-16, 16] as FloatRange,
+  driftSpeedX: 12,
+  bobSpeed: 0.0022,
+  bobAmplitude: 9,
+  avoidPlayerStrength: 3,
+  waveFrameIntervalMs: [120, 200] as IntRange,
+  outOfBoundsPadding: 120,
 } as const;
 
 export const SHIELD_BUNKER_TUNING = {
