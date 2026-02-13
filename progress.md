@@ -1761,3 +1761,18 @@ TODOs for next agent
   - `npm run lint` pass
   - `npm run build` pass
   - `npm run test -- --run` pass (178 tests)
+- 2026-02-13: Pause gating hardened to allow pause only in active gameplay.
+  - `src/MainScene.ts`:
+    - added `canOpenPauseMenu()` runtime guard.
+    - `requestPause()` now delegates to this guard.
+  - Guard blocks pause when any non-gameplay condition is active:
+    - level transition / player switch / game-over,
+    - `MainScene` not active or already paused,
+    - `PauseScene`, `HelpScene`, or `PerkSelectScene` active,
+    - player inactive,
+    - physics world paused (covers upgrade/countdown transition windows).
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run` pass (178 tests)
+  - `npm run test:smoke` pass (8/8, no console errors)

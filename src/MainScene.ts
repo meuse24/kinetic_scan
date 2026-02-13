@@ -3487,15 +3487,18 @@ export default class MainScene extends Phaser.Scene {
     this.setDebugOverlayFromSettings(!this.debugOverlayEnabled);
   }
 
+  private canOpenPauseMenu() {
+    if (this.isGameOver || this.isSwitching || this.isLevelTransition) return false;
+    if (!this.scene.isActive(this.scene.key) || this.scene.isPaused(this.scene.key)) return false;
+    if (this.scene.isActive('PauseScene') || this.scene.isActive('HelpScene')) return false;
+    if (this.scene.isActive('PerkSelectScene')) return false;
+    if (!this.player?.active) return false;
+    if (this.physics.world.isPaused) return false;
+    return true;
+  }
+
   private requestPause() {
-    if (
-      this.isGameOver ||
-      this.isSwitching ||
-      this.isLevelTransition ||
-      this.scene.isPaused('MainScene') ||
-      !this.scene.isActive('MainScene')
-    )
-      return;
+    if (!this.canOpenPauseMenu()) return;
     this.audio.pauseAll();
     this.scene.pause();
     this.scene.launch('PauseScene');
