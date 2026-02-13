@@ -12,6 +12,32 @@ import {
   type EliteDroneDeactivateReason,
 } from '../MainSceneTuning';
 
+const ASTRONAUT_WAVE_TEXTURE_KEYS = [
+  'rescue_astronaut_wave_0',
+  'rescue_astronaut_wave_1',
+  'rescue_astronaut_wave_2',
+  'rescue_astronaut_wave_3',
+] as const;
+
+const ASTRONAUT_HOSE_NOZZLES = [
+  [
+    { x: 5.5, y: 29.5 },
+    { x: 9, y: 35.6 },
+  ],
+  [
+    { x: 6.8, y: 29.8 },
+    { x: 8.6, y: 35.5 },
+  ],
+  [
+    { x: 9, y: 30.1 },
+    { x: 7.8, y: 35.4 },
+  ],
+  [
+    { x: 7.7, y: 29.9 },
+    { x: 8.3, y: 35.3 },
+  ],
+] as const;
+
 type WormholeState = {
   active: boolean;
   x: number;
@@ -23,12 +49,13 @@ type WormholeState = {
 
 type AstronautState = {
   label: Phaser.GameObjects.Text;
-  lifetimeMs: number;
   phase: number;
   baseVx: number;
   baseVy: number;
   waveFrameTimer: number;
-  waveRaisedArm: boolean;
+  waveFrameIndex: number;
+  waveDirection: 1 | -1;
+  bubbleTimer: number;
 };
 
 interface MainWorldEventsConfig {
@@ -66,7 +93,9 @@ export class MainWorldEvents {
   private eliteDroneLifetimeMs: number = 0;
 
   private astronautGroup: Phaser.Physics.Arcade.Group;
+  private astronautBubbleEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
   private astronautStates: Map<Phaser.Physics.Arcade.Sprite, AstronautState> = new Map();
+  private isDestroyed: boolean = false;
 
   private swarmSpawnTimerMs: number = 0;
   private swarmKills: Map<number, number> = new Map();
@@ -112,21 +141,38 @@ export class MainWorldEvents {
     this.astronautGroup = this.scene.physics.add.group({
       maxSize: 10,
     });
+    if (this.scene.textures.exists('astronaut_air_bubble')) {
+      this.astronautBubbleEmitter = this.scene.add.particles(0, 0, 'astronaut_air_bubble', {
+        lifespan: { min: 420, max: 940 },
+        speedY: { min: -54, max: -16 },
+        speedX: { min: -20, max: 18 },
+        scale: { start: 0.32, end: 0.04 },
+        alpha: { start: 0.86, end: 0 },
+        quantity: 1,
+        emitting: false,
+      });
+      this.astronautBubbleEmitter.setDepth(112);
+    }
 
     this.resetTimers();
   }
 
   public destroy(): void {
+    if (this.isDestroyed) return;
     this.clear('reset');
     this.wormholeGraphics.destroy();
     this.eliteDroneLabel.destroy();
     this.eliteDrone.destroy();
+    this.astronautBubbleEmitter?.destroy();
+    this.astronautBubbleEmitter = null;
     this.astronautGroup.destroy(true, true);
     this.astronautStates.clear();
     this.swarmKills.clear();
+    this.isDestroyed = true;
   }
 
   public update(delta: number): void {
+    if (this.isDestroyed) return;
     this.updateWormhole(delta);
     this.updateEliteDrone(delta);
     this.updateAstronaut(delta);
@@ -134,12 +180,14 @@ export class MainWorldEvents {
   }
 
   public clear(reason: EliteDroneDeactivateReason = 'reset'): void {
+    if (this.isDestroyed) return;
     this.deactivateWormhole();
     this.deactivateEliteDrone(reason);
     this.deactivateAllAstronauts(reason === 'reset' ? 'reset' : 'expired');
   }
 
   public resetTimers(): void {
+    if (this.isDestroyed) return;
     this.setWormholeSpawnTimer('initial');
     this.wormholeForceAccumulatorMs = 0;
     this.wormholeVisualAccumulatorMs = 0;
@@ -170,7 +218,12 @@ export class MainWorldEvents {
   }
 
   public getAstronautActiveCount(): number {
-    return this.astronautGroup.countActive(true);
+    if (this.isDestroyed) return 0;
+    try {
+      return this.astronautGroup.countActive(true);
+    } catch {
+      return this.astronautStates.size;
+    }
   }
 
   public isWormholeActive(): boolean {
@@ -178,6 +231,7 @@ export class MainWorldEvents {
   }
 
   public deactivateEliteDrone(reason: EliteDroneDeactivateReason): void {
+    if (this.isDestroyed) return;
     if (!this.eliteDrone) return;
     if (this.eliteDrone.active) {
       this.eliteDrone.disableBody(true, true);
@@ -199,21 +253,32 @@ export class MainWorldEvents {
       this.astronautStates.delete(astronaut);
     }
     if (astronaut.active) {
-      astronaut.disableBody(true, true);
+      try {
+        astronaut.disableBody(true, true);
+      } catch {
+        // Ignore teardown races during scene shutdown.
+      }
       astronaut.setActive(false);
       astronaut.setVisible(false);
-      astronaut.setTexture('rescue_astronaut');
+      astronaut.setTexture(ASTRONAUT_WAVE_TEXTURE_KEYS[0]);
       astronaut.setRotation(0);
     }
   }
 
   public spawnAstronautBurstFromScout(sourceX: number, sourceY: number): void {
+    if (this.isDestroyed) return;
     if (this.isGameOver() || this.isFlowBlocked()) return;
 
     const burstCount = this.rollRange(ASTRONAUT_TUNING.scoutBurstCount);
     for (let i = 0; i < burstCount; i++) {
       this.spawnAstronautFromScout(sourceX, sourceY, i, burstCount);
     }
+  }
+
+  public spawnAstronautFromEnemyShip(sourceX: number, sourceY: number): void {
+    if (this.isDestroyed) return;
+    if (this.isGameOver() || this.isFlowBlocked()) return;
+    this.spawnAstronautFromScout(sourceX, sourceY, 0, 1);
   }
 
   public registerSwarmKill(enemy: Enemy): number | null {
@@ -230,10 +295,32 @@ export class MainWorldEvents {
   }
 
   private deactivateAllAstronauts(reason: AstronautDeactivateReason): void {
-    const astronauts = this.astronautGroup.getChildren() as Phaser.Physics.Arcade.Sprite[];
+    const astronauts = Array.from(this.astronautStates.keys());
     for (const astronaut of astronauts) {
       this.deactivateAstronaut(astronaut, reason);
     }
+
+    const groupAny = this.astronautGroup as any;
+    const hasStableChildren =
+      groupAny &&
+      typeof groupAny.getChildren === 'function' &&
+      groupAny.children &&
+      Array.isArray(groupAny.children.entries);
+    if (!hasStableChildren) {
+      this.astronautStates.clear();
+      return;
+    }
+
+    try {
+      const groupAstronauts = this.astronautGroup.getChildren() as Phaser.Physics.Arcade.Sprite[];
+      for (const astronaut of groupAstronauts) {
+        if (this.astronautStates.has(astronaut)) continue;
+        this.deactivateAstronaut(astronaut, reason);
+      }
+    } catch {
+      // Ignore teardown races during scene shutdown.
+    }
+
     this.astronautStates.clear();
   }
 
@@ -445,7 +532,8 @@ export class MainWorldEvents {
     astronaut.setCollideWorldBounds(false);
     astronaut.setAlpha(1);
     astronaut.setTint(0xffffff);
-    astronaut.setTexture('rescue_astronaut');
+    const initialWaveFrame = Phaser.Math.Between(0, ASTRONAUT_WAVE_TEXTURE_KEYS.length - 1);
+    astronaut.setTexture(ASTRONAUT_WAVE_TEXTURE_KEYS[initialWaveFrame]);
     astronaut.setCircle(10, 12, 8);
     const astronautBody = astronaut.body as Phaser.Physics.Arcade.Body | null;
     if (astronautBody) {
@@ -468,7 +556,6 @@ export class MainWorldEvents {
 
     const state: AstronautState = {
       label,
-      lifetimeMs: this.rollRange(ASTRONAUT_TUNING.lifetimeMs),
       phase: Phaser.Math.FloatBetween(0, Math.PI * 2),
       baseVx:
         spreadOffset * ASTRONAUT_TUNING.scoutEjectSpeedX +
@@ -478,10 +565,65 @@ export class MainWorldEvents {
         ),
       baseVy: this.rollRange(ASTRONAUT_TUNING.glideDownSpeedRange),
       waveFrameTimer: this.rollRange(ASTRONAUT_TUNING.waveFrameIntervalMs),
-      waveRaisedArm: false,
+      waveFrameIndex: initialWaveFrame,
+      waveDirection: Phaser.Math.Between(0, 1) === 0 ? 1 : -1,
+      bubbleTimer: this.rollRange(ASTRONAUT_TUNING.bubbleEmitIntervalMs),
     };
 
     this.astronautStates.set(astronaut, state);
+  }
+
+  private advanceAstronautWaveFrame(state: AstronautState): void {
+    state.waveFrameIndex += state.waveDirection;
+    if (state.waveFrameIndex >= ASTRONAUT_WAVE_TEXTURE_KEYS.length - 1) {
+      state.waveFrameIndex = ASTRONAUT_WAVE_TEXTURE_KEYS.length - 1;
+      state.waveDirection = -1;
+      return;
+    }
+    if (state.waveFrameIndex <= 0) {
+      state.waveFrameIndex = 0;
+      state.waveDirection = 1;
+    }
+  }
+
+  private applyAstronautWaveTexture(
+    astronaut: Phaser.Physics.Arcade.Sprite,
+    waveFrameIndex: number,
+  ): void {
+    const textureKey =
+      ASTRONAUT_WAVE_TEXTURE_KEYS[waveFrameIndex] ?? ASTRONAUT_WAVE_TEXTURE_KEYS[0];
+    astronaut.setTexture(textureKey);
+  }
+
+  private getAstronautWorldOffset(
+    astronaut: Phaser.Physics.Arcade.Sprite,
+    localX: number,
+    localY: number,
+  ): { x: number; y: number } {
+    const offsetX = (localX - astronaut.width * astronaut.originX) * astronaut.scaleX;
+    const offsetY = (localY - astronaut.height * astronaut.originY) * astronaut.scaleY;
+    const cos = Math.cos(astronaut.rotation);
+    const sin = Math.sin(astronaut.rotation);
+    return {
+      x: astronaut.x + offsetX * cos - offsetY * sin,
+      y: astronaut.y + offsetX * sin + offsetY * cos,
+    };
+  }
+
+  private emitAstronautBubbles(
+    astronaut: Phaser.Physics.Arcade.Sprite,
+    state: AstronautState,
+  ): void {
+    if (!this.astronautBubbleEmitter) return;
+    const nozzles = ASTRONAUT_HOSE_NOZZLES[state.waveFrameIndex] ?? ASTRONAUT_HOSE_NOZZLES[0];
+
+    const primary = this.getAstronautWorldOffset(astronaut, nozzles[0].x, nozzles[0].y);
+    this.astronautBubbleEmitter.emitParticleAt(primary.x, primary.y, Phaser.Math.Between(1, 2));
+
+    if (Phaser.Math.Between(0, 100) <= 78) {
+      const secondary = this.getAstronautWorldOffset(astronaut, nozzles[1].x, nozzles[1].y);
+      this.astronautBubbleEmitter.emitParticleAt(secondary.x, secondary.y, 1);
+    }
   }
 
   private updateEliteDrone(delta: number): void {
@@ -542,18 +684,13 @@ export class MainWorldEvents {
 
     const width = this.scene.scale.width;
     const height = this.scene.scale.height;
+    const bottomRetireY = height - ASTRONAUT_TUNING.despawnNearBottomPadding;
     const sidePad = 72;
     const outBounds = ASTRONAUT_TUNING.outOfBoundsPadding;
     const now = this.scene.time.now;
 
     for (const [astronaut, state] of this.astronautStates) {
       if (!astronaut.active) {
-        this.deactivateAstronaut(astronaut, 'expired');
-        continue;
-      }
-
-      state.lifetimeMs -= delta;
-      if (state.lifetimeMs <= 0) {
         this.deactivateAstronaut(astronaut, 'expired');
         continue;
       }
@@ -566,9 +703,14 @@ export class MainWorldEvents {
 
       state.waveFrameTimer -= delta;
       if (state.waveFrameTimer <= 0) {
-        state.waveRaisedArm = !state.waveRaisedArm;
-        astronaut.setTexture(state.waveRaisedArm ? 'rescue_astronaut_wave' : 'rescue_astronaut');
+        this.advanceAstronautWaveFrame(state);
+        this.applyAstronautWaveTexture(astronaut, state.waveFrameIndex);
         state.waveFrameTimer = this.rollRange(ASTRONAUT_TUNING.waveFrameIntervalMs);
+      }
+      state.bubbleTimer -= delta;
+      if (state.bubbleTimer <= 0) {
+        this.emitAstronautBubbles(astronaut, state);
+        state.bubbleTimer = this.rollRange(ASTRONAUT_TUNING.bubbleEmitIntervalMs);
       }
 
       if (astronaut.x < sidePad) state.baseVx = Math.abs(state.baseVx) + 4;
@@ -581,20 +723,25 @@ export class MainWorldEvents {
       const dist = Math.max(30, Math.hypot(dx, dy));
       const avoidX = (dx / dist) * ASTRONAUT_TUNING.avoidPlayerStrength;
       const vx = state.baseVx + wobble * ASTRONAUT_TUNING.driftSpeedX + avoidX;
-      const vy = state.baseVy + bob * ASTRONAUT_TUNING.bobAmplitude * 0.28;
+      const vy = Math.max(
+        ASTRONAUT_TUNING.minDownwardSpeed,
+        state.baseVy + bob * ASTRONAUT_TUNING.bobAmplitude * 0.28,
+      );
       body.setVelocity(vx, vy);
 
-      const waveLean = state.waveRaisedArm ? Math.sin(now * 0.024) * 0.08 : 0;
-      astronaut.rotation = wobble * 0.1 + waveLean;
+      const waveLean =
+        Math.sin(now * ASTRONAUT_TUNING.waveLeanSpeed + state.phase * 1.16) *
+        ASTRONAUT_TUNING.waveLeanAmplitude;
+      astronaut.rotation = wobble * 0.08 + waveLean;
       state.label.setPosition(astronaut.x, astronaut.y - 34);
       state.label.setAlpha(0.64 + (Math.sin(now * 0.012 + state.phase) * 0.5 + 0.5) * 0.32);
 
-      if (
-        astronaut.x < -outBounds ||
-        astronaut.x > width + outBounds ||
-        astronaut.y < -outBounds ||
-        astronaut.y > height + outBounds
-      ) {
+      if (astronaut.y >= bottomRetireY) {
+        this.deactivateAstronaut(astronaut, 'expired');
+        continue;
+      }
+
+      if (astronaut.x < -outBounds || astronaut.x > width + outBounds || astronaut.y < -outBounds) {
         this.deactivateAstronaut(astronaut, 'expired');
       }
     }

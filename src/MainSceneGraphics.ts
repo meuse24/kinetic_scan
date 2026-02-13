@@ -194,12 +194,22 @@ export function bootstrapMainSceneGraphics(
     }
   }
 
-  const drawRescueAstronautTexture = (textureKey: string, waveArmRaised: boolean) => {
+  const drawRescueAstronautTexture = (
+    textureKey: string,
+    pose: {
+      armLift: number;
+      forearmLift: number;
+      hoseSwing: number;
+      bubbleShift: number;
+    },
+  ) => {
     if (scene.textures.exists(textureKey)) return;
     const texture = scene.textures.createCanvas(textureKey, 44, 54);
     if (!texture) return;
     const ctx = texture.getContext();
     ctx.clearRect(0, 0, 44, 54);
+
+    const deg = Math.PI / 180;
 
     const shadow = ctx.createRadialGradient(22, 48, 3, 22, 48, 14);
     shadow.addColorStop(0, 'rgba(0,0,0,0.42)');
@@ -244,19 +254,138 @@ export function bootstrapMainSceneGraphics(
     ctx.fillStyle = armGrad;
     ctx.beginPath();
     ctx.roundRect(12, 24, 4, 11, 2.2);
-    if (waveArmRaised) {
-      ctx.save();
-      ctx.translate(31.8, 29.5);
-      ctx.rotate(-0.92);
-      ctx.roundRect(-2, -8.7, 4, 11, 2.2);
-      ctx.restore();
-    } else {
-      ctx.roundRect(30, 24, 4, 11, 2.2);
-    }
+    ctx.roundRect(30, 24, 4, 11, 2.2);
     ctx.fill();
     ctx.strokeStyle = 'rgba(226,240,255,0.7)';
     ctx.lineWidth = 0.7;
     ctx.stroke();
+
+    const shoulderX = 31.3;
+    const shoulderY = 25.8;
+    const upperLen = 6.6;
+    const foreLen = 5.8;
+    const upperAngle = (-28 - pose.armLift * 68 + Math.sin(pose.forearmLift * 1.8) * 5) * deg;
+    const foreAngle = (-72 - pose.forearmLift * 46 + pose.armLift * 18) * deg;
+    const elbowX = shoulderX + Math.cos(upperAngle) * upperLen;
+    const elbowY = shoulderY + Math.sin(upperAngle) * upperLen;
+    const handX = elbowX + Math.cos(foreAngle) * foreLen;
+    const handY = elbowY + Math.sin(foreAngle) * foreLen;
+
+    const waveArmGrad = ctx.createLinearGradient(
+      shoulderX,
+      shoulderY - 7,
+      shoulderX,
+      shoulderY + 6,
+    );
+    waveArmGrad.addColorStop(0, '#f0f9ff');
+    waveArmGrad.addColorStop(1, '#8094ae');
+    ctx.strokeStyle = waveArmGrad;
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(shoulderX, shoulderY);
+    ctx.lineTo(elbowX, elbowY);
+    ctx.lineTo(handX, handY);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(235,245,255,0.72)';
+    ctx.lineWidth = 1.05;
+    ctx.beginPath();
+    ctx.moveTo(shoulderX + 0.4, shoulderY - 0.25);
+    ctx.lineTo(elbowX + 0.4, elbowY - 0.25);
+    ctx.lineTo(handX + 0.25, handY - 0.15);
+    ctx.stroke();
+
+    const drawHose = (
+      startX: number,
+      startY: number,
+      endX: number,
+      endY: number,
+      bendX: number,
+      bendY: number,
+    ) => {
+      const hoseGrad = ctx.createLinearGradient(startX, startY, endX, endY);
+      hoseGrad.addColorStop(0, '#c0d3ea');
+      hoseGrad.addColorStop(1, '#6e8199');
+      ctx.strokeStyle = hoseGrad;
+      ctx.lineWidth = 2.15;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.quadraticCurveTo(bendX, bendY, endX, endY);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(237,246,255,0.62)';
+      ctx.lineWidth = 0.75;
+      ctx.beginPath();
+      ctx.moveTo(startX + 0.1, startY - 0.25);
+      ctx.quadraticCurveTo(bendX + 0.4, bendY - 0.2, endX + 0.35, endY - 0.2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#dce8f7';
+      ctx.beginPath();
+      ctx.moveTo(endX + 0.8, endY - 1.2);
+      ctx.lineTo(endX + 2.8, endY - 0.2);
+      ctx.lineTo(endX + 0.9, endY + 1.2);
+      ctx.lineTo(endX - 1.2, endY + 0.1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(112, 133, 161, 0.84)';
+      ctx.lineWidth = 0.55;
+      ctx.stroke();
+
+      ctx.fillStyle = '#314458';
+      ctx.beginPath();
+      ctx.arc(endX + 0.25, endY + 0.05, 0.72, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    const hoseSway = pose.hoseSwing * 2.1;
+    const hose1EndX = 7.3 + hoseSway;
+    const hose1EndY = 29.4 + Math.abs(pose.hoseSwing) * 0.9;
+    const hose2EndX = 8.4 - hoseSway * 0.7;
+    const hose2EndY = 35 + Math.abs(pose.hoseSwing) * 0.65;
+
+    drawHose(14.6, 25.7, hose1EndX, hose1EndY, 8.5 + hoseSway * 0.62, 24.1);
+    drawHose(15.2, 30.5, hose2EndX, hose2EndY, 8.6 - hoseSway * 0.5, 32.2);
+
+    const bubbleLead = pose.bubbleShift * 1.85;
+    const drawBubble = (x: number, y: number, r: number, alpha: number) => {
+      const glow = ctx.createRadialGradient(x - r * 0.2, y - r * 0.25, 0.1, x, y, r * 1.6);
+      glow.addColorStop(0, `rgba(236, 251, 255, ${Math.min(1, alpha + 0.2)})`);
+      glow.addColorStop(1, 'rgba(130, 214, 255, 0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 1.6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(192, 238, 255, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = `rgba(232, 248, 255, ${Math.min(1, alpha + 0.15)})`;
+      ctx.lineWidth = 0.45;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.9, 0, Math.PI * 2);
+      ctx.stroke();
+    };
+
+    drawBubble(hose1EndX - 1.8 - bubbleLead * 0.8, hose1EndY - 1.5 - bubbleLead, 1.05, 0.72);
+    drawBubble(hose1EndX - 3.5 - bubbleLead * 0.6, hose1EndY - 4.3 - bubbleLead * 1.2, 0.78, 0.58);
+    drawBubble(
+      hose2EndX - 1.5 - bubbleLead * 0.65,
+      hose2EndY - 1.2 - bubbleLead * 0.95,
+      0.95,
+      0.66,
+    );
+    drawBubble(
+      hose2EndX - 3.1 - bubbleLead * 0.45,
+      hose2EndY - 3.3 - bubbleLead * 1.08,
+      0.68,
+      0.52,
+    );
 
     const gloveGrad = ctx.createLinearGradient(0, 0, 0, 6);
     gloveGrad.addColorStop(0, '#5ec9ff');
@@ -264,17 +393,15 @@ export function bootstrapMainSceneGraphics(
     ctx.fillStyle = gloveGrad;
     ctx.beginPath();
     ctx.arc(13.8, 36.5, 1.9, 0, Math.PI * 2);
-    ctx.arc(waveArmRaised ? 35.8 : 32.2, waveArmRaised ? 16.8 : 36.5, 1.9, 0, Math.PI * 2);
+    ctx.arc(handX + 0.2, handY + 0.2, 1.95, 0, Math.PI * 2);
     ctx.fill();
 
-    if (waveArmRaised) {
-      ctx.strokeStyle = 'rgba(150, 223, 255, 0.78)';
-      ctx.lineWidth = 0.9;
-      ctx.beginPath();
-      ctx.arc(38.9, 13.7, 1.9, -0.88, -0.1);
-      ctx.arc(39.9, 17, 2.6, -1.02, -0.14);
-      ctx.stroke();
-    }
+    ctx.strokeStyle = 'rgba(153, 226, 255, 0.8)';
+    ctx.lineWidth = 0.95;
+    ctx.beginPath();
+    ctx.arc(handX + 2.6, handY - 1.2, 2.4, -1.05, 0.38);
+    ctx.arc(handX + 3.25, handY + 1.8, 3.2, -1.2, 0.44);
+    ctx.stroke();
 
     const legGrad = ctx.createLinearGradient(0, 37, 0, 49);
     legGrad.addColorStop(0, '#d7e6f7');
@@ -337,8 +464,54 @@ export function bootstrapMainSceneGraphics(
     texture.refresh();
   };
 
-  drawRescueAstronautTexture('rescue_astronaut', false);
-  drawRescueAstronautTexture('rescue_astronaut_wave', true);
+  const astronautWavePoses = [
+    { armLift: 0.48, forearmLift: 0.22, hoseSwing: -0.9, bubbleShift: 0.1 },
+    { armLift: 0.72, forearmLift: 0.58, hoseSwing: -0.25, bubbleShift: 0.85 },
+    { armLift: 0.92, forearmLift: 0.98, hoseSwing: 0.6, bubbleShift: 1.35 },
+    { armLift: 0.68, forearmLift: 0.48, hoseSwing: 0.18, bubbleShift: 0.55 },
+  ] as const;
+
+  drawRescueAstronautTexture('rescue_astronaut', astronautWavePoses[0]);
+  drawRescueAstronautTexture('rescue_astronaut_wave', astronautWavePoses[2]);
+  drawRescueAstronautTexture('rescue_astronaut_wave_0', astronautWavePoses[0]);
+  drawRescueAstronautTexture('rescue_astronaut_wave_1', astronautWavePoses[1]);
+  drawRescueAstronautTexture('rescue_astronaut_wave_2', astronautWavePoses[2]);
+  drawRescueAstronautTexture('rescue_astronaut_wave_3', astronautWavePoses[3]);
+
+  if (!scene.textures.exists('astronaut_air_bubble')) {
+    const texture = scene.textures.createCanvas('astronaut_air_bubble', 10, 10);
+    if (texture) {
+      const ctx = texture.getContext();
+      ctx.clearRect(0, 0, 10, 10);
+
+      const bubbleGlow = ctx.createRadialGradient(4.3, 4.2, 0.2, 5, 5, 4.8);
+      bubbleGlow.addColorStop(0, 'rgba(240, 255, 255, 0.95)');
+      bubbleGlow.addColorStop(0.35, 'rgba(182, 236, 255, 0.85)');
+      bubbleGlow.addColorStop(1, 'rgba(122, 211, 255, 0)');
+      ctx.fillStyle = bubbleGlow;
+      ctx.beginPath();
+      ctx.arc(5, 5, 4.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(176, 230, 255, 0.86)';
+      ctx.beginPath();
+      ctx.arc(5, 5, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(228, 247, 255, 0.95)';
+      ctx.lineWidth = 0.75;
+      ctx.beginPath();
+      ctx.arc(5, 5, 2.2, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.86)';
+      ctx.beginPath();
+      ctx.arc(4.2, 4.1, 0.75, 0, Math.PI * 2);
+      ctx.fill();
+
+      texture.refresh();
+    }
+  }
 
   if (!scene.textures.exists(config.wingmanDroneTextureKey)) {
     const texture = scene.textures.createCanvas(config.wingmanDroneTextureKey, 34, 26);

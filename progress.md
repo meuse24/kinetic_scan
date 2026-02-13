@@ -1825,3 +1825,87 @@ TODOs for next agent
       - `tests/screenshots/astronaut_scout_spawn_t18.png`
   - Documentation/UI consistency:
     - updated Help scene astronaut hint to describe scout-UFO burst behavior (`2-3` ejected astronauts).
+- 2026-02-13: Astronaut follow-up polish (smartphone despawn + wave visibility).
+  - Despawn logic switched from time-based to position-based in `MainWorldEvents`:
+    - removed astronaut lifetime countdown,
+    - astronauts now glide downward until they reach near-bottom threshold (`height - despawnNearBottomPadding`),
+    - added minimum downward velocity clamp to prevent slow/stalling drift on tall mobile screens.
+  - Updated astronaut tuning in `MainSceneTuning`:
+    - added `minDownwardSpeed` and `despawnNearBottomPadding`.
+  - Improved waving visibility in `MainSceneGraphics`:
+    - wave frame now draws right arm clearly stretched to the side,
+    - glove/wave arcs moved and enlarged for stronger silhouette readability.
+  - Slightly increased runtime wave lean amplitude for better in-motion readability.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+- 2026-02-13: Added astronaut spawn from destroyed enemy ships (SkyRaider).
+  - New `MainWorldEvents.spawnAstronautFromEnemyShip(x, y)` spawns exactly one rescue astronaut.
+  - Hooked into SkyRaider destruction paths in `MainScene`:
+    - bullet kill,
+    - mine kill,
+    - bunker collision kill,
+    - EMP radius kill,
+    - player collision kill.
+  - Help text updated to document that enemy ships also eject one astronaut.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test:smoke` pass (8/8)
+- 2026-02-13: Astronaut visual polish pass completed (follow-up request).
+  - `src/MainSceneGraphics.ts`:
+    - replaced binary astronaut wave art with 4-pose wave cycle textures (`rescue_astronaut_wave_0..3`),
+    - added torn dangling air hoses on astronaut suit,
+    - added procedural bubble texture `astronaut_air_bubble`.
+  - `src/systems/MainWorldEvents.ts`:
+    - switched astronaut wave runtime from simple raised/lowered toggle to directional multi-frame cycle,
+    - added per-astronaut bubble emission timer and hose-nozzle anchored bubble particles,
+    - retained existing scout burst and enemy-ship single-astronaut spawn rules.
+  - `src/MainSceneTuning.ts`:
+    - refined astronaut wave cadence and added bubble emission / wave lean tuning constants.
+- 2026-02-13: Mobile touch-control bottom margin added (follow-up request).
+  - `src/Player.ts`:
+    - `updateBounds()` now applies a touch-only bottom inset (small dynamic margin) so the ship stops slightly above the lower edge,
+    - improves indirect drag control stability on smartphones.
+  - `src/HelpScene.ts`:
+    - mobile controls hint updated to mention the bottom steering margin.
+- Validation after both changes:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test:smoke` pass (8/8)
+- 2026-02-13: Fixed Pause/Exit teardown crash in world-events astronaut cleanup.
+  - Symptom: `Cannot read properties of undefined (reading 'entries')` in Phaser group `getChildren()` during MainScene shutdown (Pause -> Exit path).
+  - Root cause: `MainWorldEvents.deactivateAllAstronauts()` relied on `astronautGroup.getChildren()` while Phaser group internals can already be partially torn down in shutdown ordering.
+  - Fix in `src/systems/MainWorldEvents.ts`:
+    - made lifecycle methods teardown-safe via `isDestroyed` guard,
+    - changed astronaut deactivation to iterate `astronautStates` snapshot first (independent of Phaser group internals),
+    - only touches `astronautGroup.getChildren()` when internal `children.entries` is present, wrapped in try/catch,
+    - hardened astronaut deactivate/body disable path and active-count query fallback.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - targeted Pause->Exit repro script pass (`pause-exit-check: PASS`) with no console errors.
+- 2026-02-13: Gameplay attraction pass implemented (requested plan items #1 + #3).
+  - Added Rescue Streak system (separate astronaut chain multiplier):
+    - New tuning in `src/MainSceneTuning.ts`: `RESCUE_STREAK_TUNING` thresholds + timer window.
+    - `src/MainScene.ts`:
+      - rescue chain tracking (`count`, `multiplier`, `lastAtMs`), timeout handling, and pulsing HUD line,
+      - rescue score now applies streak multiplier (`RESCUE xN +points`) and streak tier-up notice feedback,
+      - streak resets on death, transition reset, and playfield reset.
+  - Added Dynamic Mini-Events system (30-45s cadence):
+    - New tuning in `src/MainSceneTuning.ts`: `MINI_EVENT_TUNING`.
+    - Implemented event runtime in `src/MainScene.ts`:
+      - scheduler + activation/expiration + anti-repeat selection,
+      - events: `SOLAR STORM`, `LOW GRAVITY`, `SWARM RUSH`,
+      - visual event overlay + status/announce text,
+      - event effects integrated into gameplay loop (wind force, vertical damping, swarm pulses).
+    - Best-practice integration: mini-event pressure composes with existing early-level runtime intensity via `setBaseRuntimeIntensity` + `applyRuntimeIntensity` instead of bypassing core balancing systems.
+  - State/telemetry and docs updates:
+    - `getDifficultyState()` now exposes `rescueStreak` and `miniEvent` payload blocks for runtime/debug automation.
+    - `src/HelpScene.ts` updated with Rescue Streak and Dynamic Mini-Events explanations.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test:smoke` pass (8/8, zero console errors)
+  - Additional Playwright feature check:
+    - long-run capture confirmed active mini event state and screenshot (`tests/screenshots/mini_event_active_check.png`).
