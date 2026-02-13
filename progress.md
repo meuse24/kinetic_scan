@@ -1754,3 +1754,10 @@ TODOs for next agent
     - output: `output/web-game/remote-stats-capture-check`
     - artifacts: `shot-0..2.png`, `state-0..2.json`
     - no `errors-*.json` emitted
+- 2026-02-13: HUD fix for empty blinking magnetic progress bar.
+  - `src/managers/HUDManager.ts`: `updatePowerUpBar` now exits early when `powerUpTimer <= 0`, so no empty/blinking border is drawn without active magnetic timer.
+  - `src/managers/__tests__/HUDManager.test.ts`: added regression test `should not render bar visuals when timer is zero`.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run` pass (178 tests)

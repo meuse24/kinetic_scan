@@ -337,6 +337,20 @@ describe('HUDManager', () => {
       expect(mockComponents.powerUpBar.fillRect).toHaveBeenCalled();
     });
 
+    it('should not render bar visuals when timer is zero', () => {
+      const state = createBaseState();
+      state.powerUpTimer = 0;
+      state.time = 0; // would otherwise satisfy blink branch
+
+      hudManager.update(state);
+
+      expect(mockComponents.powerUpBar.clear).toHaveBeenCalled();
+      expect(mockComponents.powerUpBar.fillStyle).not.toHaveBeenCalled();
+      expect(mockComponents.powerUpBar.fillRect).not.toHaveBeenCalled();
+      expect(mockComponents.powerUpBar.lineStyle).not.toHaveBeenCalled();
+      expect(mockComponents.powerUpBar.strokeRect).not.toHaveBeenCalled();
+    });
+
     it('should render at 50% progress when timer is half of max', () => {
       const state = createBaseState();
       state.powerUpTimer = 3500;

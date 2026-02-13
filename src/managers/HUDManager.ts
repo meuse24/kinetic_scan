@@ -228,6 +228,7 @@ export class HUDManager {
    */
   private updatePowerUpBar(state: HUDState): void {
     this.components.powerUpBar.clear();
+    if (state.powerUpTimer <= 0) return;
 
     const width = 200;
     const progress = clamp(state.powerUpTimer / Math.max(1, state.powerUpBarMaxDuration), 0, 1);
