@@ -48,6 +48,7 @@ import { bootstrapMainSceneGraphics } from './MainSceneGraphics';
 import { MainHazardsSystem } from './systems/MainHazardsSystem';
 import { MainLevelFlowSystem } from './systems/MainLevelFlowSystem';
 import type { LevelBonusPayout } from './systems/MainLevelFlowSystem';
+import { MainMilestoneSystem } from './systems/MainMilestoneSystem';
 import { MainMineFieldSystem } from './systems/MainMineFieldSystem';
 import { MainWorldEvents } from './systems/MainWorldEvents';
 
@@ -197,6 +198,7 @@ export default class MainScene extends Phaser.Scene {
   private impactRingTweens: Map<Phaser.GameObjects.Image, Phaser.Tweens.Tween> = new Map();
   private worldEvents!: MainWorldEvents;
   private hazards!: MainHazardsSystem;
+  private milestones!: MainMilestoneSystem;
   private mineField!: MainMineFieldSystem;
   private empGraphics!: Phaser.GameObjects.Graphics;
   private backgroundDecorTier: BackgroundDecorTier = 'off';
@@ -253,7 +255,6 @@ export default class MainScene extends Phaser.Scene {
   private damageOverlayTween?: Phaser.Tweens.Tween;
   private heatBar!: Phaser.GameObjects.Graphics;
   private levelText!: Phaser.GameObjects.Text;
-  private milestoneIndex: number = 0;
   private milestoneText!: Phaser.GameObjects.Text;
   private summonerTimerMs: number = 0;
   private dailySeed: string = '';
@@ -290,7 +291,6 @@ export default class MainScene extends Phaser.Scene {
     this.level = 1;
     this.progressionScore = 0;
     this.nextLevelScore = this.getNextLevelScore(1);
-    this.milestoneIndex = 0;
     this.levelFlow.resetForRun({
       difficultyKey: this.difficultyKey,
       progressionScore: this.progressionScore,
@@ -604,6 +604,7 @@ export default class MainScene extends Phaser.Scene {
       this.clearBackgroundDecor();
       this.clearNebulaLayers();
       this.worldEvents.destroy();
+      this.milestones?.reset();
       this.perkText.destroy();
       this.empGraphics.destroy();
       this.slowMoOverlay.destroy();
@@ -841,58 +842,9 @@ export default class MainScene extends Phaser.Scene {
     if (this.playerStates[this.activePlayerIndex]) {
       this.playerStates[this.activePlayerIndex].score = this.score;
     }
-    this.checkMilestone(prevScore, this.score);
+    this.milestones.onScoreChanged(prevScore, this.score);
     this.checkLevelProgression();
     this.updateHUDDisplay();
-  }
-
-  private checkMilestone(prevScore: number, newScore: number) {
-    const thresholds = MILESTONE_TUNING.thresholds;
-    if (this.milestoneIndex >= thresholds.length) return;
-    const next = thresholds[this.milestoneIndex];
-    if (prevScore < next.score && newScore >= next.score) {
-      this.triggerMilestone(this.milestoneIndex);
-      this.milestoneIndex++;
-    }
-  }
-
-  private triggerMilestone(index: number) {
-    const m = MILESTONE_TUNING.thresholds[index];
-    const [r, g, b] = m.flashColor;
-    this.cameras.main.flash(MILESTONE_TUNING.flashDurationMs, r, g, b, false);
-    this.cameras.main.shake(MILESTONE_TUNING.shakeDurationMs, MILESTONE_TUNING.shakeIntensity);
-    this.audio.playMilestoneSting();
-
-    this.milestoneText
-      .setText(m.label)
-      .setColor(m.color)
-      .setScale(0.5)
-      .setAlpha(1)
-      .setVisible(true);
-
-    this.tweens.add({
-      targets: this.milestoneText,
-      scaleX: 1.2,
-      scaleY: 1.2,
-      duration: 280,
-      ease: 'Back.easeOut',
-      onComplete: () => {
-        this.tweens.add({
-          targets: this.milestoneText,
-          y: this.milestoneText.y - MILESTONE_TUNING.textRiseY,
-          alpha: 0,
-          scaleX: 0.9,
-          scaleY: 0.9,
-          duration: MILESTONE_TUNING.textDurationMs - 280,
-          delay: 400,
-          ease: 'Sine.easeIn',
-          onComplete: () => {
-            this.milestoneText.setVisible(false);
-            this.milestoneText.setY(GAME_HEIGHT * 0.32);
-          },
-        });
-      },
-    });
   }
 
   private showTutorialHints() {
@@ -3424,6 +3376,12 @@ export default class MainScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(MILESTONE_TUNING.textDepth)
       .setVisible(false);
+    this.milestones = new MainMilestoneSystem({
+      scene: this,
+      audio: this.audio,
+      milestoneText: this.milestoneText,
+    });
+    this.milestones.reset();
     if (this.dailySeed) {
       this.add
         .text(GAME_WIDTH / 2, isCompactHud ? 6 : 10, 'DAILY CHALLENGE', {

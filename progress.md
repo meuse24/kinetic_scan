@@ -1694,3 +1694,16 @@ TODOs for next agent
   - `npm run test -- --run` pass (8 files, 177 tests)
   - `npm run test:coverage -- --run` pass
   - `npm run test:smoke` pass (8/8, no console errors)
+- 2026-02-12: MainScene milestone-feedback extraction pass completed (option 1 continuation).
+  - Added `src/systems/MainMilestoneSystem.ts` and moved score-threshold milestone behavior out of `MainScene`:
+    - threshold index tracking/reset,
+    - camera flash/shake and milestone SFX trigger,
+    - animated milestone text tween lifecycle.
+  - `src/MainScene.ts` now delegates score milestone handling via `milestones.onScoreChanged(prevScore, newScore)`.
+  - Milestone reset is now explicit on setup/shutdown via system reset.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run` pass (8 files, 177 tests)
+  - `npm run test:coverage -- --run` pass
+  - `npm run test:smoke` pass (8/8, no console errors)
