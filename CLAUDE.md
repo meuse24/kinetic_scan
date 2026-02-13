@@ -16,6 +16,7 @@ Retro arcade space shooter ("MEUSE24 Kinetic-Scan") built with **Phaser 3** and 
 
 All game graphics are procedurally generated at runtime via Phaser's `Graphics.generateTexture()` — there are no external image assets.  
 Audio is hybrid:
+
 - gameplay SFX and diegetic effects are synthesized in `AudioManager` (Web Audio API),
 - BGM loops are file-based (`src/song.mp3` for menu-like scenes and `gameloop.mp3` for active gameplay).
 
@@ -32,7 +33,7 @@ Audio is hybrid:
 Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/lazy-loader) -> **AttractScene** (title/menu) -> **MainScene** (gameplay) -> **GameOverScene** -> back to AttractScene. **PauseScene** and **HelpScene** overlay during gameplay. **BezelScene** runs as a persistent overlay providing a CRT monitor bezel frame.
 
 - `src/AttractScene.ts` — Title screen with attract-mode demo, credit system, 1P/2P start buttons, high scores, daily challenge button, live server stats block (`TOTAL USERS`, `COINS USED`), and occasional demo UFO shots
-- `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, scout-UFO astronaut rescue bursts (2-3 astronauts ejected on scout kill), 2-player turn switching, combo system, perk integration, swarm spawning, boss modifiers, score milestones, tutorial hints, daily challenge mode, mine-layer deploy input (`M` or double-click/double-tap with charges; each run starts with 2), debug bunker trigger (`B`)
+- `src/MainScene.ts` — Core gameplay loop: player control, shooting, asteroid spawning, collisions, scoring, power-ups, UFO encounters, scout-UFO astronaut rescue bursts (2-3 astronauts ejected on scout kill), rescue-streak multiplier chains, dynamic mini-events (`SOLAR STORM`, `LOW GRAVITY`, `SWARM RUSH`), 2-player turn switching, combo system, perk integration, swarm spawning, boss modifiers, score milestones, tutorial hints, daily challenge mode, mine-layer deploy input (`M` or double-click/double-tap with charges; each run starts with 2), debug bunker trigger (`B`)
 - `src/GameOverScene.ts` — Game over screen with high score entry (keyboard, touch swipe/tap, mouse wheel), separate daily challenge leaderboard
 - `src/PauseScene.ts` — Pause overlay with sound toggle and master/SFX/BGM volume sliders
 - `src/HelpScene.ts` — Controls/help overlay with scrollable content, `BACK (ESC/H)`, and a dedicated click hit-area for reliable pointer input
@@ -43,6 +44,7 @@ Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/l
 - `src/Player.ts` — `Player` class (ship movement, input handling for keyboard/mouse/touch, heat system) and `Bullet` class. All textures generated procedurally.
 - `src/EnemyManager.ts` — `Enemy` (asteroid) class and `EnemyManager` that handles spawning, fragmentation on destroy, and difficulty scaling
 - `src/UFO.ts` — UFO enemy with two variants: `scout` (single-hit, sine-wave movement) and `boss` (multi-hit with segmented energy bar, phase-based attack patterns, dodge AI, boss modifiers: shielded/summoner/berserk/armored). Both drawn procedurally with animated tentacles, hull, and antenna
+- `src/SkyRaider.ts` — top-entry hostile flight objects with two variants: `stalker` (tracking/aimed pressure) and `lancer` (faster strike pressure with higher reward)
   - `src/entities/ufo/UFOCombatSystem.ts` — Manages UFO hit points, boss phases (1/2/3 based on HP ratio), damage calculation with modifiers (armored: 50% damage reduction, shielded: HP regeneration, berserk: speed boost), and display HP smoothing
   - `src/entities/ufo/UFOMovementSystem.ts` — Handles scout sine-wave movement and boss dodge AI with bullet evasion. Pure logic with no Phaser dependencies for testability (custom math helpers, EvasionThreats interface)
 
@@ -54,7 +56,7 @@ Scenes are Phaser's unit of game state. The game flows: **BootScene** (startup/l
 - `src/PerkSystem.ts` — Rogue-lite perk registry (13 perks, including `MINE STOCK`) with stacking logic, state save/load, and modifier getters
 - `src/PerkSelectScene.ts` — Post-boss overlay showing 3 random perk cards; keyboard (1/2/3) or click selection with 15s auto-timeout
 - `src/StatsManager.ts` — Persistent lifetime stats (kills, deaths, boss kills, combo, level, playtime, total score) and 5 unlockable ship skins via localStorage
-- `src/MainSceneTuning.ts` — Central tuning constants for transitions, early-level ramp, spawn protection, background decor, shield bunker timing/layout, swarm spawning, score milestones, and scout-UFO astronaut burst/glide behavior
+- `src/MainSceneTuning.ts` — Central tuning constants for transitions, early-level ramp, spawn protection, background decor, shield bunker timing/layout, swarm spawning, score milestones, scout-UFO astronaut burst/glide behavior, rescue-streak tiers, and dynamic mini-events
 - `src/ExplosionManager.ts` — Particle emitter pools for asteroid and player death explosions
 - `src/AudioManager.ts` — Web Audio API synthesizer for all game sounds (shoot, explode, power-up, UFO hum, milestone sting, etc.)
 - `src/MusicManager.ts` — BGM controller for scene-specific loops (`song.mp3` in menu-like scenes, `gameloop.mp3` during gameplay at reduced volume so SFX remain dominant)

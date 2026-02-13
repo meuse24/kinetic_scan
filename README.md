@@ -15,7 +15,9 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
   - `Scout`: light pressure, occasional aimed shots, single-hit destroy.
   - `Boss`: procedural animated silhouette with tentacles, 3-phase escalation (attack patterns intensify as health drops), dodge AI that reads incoming bullet trajectories, multi-hit energy bar with segmented display and numeric hit label. Boss modifiers from level 3+: shielded (HP regen), summoner (spawns mini-swarms), berserk (speed scales with HP loss), armored (50% damage reduction).
 - Rescue event: destroying a scout UFO ejects `2-3` stranded astronauts that glide downward; touching them rescues each astronaut for bonus points.
+- Rescue streak: chained astronaut rescues within a short timer build a separate rescue multiplier for higher payout.
 - Top-entry invaders (`SkyRaider`): two AI enemy variants intermittently dive in from above, attack the player, then retreat off-screen if not destroyed. Spawn pressure scales by difficulty and level.
+- Dynamic mini-events: timed battlefield modifiers (`SOLAR STORM`, `LOW GRAVITY`, `SWARM RUSH`) periodically alter pressure and movement flow mid-run.
 - Level progression with transition overlay between levels (`LEVEL N`, `3, 2, 1, GO!`).
 - Mandatory boss phase at level end before level can advance.
 - Level-end bonus celebration now runs before perk cards:
@@ -64,6 +66,14 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
   - Bunkers blink 4x shortly before deactivation.
 - `MNE` (Mine Layer): grants +1 mine-field charge (run starts with 2); each activation deploys 5 proximity mines that arm, pulse, and destroy enemies on contact.
 - `MINE STOCK` (Perk Card): permanent +1 mine-field charge per stack when selected after boss fights.
+
+## Enemy Flight Objects
+
+- `Scout UFO`: light target, usually single-hit; destroying it ejects `2-3` rescue astronauts.
+- `Boss UFO`: level-end mandatory target with multi-hit energy, escalating phases, and modifiers (`shielded`, `summoner`, `berserk`, `armored`).
+- `SkyRaider Stalker`: tracking raider with aimed fire, medium threat profile.
+- `SkyRaider Lancer`: faster strike variant with stronger pressure and higher score reward.
+- `Elite Drone`: rare bonus/salvage target; rescue or destroy it to gain a permanent run perk.
 
 ## Controls
 
@@ -212,6 +222,8 @@ Automation helpers are exposed on `window`:
 - Boss modifiers visible from level 3+ (shielded/summoner/berserk/armored).
 - Scout/Boss destruction uses full explosion and cleanup without freeze states.
 - Destroyed scout UFOs eject `2-3` astronauts; astronauts glide down slowly, can be rescued individually, and disappear correctly when collected or expired.
+- Rescue streak HUD appears when chaining astronaut rescues and expires correctly when timer runs out.
+- Dynamic mini-events (`SOLAR STORM`, `LOW GRAVITY`, `SWARM RUSH`) activate periodically and expire cleanly.
 - Attract-mode UFO occasionally fires demo shots.
 - In-game background loop (`gameloop.mp3`) is audible but quieter than gameplay SFX.
 - Perk selection overlay appears after boss defeat (pick 1 of 3 upgrades).

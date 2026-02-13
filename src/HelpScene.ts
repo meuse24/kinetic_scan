@@ -293,7 +293,7 @@ export default class HelpScene extends Phaser.Scene {
       'Each run starts with 2 minefield charges. Manage them carefully and restock with drops or upgrades.',
     );
     addParagraph(
-      'Mobile: Touch-drag anywhere to move the ship relatively (offset-based control). This prevents your finger from obstructing the view. Auto-fire is enabled by default while touching. Manage heat to avoid overheat lockouts.',
+      'Mobile: Touch-drag anywhere to move the ship relatively (offset-based control). This prevents your finger from obstructing the view, and a small bottom steering margin keeps control gestures stable. Auto-fire is enabled by default while touching. Manage heat to avoid overheat lockouts.',
     );
     addParagraph(
       'Debug overlay is off by default. Press D to toggle renderer/FPS/object counters and graphics diagnostics.',
@@ -309,6 +309,23 @@ export default class HelpScene extends Phaser.Scene {
     );
     addParagraph(
       'Boss clears also unlock one of three permanent run upgrades. Mine Stock can appear here and grants extra minefield charges.',
+    );
+
+    addHeader('ENEMY FLIGHT OBJECTS');
+    addParagraph(
+      'SCOUT UFO: Fast light craft. Usually one hit to destroy. On destruction it ejects 2-3 stranded astronauts.',
+    );
+    addParagraph(
+      'BOSS UFO: Appears only in the level-end boss phase. High HP, escalating attack phases, and optional modifiers (shielded/summoner/berserk/armored).',
+    );
+    addParagraph(
+      'SKY RAIDER STALKER: Tracks your horizontal lane and fires aimed shots. Medium pressure, easier to outmaneuver.',
+    );
+    addParagraph(
+      'SKY RAIDER LANCER: Heavier strike variant. Faster dives, denser shot timing, and higher reward on destruction.',
+    );
+    addParagraph(
+      'ELITE DRONE: Rare bonus target, not a standard attacker. Touch or shoot it for a permanent run perk.',
     );
 
     addHeader('POWER-UPS');
@@ -335,10 +352,16 @@ export default class HelpScene extends Phaser.Scene {
       'WORMHOLE ANOMALY: A drifting anomaly can appear and bend both asteroid movement and bullet trajectories nearby.',
     );
     addParagraph(
-      'LOST ASTRONAUT: Destroyed scout UFOs can eject 2-3 astronauts with "Rescue Me!". Touch them with your ship to rescue them and earn bonus points.',
+      'LOST ASTRONAUT: Destroyed scout UFOs eject 2-3 astronauts, and destroyed enemy ships eject 1. Touch "Rescue Me!" astronauts to save them for bonus points.',
+    );
+    addParagraph(
+      'RESCUE STREAK: Save astronauts in quick succession to build a separate rescue multiplier. Keep the streak timer alive to climb to higher rescue payout tiers.',
     );
     addParagraph(
       'ELITE DRONE: Rare rescue/salvage target. Touch or shoot it to earn a permanent run perk (extra life, better cooling, or longer magnetic effect).',
+    );
+    addParagraph(
+      'DYNAMIC MINI-EVENTS: During runs, random timed events (for example SOLAR STORM, LOW GRAVITY, SWARM RUSH) temporarily change battlefield flow and pressure.',
     );
 
     addHeader('SCORING');
