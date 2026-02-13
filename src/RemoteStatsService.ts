@@ -39,7 +39,25 @@ const PENDING_EVENTS_STORAGE_KEY = 'spaceShooterRemoteStatsPendingEventsV1';
 const MAX_PENDING_EVENTS = 120;
 const RETRY_DELAY_ON_FAILURE_MS = 2600;
 
+function parseBooleanFlag(value: unknown) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function isCaptureMode() {
+  if (typeof window === 'undefined') return false;
+  const searchParams = new URLSearchParams(window.location.search);
+  return searchParams.has('capture') || searchParams.get('renderer') === 'canvas';
+}
+
+const REMOTE_STATS_DISABLED =
+  parseBooleanFlag((import.meta as any)?.env?.VITE_STATS_DISABLED) || isCaptureMode();
+
 function isNetworkOnline() {
+  if (REMOTE_STATS_DISABLED) return false;
   if (typeof navigator === 'undefined') return true;
   return navigator.onLine !== false;
 }
@@ -272,7 +290,7 @@ class RemoteStatsService {
   private flushScheduled = false;
 
   constructor() {
-    if (typeof window !== 'undefined') {
+    if (!REMOTE_STATS_DISABLED && typeof window !== 'undefined') {
       window.addEventListener('online', () => {
         void this.flushPendingEvents();
       });
@@ -373,6 +391,7 @@ class RemoteStatsService {
   }
 
   private async flushPendingEvents() {
+    if (REMOTE_STATS_DISABLED) return;
     if (this.flushInProgress) return;
     if (this.pendingEvents.length === 0) return;
     if (!isNetworkOnline()) {
@@ -403,6 +422,7 @@ class RemoteStatsService {
   }
 
   public warmupUserRegistration() {
+    if (REMOTE_STATS_DISABLED) return;
     if (!this.userRegistered) {
       void this.postEvent('register_user', { mode: 'normal' }, true).then((snapshot) => {
         if (snapshot) {
@@ -416,6 +436,7 @@ class RemoteStatsService {
   }
 
   public reportCoinsSpent(amount: number) {
+    if (REMOTE_STATS_DISABLED) return;
     const spendAmount = Math.max(0, Math.floor(amount));
     if (spendAmount <= 0) return;
     this.warmupUserRegistration();
@@ -423,6 +444,9 @@ class RemoteStatsService {
   }
 
   public submitHighscore(name: string, score: number, mode: RemoteLeaderboardMode = 'normal') {
+    if (REMOTE_STATS_DISABLED) {
+      return Promise.resolve<RemoteStatsSnapshot | null>(this.getCachedSnapshot(mode));
+    }
     const normalizedScore = normalizeScore(score);
     if (normalizedScore <= 0) return Promise.resolve<RemoteStatsSnapshot | null>(null);
     this.warmupUserRegistration();
@@ -438,6 +462,9 @@ class RemoteStatsService {
   }
 
   public fetchSnapshotLazy(mode: RemoteLeaderboardMode = 'normal', force: boolean = false) {
+    if (REMOTE_STATS_DISABLED) {
+      return Promise.resolve(this.getCachedSnapshot(mode));
+    }
     const now = Date.now();
     const cached = this.snapshotCache.get(mode);
     if (!force && cached && now - cached.fetchedAt <= SNAPSHOT_TTL_MS) {
@@ -457,6 +484,9 @@ class RemoteStatsService {
   }
 
   private async fetchSnapshot(mode: RemoteLeaderboardMode) {
+    if (REMOTE_STATS_DISABLED) {
+      return this.getCachedSnapshot(mode);
+    }
     this.warmupUserRegistration();
     if (!isNetworkOnline()) {
       return this.getCachedSnapshot(mode);
@@ -482,6 +512,12 @@ class RemoteStatsService {
     fallbackToCache: boolean = true,
   ) {
     const mode = sanitizeLeaderboardMode((data.mode as string | undefined) ?? 'normal');
+    if (REMOTE_STATS_DISABLED) {
+      if (fallbackToCache) {
+        return this.getCachedSnapshot(mode);
+      }
+      return null;
+    }
     if (!isNetworkOnline()) {
       if (queueOnFailure) {
         this.enqueueEvent(action, data);

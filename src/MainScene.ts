@@ -50,6 +50,7 @@ import { MainLevelFlowSystem } from './systems/MainLevelFlowSystem';
 import type { LevelBonusPayout } from './systems/MainLevelFlowSystem';
 import { MainMilestoneSystem } from './systems/MainMilestoneSystem';
 import { MainMineFieldSystem } from './systems/MainMineFieldSystem';
+import { MainPowerUpNoticeSystem } from './systems/MainPowerUpNoticeSystem';
 import { MainWorldEvents } from './systems/MainWorldEvents';
 
 interface PlayerState {
@@ -200,6 +201,7 @@ export default class MainScene extends Phaser.Scene {
   private hazards!: MainHazardsSystem;
   private milestones!: MainMilestoneSystem;
   private mineField!: MainMineFieldSystem;
+  private powerUpNotices!: MainPowerUpNoticeSystem;
   private empGraphics!: Phaser.GameObjects.Graphics;
   private backgroundDecorTier: BackgroundDecorTier = 'off';
   private backgroundDecorSpawnTimerMs: number = 0;
@@ -269,6 +271,7 @@ export default class MainScene extends Phaser.Scene {
   private mineDeployCharges: number = INITIAL_MINE_DEPLOY_CHARGES;
   private mineDeployHintCooldownUntil: number = 0;
   private lastPlayerRecoilAt: number = -1000;
+  private wasPlayerOverheated: boolean = false;
   private hitStopTimer?: Phaser.Time.TimerEvent;
   private hitStopCooldownUntil: number = 0;
   private sceneBackground?: SceneBackground;
@@ -306,6 +309,7 @@ export default class MainScene extends Phaser.Scene {
     this.mineDeployCharges = INITIAL_MINE_DEPLOY_CHARGES;
     this.mineDeployHintCooldownUntil = 0;
     this.lastPlayerRecoilAt = -1000;
+    this.wasPlayerOverheated = false;
     this.trailEmitAccumulatorMs = 0;
     this.backgroundDecorTier = 'off';
     this.backgroundDecorSpawnTimerMs = 0;
@@ -476,6 +480,15 @@ export default class MainScene extends Phaser.Scene {
         this.scene.isPaused('MainScene') ||
         !this.scene.isActive('MainScene'),
     });
+    this.powerUpNotices = new MainPowerUpNoticeSystem({
+      scene: this,
+      getAnchor: () => {
+        if (!this.player?.active || this.isGameOver || this.isSwitching || this.isLevelTransition) {
+          return null;
+        }
+        return { x: this.player.x, y: this.player.y };
+      },
+    });
     // Create graphics before HUD so they can be passed to HUDManager
     this.powerUpBar = this.add.graphics();
     this.heatBar = this.add.graphics().setDepth(120);
@@ -605,6 +618,7 @@ export default class MainScene extends Phaser.Scene {
       this.clearNebulaLayers();
       this.worldEvents.destroy();
       this.milestones?.reset();
+      this.powerUpNotices?.destroy();
       this.perkText.destroy();
       this.empGraphics.destroy();
       this.slowMoOverlay.destroy();
@@ -641,6 +655,11 @@ export default class MainScene extends Phaser.Scene {
     this.updateGuaranteedSupportDrop(delta);
     this.updateDynamicBulletCap(delta);
     this.player.update(time, delta);
+    const playerOverheated = this.player.active && this.player.isOverheated();
+    if (playerOverheated && !this.wasPlayerOverheated) {
+      this.powerUpNotices.showCustom('CANNON OVERHEATED', '#ff8c66');
+    }
+    this.wasPlayerOverheated = playerOverheated;
     if (this.player.active) {
       this.sceneBackground?.updatePlayerDriven(delta, this.player.x, this.player.y);
     } else {
@@ -3346,6 +3365,7 @@ export default class MainScene extends Phaser.Scene {
       onShieldBunkersRemove: () => this.removeShieldBunkers(),
       onEMPTrigger: () => this.triggerEMP(),
       onMineChargesAdd: (charges) => this.addMineDeployCharges(charges),
+      onPowerUpActivated: (type) => this.powerUpNotices.show(type),
       onPowerUpAudioPlay: (type) => {
         // Audio handled by specific callbacks (EMP, Drones, Ghost already play)
         if (

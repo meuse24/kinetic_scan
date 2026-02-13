@@ -35,6 +35,9 @@ export interface PowerUpCallbacks {
   // Audio callbacks
   onPowerUpAudioPlay: (type: PowerUpType) => void;
 
+  // Visual feedback callback
+  onPowerUpActivated?: (type: PowerUpType) => void;
+
   // State sync callback
   onActivePowerUpsChanged: (activePowerUps: Map<PowerUpType, number>) => void;
 }
@@ -69,6 +72,7 @@ export class PowerUpManager {
     // MINE_LAYER is instant (adds charges, no timer)
     if (type === PowerUpType.MINE_LAYER) {
       this.callbacks.onMineChargesAdd(1);
+      this.callbacks.onPowerUpActivated?.(type);
       this.callbacks.onPowerUpAudioPlay(type);
       return;
     }
@@ -80,6 +84,7 @@ export class PowerUpManager {
 
     // Trigger activation effects
     this.applyPowerUpEffects(type, true, false);
+    this.callbacks.onPowerUpActivated?.(type);
     this.callbacks.onPowerUpAudioPlay(type);
   }
 

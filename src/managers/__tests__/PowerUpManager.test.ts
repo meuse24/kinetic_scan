@@ -30,6 +30,7 @@ describe('PowerUpManager', () => {
       onShieldBunkersRemove: vi.fn(),
       onEMPTrigger: vi.fn(),
       onMineChargesAdd: vi.fn(),
+      onPowerUpActivated: vi.fn(),
       onPowerUpAudioPlay: vi.fn(),
       onActivePowerUpsChanged: vi.fn(),
     };
@@ -66,6 +67,7 @@ describe('PowerUpManager', () => {
       expect(powerUpManager.isActive(PowerUpType.TRIPLE_SHOT)).toBe(true);
       expect(powerUpManager.getRemainingTime(PowerUpType.TRIPLE_SHOT)).toBe(5000);
       expect(mockCallbacks.onTripleShotChanged).toHaveBeenCalledWith(true);
+      expect(mockCallbacks.onPowerUpActivated).toHaveBeenCalledWith(PowerUpType.TRIPLE_SHOT);
       expect(mockCallbacks.onPowerUpAudioPlay).toHaveBeenCalledWith(PowerUpType.TRIPLE_SHOT);
     });
 
@@ -130,6 +132,7 @@ describe('PowerUpManager', () => {
       powerUpManager.activate(PowerUpType.MINE_LAYER);
 
       expect(mockCallbacks.onMineChargesAdd).toHaveBeenCalledWith(1);
+      expect(mockCallbacks.onPowerUpActivated).toHaveBeenCalledWith(PowerUpType.MINE_LAYER);
       expect(mockCallbacks.onPowerUpAudioPlay).toHaveBeenCalledWith(PowerUpType.MINE_LAYER);
       expect(powerUpManager.isActive(PowerUpType.MINE_LAYER)).toBe(false);
     });

@@ -1707,3 +1707,50 @@ TODOs for next agent
   - `npm run test -- --run` pass (8 files, 177 tests)
   - `npm run test:coverage -- --run` pass
   - `npm run test:smoke` pass (8/8, no console errors)
+- 2026-02-12: Added in-game power-up activation feedback popups near player ship.
+  - New system `src/systems/MainPowerUpNoticeSystem.ts`:
+    - pooled floating text notices with short rise/fade animation,
+    - per-power-up label/color mapping (e.g. `SHIELD ACTIVATED`, `SHIP GHOSTED`, `DRONES ONLINE`).
+  - `src/managers/PowerUpManager.ts`:
+    - added optional callback `onPowerUpActivated?: (type) => void`,
+    - callback now fires on every explicit activation (including instant `MINE_LAYER`).
+  - `src/MainScene.ts`:
+    - wired `MainPowerUpNoticeSystem` and connected `onPowerUpActivated` callback,
+    - notices anchor to active player ship and are suppressed during switch/transition/game-over,
+    - teardown includes notice-system cleanup on scene shutdown.
+  - Test coverage update:
+    - `src/managers/__tests__/PowerUpManager.test.ts` now asserts `onPowerUpActivated` is called for timer-based and instant activations.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run` pass (177 tests)
+  - `npm run test:coverage -- --run` pass
+  - `npm run test:smoke` pass (8/8, no console errors)
+- 2026-02-12: Overheat status notice integrated with the new power-up notice pipeline.
+  - `MainPowerUpNoticeSystem` now supports `showCustom(label, color)` for non-power-up status messages.
+  - `MainScene` now detects overheat state edge (`false -> true`) after player update and shows:
+    - `CANNON OVERHEATED` (orange warning)
+  - Added lightweight state tracking `wasPlayerOverheated` so the warning is shown once per overheat event.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run` pass (177 tests)
+  - `npm run test:smoke` executed; gameplay flow passed but run flagged pre-existing external console errors (`ERR_CONNECTION_REFUSED`) from stats API requests.
+- 2026-02-13: Capture-mode remote stats hardening completed (follow-up to the `ERR_CONNECTION_REFUSED` smoke note).
+  - `src/RemoteStatsService.ts` now disables remote stats traffic when running in capture/automation mode:
+    - auto-disabled for `?capture` (and canvas capture URLs),
+    - optional env override retained via `VITE_STATS_DISABLED`.
+  - In disabled mode, service returns cached snapshots only and skips:
+    - user-registration warmup,
+    - coin/highscore POST events,
+    - pending-event flush scheduling.
+  - Result: no external stats API requests are emitted during capture-mode smoke/Playwright loops.
+- Validation:
+  - `npm run lint` pass
+  - `npm run build` pass
+  - `npm run test -- --run` pass (177 tests)
+  - `npm run test:smoke` pass (8/8, no console errors)
+  - Skill Playwright client run in capture mode:
+    - output: `output/web-game/remote-stats-capture-check`
+    - artifacts: `shot-0..2.png`, `state-0..2.json`
+    - no `errors-*.json` emitted
