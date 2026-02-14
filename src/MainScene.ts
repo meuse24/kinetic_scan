@@ -4117,10 +4117,13 @@ export default class MainScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 0)
       .setDepth(100);
-    const comboHudY = levelRowY + (isCompactHud ? 18 : 22);
+    const comboHudY = Math.max(
+      levelRowY + (isCompactHud ? 18 : 22),
+      helpButtonY + (isCompactHud ? 46 : 52),
+    );
     this.comboManager.createHUD(comboHudY, isCompactHud);
     this.rescueStreakText = this.add
-      .text(GAME_WIDTH / 2, comboHudY + (isCompactHud ? 13 : 16), '', {
+      .text(GAME_WIDTH / 2, comboHudY + (isCompactHud ? 20 : 24), '', {
         fontFamily: '"Press Start 2P"',
         fontSize: isCompactHud ? '9px' : '10px',
         color: '#d4fbff',

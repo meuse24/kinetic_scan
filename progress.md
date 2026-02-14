@@ -2025,3 +2025,12 @@ TODOs for next agent
     - `output/web-game/boot-mobile-layout-check.png`
     - `output/web-game/boot-mobile-layout-check-pulse-max.png`
   - visual check confirms no left/right clipping on install box or pulsing start text.
+- 2026-02-14: Main HUD combo overlay fix (request: combo text must not overlap top HUD labels/buttons).
+  - `src/MainScene.ts`:
+    - combo HUD anchor row now uses a safe lower bound and is clamped below the help button row on compact/mobile HUD layouts.
+    - rescue-streak label vertical offset increased so both lines stay readable as a dedicated block.
+  - `README.md`:
+    - manual smoke checklist explicitly documents that combo HUD stays on its own row without overlap on compact/mobile.
+- Validation:
+  - `npm run lint` pass.
+  - `npm run build` pass.

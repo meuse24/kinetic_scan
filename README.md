@@ -225,6 +225,7 @@ Automation helpers are exposed on `window`:
 - Scout/Boss destruction uses full explosion and cleanup without freeze states.
 - Destroyed scout UFOs eject `2-3` astronauts; astronauts glide down slowly, can be rescued individually, and disappear correctly when collected or expired.
 - Rescue streak HUD appears when chaining astronaut rescues and expires correctly when timer runs out.
+- Combo HUD text stays on a dedicated row and does not overlap lives/mines/pause/help on compact/mobile layouts.
 - Dynamic mini-events (`SOLAR STORM`, `LOW GRAVITY`, `SWARM RUSH`) activate periodically and expire cleanly.
 - Attract-mode UFO occasionally fires demo shots.
 - In-game background loop (`gameloop.mp3`) is audible but quieter than gameplay SFX.
