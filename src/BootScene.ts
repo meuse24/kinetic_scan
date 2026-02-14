@@ -8,15 +8,14 @@ import {
   MENU_MUSIC_KEY,
   MENU_MUSIC_URL,
 } from './MusicManager';
-import SceneBackground from './SceneBackground';
-
 let runtimeScenesLoadPromise: Promise<void> | null = null;
 
 export default class BootScene extends Phaser.Scene {
   private soundText!: Phaser.GameObjects.Text;
   private startText!: Phaser.GameObjects.Text;
-  private sceneBackground?: SceneBackground;
+  private shareText!: Phaser.GameObjects.Text;
   private isStarting = false;
+  private isSharing = false;
   private soundListener?: (muted: boolean) => void;
 
   constructor() {
@@ -24,7 +23,6 @@ export default class BootScene extends Phaser.Scene {
   }
 
   preload() {
-    SceneBackground.preload(this);
     if (!this.cache.audio.exists(MENU_MUSIC_KEY)) {
       this.load.audio(MENU_MUSIC_KEY, MENU_MUSIC_URL);
     }
@@ -37,12 +35,6 @@ export default class BootScene extends Phaser.Scene {
     const centerX = GAME_WIDTH / 2;
     const centerY = GAME_HEIGHT / 2;
     const fontFamily = '"Press Start 2P"';
-    this.sceneBackground = new SceneBackground(this, {
-      depth: -120,
-      alpha: 0.5,
-      maxOffsetX: 42,
-      maxOffsetY: 28,
-    });
 
     // Title
     this.add
@@ -88,6 +80,17 @@ export default class BootScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
     this.startText.on('pointerdown', () => this.begin());
+
+    // SHARE button
+    this.shareText = this.add
+      .text(centerX, centerY + 170, '[ SHARE MISSION ]', {
+        fontFamily,
+        fontSize: '14px',
+        color: '#00ffff',
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    this.shareText.on('pointerdown', () => this.shareGame());
 
     // Pulsing start text
     this.tweens.add({
@@ -153,14 +156,8 @@ export default class BootScene extends Phaser.Scene {
     soundManager.onChange(this.soundListener, this);
 
     this.events.once('shutdown', () => {
-      this.sceneBackground?.destroy();
-      this.sceneBackground = undefined;
       if (this.soundListener) soundManager.offChange(this.soundListener, this);
     });
-  }
-
-  update(_time: number, delta: number) {
-    this.sceneBackground?.updateIdle(delta);
   }
 
   private getSoundLabel() {
@@ -194,6 +191,59 @@ export default class BootScene extends Phaser.Scene {
       this.startText.setText('[ START (ENTER/SPACE) ]');
       this.startText.setColor('#ffff00');
       this.startText.setInteractive({ useHandCursor: true });
+    }
+  }
+
+  private async shareGame() {
+    if (this.isSharing) return;
+    this.isSharing = true;
+
+    const messages = [
+      'Ready for some retro action? Crush the highscore in MEUSE24 KINETIC-SCAN! 🚀',
+      'Think you can beat my score? Challenge me in MEUSE24 KINETIC-SCAN! 👾',
+      'Absolute adrenaline! This arcade shooter is addictive. Check out KINETIC-SCAN: ⚡',
+      'Space is dangerous, but the drift is smooth. Play MEUSE24 KINETIC-SCAN now! 🌌',
+      'Vector vibes and asteroid dust. The ultimate arcade experience: 🕹️',
+      'No downloads, just pure skill. Join the mission in MEUSE24 KINETIC-SCAN: 🛰️',
+      'The galaxy needs a pilot. Are you ready for KINETIC-SCAN? 👨‍🚀',
+      'Shredding asteroids has never felt this good. Try MEUSE24 KINETIC-SCAN: 💥',
+      'Retro graphics, modern speed. Experience KINETIC-SCAN today! 🛸',
+      'Warning: High difficulty, higher satisfaction. Play MEUSE24 KINETIC-SCAN: 🔥',
+    ];
+
+    const randomMessage = messages[Math.floor(Math.random() * messages.length)];
+    const shareUrl = window.location.origin + window.location.pathname;
+
+    const shareData = {
+      title: 'MEUSE24 KINETIC-SCAN',
+      text: randomMessage,
+      url: shareUrl,
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        throw new Error('Native share not available');
+      }
+    } catch (err) {
+      // User cancelled the native share dialog — do nothing
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      // Fallback: Copy to clipboard - URL is appended to the message
+      try {
+        await navigator.clipboard.writeText(`${shareData.text} ${shareData.url}`);
+        const originalText = this.shareText.text;
+        this.shareText.setText('[ MISSION LINK COPIED! ]');
+        this.shareText.setColor('#00ff00');
+        this.time.delayedCall(2000, () => {
+          this.shareText.setText(originalText);
+          this.shareText.setColor('#00ffff');
+        });
+      } catch (clipErr) {
+        console.error('Sharing failed', clipErr);
+      }
+    } finally {
+      this.isSharing = false;
     }
   }
 

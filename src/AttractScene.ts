@@ -1628,39 +1628,46 @@ export default class AttractScene extends Phaser.Scene {
 
   private layoutAttractUi() {
     if (!this.titleLogoContainer || this.playerButtons.length === 0) return;
+
     const titleBottom = this.titleLogoContainer.getBounds().bottom;
-    const buttonBounds = this.playerButtons[0].bg.getBounds();
-    const buttonTop = buttonBounds.top;
-    const buttonBottom = buttonBounds.bottom;
-    const verticalMidpoint = (titleBottom + buttonTop) * 0.5;
-    const minRotatingCenter = titleBottom + 88;
-    const maxRotatingCenter = buttonTop - 88;
-    const rotatingCenterY =
-      maxRotatingCenter > minRotatingCenter
-        ? Phaser.Math.Clamp(verticalMidpoint, minRotatingCenter, maxRotatingCenter)
-        : verticalMidpoint;
+    const bottomMargin = 28;
+    const available = GAME_HEIGHT - bottomMargin - titleBottom;
+    const slotY = (fraction: number) => titleBottom + available * fraction;
 
-    this.centerInfoBlockAtY(rotatingCenterY);
-    this.centerObjectAtY(this.highScoreGroup, rotatingCenterY);
-    this.centerObjectAtY(this.dailyChallengeGroup, rotatingCenterY);
+    // Rotating content (info / scores / daily / stats) — 25 %
+    const rotatingY = slotY(0.25);
+    this.centerInfoBlockAtY(rotatingY);
+    this.centerObjectAtY(this.highScoreGroup, rotatingY);
+    this.centerObjectAtY(this.dailyChallengeGroup, rotatingY);
     this.dailyChallengeOriginalY = this.dailyChallengeGroup.y;
-    this.centerObjectAtY(this.serverStatsGroup, rotatingCenterY);
+    this.centerObjectAtY(this.serverStatsGroup, rotatingY);
 
+    // Event banner — 44 %
     if (this.eventBanner) {
-      const bannerY = Phaser.Math.Clamp(buttonTop - 24, rotatingCenterY + 60, buttonTop - 18);
-      this.eventBanner.setY(bannerY);
+      this.eventBanner.setY(slotY(0.44));
     }
 
+    // Player buttons — 52 %
+    const buttonY = slotY(0.52);
+    for (const button of this.playerButtons) {
+      const bounds = button.bg.getBounds();
+      const delta = buttonY - (bounds.top + bounds.bottom) * 0.5;
+      button.bg.y += delta;
+      button.label.y += delta;
+    }
+
+    // Footer elements evenly from 67 % to 97 %
     const footerTargets: Phaser.GameObjects.GameObject[] = [
       this.helpText,
       this.settingsText,
       this.powerUpPreviewContainer ?? this.creditLabel,
       this.creditLabel,
     ];
-    const footerBottomY = GAME_HEIGHT - 26;
-    const stepY = (footerBottomY - buttonBottom) / (footerTargets.length + 1);
+    const footerStart = 0.67;
+    const footerEnd = 0.97;
+    const footerStep = (footerEnd - footerStart) / Math.max(footerTargets.length - 1, 1);
     footerTargets.forEach((target, index) => {
-      this.centerObjectAtY(target, buttonBottom + stepY * (index + 1));
+      this.centerObjectAtY(target, slotY(footerStart + footerStep * index));
     });
   }
 

@@ -279,7 +279,23 @@ export class SettingsOverlayController {
       this.crtValue.input.enabled = enableCrtToggle;
       this.crtValue.setAlpha(enableCrtToggle ? 1 : 0.45);
     }
-    this.volumeSliders.forEach((slider) => slider.refresh());
+    const muted = soundManager.isMuted();
+    this.volumeSliders.forEach((slider) => {
+      slider.refresh();
+      if (muted) {
+        slider.fill.width = 0;
+        slider.handle.x = slider.track.x - slider.track.width / 2;
+        slider.valueText.setText('0%');
+      }
+      const alpha = muted ? 0.35 : 1;
+      slider.handle.setAlpha(alpha);
+      slider.labelText.setAlpha(muted ? 0.45 : 1);
+      slider.valueText.setAlpha(muted ? 0.45 : 1);
+      slider.track.setAlpha(muted ? 0.4 : 0.96);
+      slider.fill.setAlpha(alpha);
+      if (slider.handle.input) slider.handle.input.enabled = !muted;
+      if (slider.trackHitArea.input) slider.trackHitArea.input.enabled = !muted;
+    });
   }
 
   destroy(): void {

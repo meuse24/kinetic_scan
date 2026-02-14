@@ -6,6 +6,7 @@ import { DEFAULT_VOLUME } from './AudioManager';
 import { isDebugOverlayEnabled, toggleDebugOverlayEnabled } from './DebugSettings';
 import SceneBackground from './SceneBackground';
 import { UIComponentFactory } from './ui/UIComponentFactory';
+import type { VolumeSliderComponents } from './ui/UIComponentFactory';
 import {
   applyCrtPipelineIfEnabled,
   createFullscreenOverlay,
@@ -18,6 +19,7 @@ export default class PauseScene extends Phaser.Scene {
   private soundListener?: (muted: boolean) => void;
   private volumeListener?: () => void;
   private sceneBackground?: SceneBackground;
+  private volumeSliders: VolumeSliderComponents[] = [];
 
   constructor() {
     super('PauseScene');
@@ -137,9 +139,10 @@ export default class PauseScene extends Phaser.Scene {
       },
     ];
 
+    this.volumeSliders.length = 0;
     for (let i = 0; i < sliderConfigs.length; i++) {
       const y = sliderStartY + i * 42;
-      UIComponentFactory.createVolumeSlider({
+      const slider = UIComponentFactory.createVolumeSlider({
         scene: this,
         centerX,
         y,
@@ -154,10 +157,13 @@ export default class PauseScene extends Phaser.Scene {
         fillColor: 0x00cc00,
         handleColor: 0xffffff,
       });
+      this.volumeSliders.push(slider);
     }
+    this.refreshSliderMuteState(soundManager.isMuted());
 
     this.soundListener = (muted: boolean) => {
       this.updateSoundLabel(muted);
+      this.refreshSliderMuteState(muted);
       const mainScene = this.scene.get('MainScene') as MainScene;
       if (mainScene.audio) {
         mainScene.audio.setVolume(
@@ -231,6 +237,25 @@ export default class PauseScene extends Phaser.Scene {
 
   private getDebugLabel() {
     return `DEBUG INFO: ${isDebugOverlayEnabled() ? 'ON' : 'OFF'} (G)`;
+  }
+
+  private refreshSliderMuteState(muted: boolean) {
+    for (const slider of this.volumeSliders) {
+      slider.refresh();
+      if (muted) {
+        slider.fill.width = 0;
+        slider.handle.x = slider.track.x - slider.track.width / 2;
+        slider.valueText.setText('0%');
+      }
+      const alpha = muted ? 0.35 : 1;
+      slider.handle.setAlpha(alpha);
+      slider.labelText.setAlpha(muted ? 0.45 : 1);
+      slider.valueText.setAlpha(muted ? 0.45 : 1);
+      slider.track.setAlpha(muted ? 0.4 : 0.96);
+      slider.fill.setAlpha(alpha);
+      if (slider.handle.input) slider.handle.input.enabled = !muted;
+      if (slider.trackHitArea.input) slider.trackHitArea.input.enabled = !muted;
+    }
   }
 
   private updateDebugLabel(enabled: boolean) {
