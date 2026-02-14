@@ -219,6 +219,7 @@ export default class MainScene extends Phaser.Scene {
   private onHidden?: () => void;
 
   private useHighEndVFX: boolean = false;
+  private baseHighEndVFXSupported: boolean = false;
   private slowMoOverlay!: Phaser.GameObjects.Rectangle;
   private slowMoActive: boolean = false;
   private slowMoColorMatrixFx: Phaser.FX.ColorMatrix | null = null;
@@ -488,10 +489,10 @@ export default class MainScene extends Phaser.Scene {
     statsManager.onGameStart();
     this.applyDifficultyProfile(true);
 
-    this.useHighEndVFX =
+    this.baseHighEndVFXSupported =
       this.sys.game.device.os.desktop && this.game.renderer.type === Phaser.WEBGL;
     performanceMonitor.init(this.game);
-    this.useHighEndVFX = this.useHighEndVFX && performanceMonitor.smokeEnabled;
+    this.useHighEndVFX = false;
     this.resetCollisionPressureMetrics();
     this.dynamicBulletCap = performanceMonitor.reducedParticles ? 56 : 96;
     this.bulletCapRefreshMs = 0;
@@ -564,7 +565,6 @@ export default class MainScene extends Phaser.Scene {
     this.createWeaponEventOverlay();
     this.createTurnOverlay();
     this.createLevelTransitionOverlay();
-    this.createSmokeEmitter();
     this.applyPassivePerksFromActiveState();
     this.updateHUDDisplay();
     this.powerUpManager.reapplyAll(true);
@@ -655,13 +655,7 @@ export default class MainScene extends Phaser.Scene {
       },
     );
 
-    // Apply CRT Shader Pipeline
-    if (
-      performanceMonitor.crtEnabled &&
-      this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
-    ) {
-      this.cameras.main.setPostPipeline('CRTPipeline');
-    }
+    this.applyPerformanceQualityState(true);
 
     // Cleanup on scene shutdown
 
@@ -797,19 +791,7 @@ export default class MainScene extends Phaser.Scene {
 
     const flagChanged = performanceMonitor.update(this.game);
     if (flagChanged) {
-      if (!performanceMonitor.smokeEnabled && this.smokeEmitter) {
-        this.smokeEmitter.destroy();
-        this.smokeEmitter = null;
-      }
-      if (
-        !performanceMonitor.crtEnabled &&
-        this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer
-      ) {
-        this.cameras.main.removePostPipeline('CRTPipeline');
-      }
-      this.ufo.setReducedVisualDetail(performanceMonitor.reducedParticles);
-      this.useHighEndVFX = performanceMonitor.smokeEnabled && this.useHighEndVFX;
-      this.configureBackgroundDecor();
+      this.applyPerformanceQualityState();
     }
     this.updateBackgroundDecor(delta);
     this.updateNebulaLayers(delta);
@@ -1679,8 +1661,38 @@ export default class MainScene extends Phaser.Scene {
     this.levelFlow.markSupportDropTriggered();
   }
 
+  private applyPerformanceQualityState(force: boolean = false) {
+    const shouldUseHighEndVFX = this.baseHighEndVFXSupported && performanceMonitor.smokeEnabled;
+    const vfxChanged = force || shouldUseHighEndVFX !== this.useHighEndVFX;
+    this.useHighEndVFX = shouldUseHighEndVFX;
+
+    if (!this.useHighEndVFX && this.smokeEmitter) {
+      this.smokeEmitter.destroy();
+      this.smokeEmitter = null;
+    } else if (this.useHighEndVFX && !this.smokeEmitter) {
+      this.createSmokeEmitter();
+    }
+
+    if (vfxChanged && this.slowMoActive) {
+      this.applySlowMo(true);
+    }
+
+    if (this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
+      const hasCrt = this.hasCrtPipeline();
+      if (performanceMonitor.crtEnabled && !hasCrt) {
+        this.cameras.main.setPostPipeline('CRTPipeline');
+      } else if (!performanceMonitor.crtEnabled && hasCrt) {
+        this.cameras.main.removePostPipeline('CRTPipeline');
+      }
+    }
+
+    this.ufo.setReducedVisualDetail(performanceMonitor.reducedParticles);
+    this.configureBackgroundDecor(force);
+  }
+
   private createSmokeEmitter() {
     if (!this.useHighEndVFX) return;
+    if (this.smokeEmitter) return;
     if (!this.textures.exists('smoke')) {
       const g = this.make.graphics({ x: 0, y: 0 });
       g.fillStyle(0xffffff, 1);
@@ -3045,6 +3057,11 @@ export default class MainScene extends Phaser.Scene {
       duration,
       onUpdate: () => pipeline.setMatrixIntensity(state.value),
     });
+  }
+
+  private hasCrtPipeline() {
+    const pipeline = this.cameras.main.getPostPipeline('CRTPipeline');
+    return Array.isArray(pipeline) ? pipeline.length > 0 : Boolean(pipeline);
   }
 
   private getCRTPipeline(): CRTPipeline | null {

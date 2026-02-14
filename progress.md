@@ -1983,3 +1983,28 @@ TODOs for next agent
   - Playwright client run required elevated execution for browser launch in this environment.
   - First capture run produced BootScene-only samples (missing start input).
   - Follow-up rerun with start input was interrupted; user performed manual attract verification and confirmed: "ist perfekt".
+- 2026-02-14: FPS balancing hardening pass completed (request: verify/optimize 60 FPS regulation + safe feature degradation/recovery).
+  - `src/PerformanceMonitor.ts`:
+    - Added recovery path with upgrade hysteresis (stable high-FPS windows required before quality upgrade).
+    - Reworked monitor lifecycle so desktop WebGL monitoring no longer stops permanently at minimal quality.
+    - Added visibility guard: sampling pauses while tab/document is hidden to avoid false degradations from browser background throttling.
+    - Refactored stabilization/sampling reset flow (`beginStabilizationPhase`, `clearSamplingWindow`).
+  - `src/MainScene.ts`:
+    - Added `applyPerformanceQualityState(force?)` to apply quality flags idempotently and bidirectionally.
+    - Quality changes now safely handle both disable and re-enable paths:
+      - smoke emitter teardown/recreation,
+      - CRT pipeline add/remove,
+      - UFO reduced-visual-detail updates,
+      - background decor reconfiguration.
+    - Removed one-way `useHighEndVFX` lock behavior by introducing `baseHighEndVFXSupported` baseline capability.
+  - `src/BezelScene.ts`:
+    - Added reflection resource lifecycle helpers (`shouldUseReflection`, `createReflectionResources`, `destroyReflectionResources`).
+    - Reflection RenderTexture now rebuilds when performance quality recovers and reflection is re-enabled.
+  - New tests: `src/__tests__/PerformanceMonitor.test.ts`
+    - verifies sustained low-FPS downgrade,
+    - verifies stable high-FPS recovery upgrade,
+    - verifies hidden-tab throttling is ignored during sampling.
+- Validation:
+  - `npm run lint` pass.
+  - `npm run build` pass.
+  - `npm run test -- --run` pass (9 files, 186 tests).

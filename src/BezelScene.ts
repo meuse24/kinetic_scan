@@ -32,6 +32,42 @@ export default class BezelScene extends Phaser.Scene {
     }
   }
 
+  private shouldUseReflection() {
+    return (
+      performanceMonitor.reflectionEnabled &&
+      this.game.device.os.desktop &&
+      this.game.renderer.type === Phaser.WEBGL
+    );
+  }
+
+  private createReflectionResources() {
+    if (this.reflectionRT) return;
+    this.reflectionRT = this.add.renderTexture(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    this.reflectionRT.setOrigin(0, 0);
+    this.reflectionRT.setAlpha(0.22);
+    this.reflectionRT.setTint(0x888888);
+    this.reflectionRT.initPostPipeline(true);
+    this.reflectionRT.preFX?.addBlur(1, 5, 5, 1.15, 0x000000, 4);
+    this.reflectionRT.setDepth(1001);
+    this.updateReflectionMask();
+  }
+
+  private destroyReflectionResources() {
+    this.safeClearReflectionRt();
+    try {
+      this.reflectionMask?.destroy();
+    } catch {
+      // Ignore teardown races during scene shutdown.
+    }
+    this.reflectionMask = null;
+    try {
+      this.reflectionRT?.destroy();
+    } catch {
+      // Ignore teardown races during scene shutdown.
+    }
+    this.reflectionRT = null;
+  }
+
   constructor() {
     super('BezelScene');
   }
@@ -42,57 +78,30 @@ export default class BezelScene extends Phaser.Scene {
     this.reflectionMaskGraphics = this.add.graphics();
     this.reflectionMaskGraphics.setVisible(false);
 
-    this.useReflection =
-      performanceMonitor.reflectionEnabled &&
-      this.game.device.os.desktop &&
-      this.game.renderer.type === Phaser.WEBGL;
-
-    if (this.useReflection) {
-      this.reflectionRT = this.add.renderTexture(0, 0, GAME_WIDTH, GAME_HEIGHT);
-      this.reflectionRT.setOrigin(0, 0);
-      this.reflectionRT.setAlpha(0.22);
-      this.reflectionRT.setTint(0x888888);
-      this.reflectionRT.initPostPipeline(true);
-      this.reflectionRT.preFX?.addBlur(1, 5, 5, 1.15, 0x000000, 4);
-      this.reflectionRT.setDepth(1001);
-    }
+    this.useReflection = this.shouldUseReflection();
+    if (this.useReflection) this.createReflectionResources();
 
     this.drawFrame();
 
     this.events.once('shutdown', () => {
-      this.safeClearReflectionRt();
-      try {
-        this.reflectionMask?.destroy();
-      } catch {
-        // Ignore teardown races during scene shutdown.
-      }
-      this.reflectionMask = null;
-      try {
-        this.reflectionRT?.destroy();
-      } catch {
-        // Ignore teardown races during scene shutdown.
-      }
-      this.reflectionRT = null;
+      this.destroyReflectionResources();
     });
 
     this.scene.bringToTop('BezelScene');
   }
 
   update() {
-    if (!this.useReflection || !this.reflectionRT) return;
-
-    // Performance monitor disabled reflection — tear down the RenderTexture
-    if (!performanceMonitor.reflectionEnabled) {
-      this.safeClearReflectionRt();
-      try {
-        this.reflectionRT.destroy();
-      } catch {
-        // Ignore teardown races during scene shutdown.
-      }
-      this.reflectionRT = null;
+    const shouldReflect = this.shouldUseReflection();
+    if (shouldReflect && !this.useReflection) {
+      this.useReflection = true;
+      this.createReflectionResources();
+      this.drawFrame();
+    } else if (!shouldReflect && this.useReflection) {
+      this.destroyReflectionResources();
       this.useReflection = false;
       return;
     }
+    if (!this.useReflection || !this.reflectionRT) return;
 
     const mainScene = this.scene.get('MainScene');
     if (!mainScene || !mainScene.scene.isActive()) {

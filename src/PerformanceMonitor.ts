@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 
 const WINDOW_SIZE = 60; // ~1 second at 60 FPS
 const FPS_THRESHOLD = 55;
+const FPS_UPGRADE_THRESHOLD = 58;
+const UPGRADE_WINDOWS_REQUIRED = 2;
 const CRITICAL_FPS = 35;
 const EARLY_SAMPLE_COUNT = 20;
 const CRT_PREF_STORAGE_KEY = 'spaceShooterCrtEnabled';
@@ -22,9 +24,10 @@ export class PerformanceMonitor {
   private bufferFull = false;
   private stabilizing = false;
   private stabilizeCount = 0;
-  private done = false;
+  private monitoringDisabled = false;
   private initialized = false;
   private totalFrames = 0;
+  private readyToUpgradeWindows = 0;
   private crtSupported = false;
   private crtAllowOnMinimal = false;
   private crtUserEnabled = true;
@@ -50,19 +53,24 @@ export class PerformanceMonitor {
     if (isDesktop && isWebGL) {
       this.qualityLevel = QualityLevel.FULL;
       this.applyLevel();
-      this.done = false;
+      this.monitoringDisabled = false;
     } else {
       // Mobile / canvas: minimal VFX, no monitoring needed
       this.qualityLevel = QualityLevel.MINIMAL;
       this.applyLevel();
-      this.done = true;
+      this.monitoringDisabled = true;
     }
   }
 
   /** Call every frame from a scene update. Returns true if quality flags changed. */
   update(game: Phaser.Game): boolean {
     if (!this.initialized) this.init(game);
-    if (this.done) return false;
+    if (this.monitoringDisabled) return false;
+
+    if (!this.isSamplingAllowed()) {
+      this.clearSamplingWindow();
+      return false;
+    }
 
     const fps = game.loop.actualFps;
     this.totalFrames++;
@@ -93,9 +101,7 @@ export class PerformanceMonitor {
       if (this.stabilizeCount >= WINDOW_SIZE) {
         this.stabilizing = false;
         this.stabilizeCount = 0;
-        this.bufferFull = false;
-        this.samples = [];
-        this.sampleIndex = 0;
+        this.clearSamplingWindow();
       }
       return false;
     }
@@ -108,29 +114,45 @@ export class PerformanceMonitor {
     const avg = sum / WINDOW_SIZE;
 
     if (avg < FPS_THRESHOLD) {
+      this.readyToUpgradeWindows = 0;
       return this.downgrade();
     }
+
+    if (this.qualityLevel < QualityLevel.FULL && avg >= FPS_UPGRADE_THRESHOLD) {
+      this.readyToUpgradeWindows++;
+      if (this.readyToUpgradeWindows >= UPGRADE_WINDOWS_REQUIRED) {
+        return this.upgrade();
+      }
+      return false;
+    }
+
+    this.readyToUpgradeWindows = 0;
 
     return false;
   }
 
   private downgrade(): boolean {
-    if (this.qualityLevel <= QualityLevel.MINIMAL) {
-      this.done = true;
-      return false;
-    }
+    if (this.qualityLevel <= QualityLevel.MINIMAL) return false;
 
     this.qualityLevel--;
     this.applyLevel();
+    this.beginStabilizationPhase();
+    return true;
+  }
 
+  private upgrade(): boolean {
+    if (this.qualityLevel >= QualityLevel.FULL) return false;
+
+    this.qualityLevel++;
+    this.applyLevel();
+    this.beginStabilizationPhase();
+    return true;
+  }
+
+  private beginStabilizationPhase() {
     this.stabilizing = true;
     this.stabilizeCount = 0;
-
-    if (this.qualityLevel <= QualityLevel.MINIMAL) {
-      this.done = true;
-    }
-
-    return true;
+    this.readyToUpgradeWindows = 0;
   }
 
   /** Jump directly to a specific level (for fast degradation). */
@@ -138,19 +160,21 @@ export class PerformanceMonitor {
     if (this.qualityLevel <= target) return false;
     this.qualityLevel = target;
     this.applyLevel();
+    this.beginStabilizationPhase();
+    this.clearSamplingWindow();
+    return true;
+  }
 
-    // Reset sampling after a big jump
-    this.stabilizing = true;
-    this.stabilizeCount = 0;
+  private clearSamplingWindow() {
     this.bufferFull = false;
     this.samples = [];
     this.sampleIndex = 0;
+    this.readyToUpgradeWindows = 0;
+  }
 
-    if (this.qualityLevel <= QualityLevel.MINIMAL) {
-      this.done = true;
-    }
-
-    return true;
+  private isSamplingAllowed() {
+    if (typeof document === 'undefined') return true;
+    return document.visibilityState !== 'hidden';
   }
 
   private applyLevel() {
