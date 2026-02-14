@@ -2008,3 +2008,20 @@ TODOs for next agent
   - `npm run lint` pass.
   - `npm run build` pass.
   - `npm run test -- --run` pass (9 files, 186 tests).
+- 2026-02-14: BootScene mobile layout overflow fix (request: install box + pulsing start text clipped on smartphone width).
+  - `src/BootScene.ts`:
+    - added width-aware text fitting helper `fitTextToWidth(...)` and applied it to sound/start/share/hint texts.
+    - start text now reserves width headroom for pulse scale (`1.08`) to prevent side clipping while animating.
+    - install guidance block reworked to be responsive:
+      - dynamic box width from viewport,
+      - wrapped body text (`wordWrap`) with inner max width,
+      - title width fitting,
+      - dynamic box height from measured content,
+      - bottom-safe vertical clamping.
+- Validation:
+  - `npm run lint` pass.
+  - `npm run build` pass.
+  - Playwright mobile viewport captures (390x844, touch emulation):
+    - `output/web-game/boot-mobile-layout-check.png`
+    - `output/web-game/boot-mobile-layout-check-pulse-max.png`
+  - visual check confirms no left/right clipping on install box or pulsing start text.

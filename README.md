@@ -9,6 +9,8 @@ Fight asteroid waves, collect power-ups, and clear levels by defeating a mandato
 - Startup bundle optimization:
   - runtime gameplay scenes are lazy-loaded from `BootScene` on first start,
   - Phaser is bundled with the Arcade-focused build (`phaser-arcade-physics.min.js`) to trim engine payload.
+- Boot scene UI is width-aware on smartphones:
+  - pulsing start button text and install/uninstall guidance are fitted/wrapped to stay inside the viewport.
 - Difficulty presets: `EASY`, `NORMAL`, `HARD` (affects enemies, drops, UFO pressure, and level curve).
 - Level gate: each level requires at least ~60s survival time before the boss phase can trigger.
 - Two UFO variants:

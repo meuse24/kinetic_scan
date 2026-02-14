@@ -34,6 +34,8 @@ export default class BootScene extends Phaser.Scene {
   create() {
     const cx = GAME_WIDTH / 2;
     const fontFamily = '"Press Start 2P"';
+    const horizontalPadding = IS_TOUCH ? 18 : 14;
+    const safeTextWidth = GAME_WIDTH - horizontalPadding * 2;
 
     // Scale factor: 1.0 at GAME_HEIGHT=1000, scales proportionally
     const s = GAME_HEIGHT / 1000;
@@ -71,6 +73,7 @@ export default class BootScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
+    this.fitTextToWidth(this.soundText, safeTextWidth);
     this.soundText.on('pointerdown', () => this.toggleSound());
 
     // START button
@@ -82,6 +85,8 @@ export default class BootScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
+    // Leave headroom for pulse scale so it never clips on narrow screens.
+    this.fitTextToWidth(this.startText, safeTextWidth / 1.08);
     this.startText.on('pointerdown', () => this.begin());
 
     // SHARE button
@@ -93,6 +98,7 @@ export default class BootScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
+    this.fitTextToWidth(this.shareText, safeTextWidth);
     this.shareText.on('pointerdown', () => this.shareGame());
 
     // Pulsing start text
@@ -106,31 +112,30 @@ export default class BootScene extends Phaser.Scene {
     });
 
     // Startup hint
-    this.add
+    const startupHint = this.add
       .text(cx, slotY(0.73), IS_TOUCH ? 'TAP START TO PLAY' : 'PRESS ENTER OR CLICK START', {
         fontFamily,
         fontSize: `${Math.round(18 * s)}px`,
         color: '#8b93a5',
       })
       .setOrigin(0.5);
+    this.fitTextToWidth(startupHint, safeTextWidth);
 
     // Install / uninstall guidance
-    const guideBoxH = Math.round(140 * s);
-    const guideCenterY = slotY(0.88);
-    this.add
-      .rectangle(cx, guideCenterY, Math.min(980, GAME_WIDTH - 28), guideBoxH, 0x091422, 0.78)
-      .setStrokeStyle(1, 0x2f415a, 0.9);
-    this.add
-      .text(cx, guideCenterY - guideBoxH * 0.3, 'INSTALL / UNINSTALL APP', {
+    const guideBoxW = Math.min(980, GAME_WIDTH - (IS_TOUCH ? 20 : 28));
+    const guideInnerW = Math.max(260, guideBoxW - (IS_TOUCH ? 28 : 36));
+    const guideTitle = this.add
+      .text(0, 0, 'INSTALL / UNINSTALL APP', {
         fontFamily,
         fontSize: `${Math.round(22 * s)}px`,
         color: '#ffdf99',
       })
       .setOrigin(0.5);
-    this.add
+    this.fitTextToWidth(guideTitle, guideInnerW);
+    const guideBody = this.add
       .text(
-        cx,
-        guideCenterY + guideBoxH * 0.1,
+        0,
+        0,
         IS_TOUCH
           ? 'INSTALL: SHARE OR BROWSER MENU -> ADD TO HOME SCREEN\nUNINSTALL: PRESS-HOLD APP ICON -> REMOVE APP'
           : 'INSTALL: ADDRESS-BAR INSTALL ICON OR BROWSER MENU -> INSTALL APP\nUNINSTALL: OS APP SETTINGS OR BROWSER APP-MANAGER -> REMOVE',
@@ -140,9 +145,27 @@ export default class BootScene extends Phaser.Scene {
           color: '#b6c0d3',
           align: 'center',
           lineSpacing: Math.round(8 * s),
+          wordWrap: { width: guideInnerW, useAdvancedWrap: true },
         },
       )
       .setOrigin(0.5);
+    const guideGap = Math.round(Math.max(8, 12 * s));
+    const guidePaddingY = Math.round(Math.max(10, 14 * s));
+    const guideContentH = guideTitle.height + guideGap + guideBody.height;
+    const guideBoxH = Math.max(Math.round(140 * s), Math.round(guideContentH + guidePaddingY * 2));
+    const guideBottomMargin = Math.round(IS_TOUCH ? 14 : 20);
+    const guideCenterY = Math.min(slotY(0.88), GAME_HEIGHT - guideBottomMargin - guideBoxH * 0.5);
+    this.add
+      .rectangle(cx, guideCenterY, guideBoxW, guideBoxH, 0x091422, 0.78)
+      .setStrokeStyle(1, 0x2f415a, 0.9);
+    guideTitle.setPosition(
+      cx,
+      guideCenterY - guideBoxH * 0.5 + guidePaddingY + guideTitle.height * 0.5,
+    );
+    guideBody.setPosition(
+      cx,
+      guideTitle.y + guideTitle.height * 0.5 + guideGap + guideBody.height * 0.5,
+    );
 
     // Keyboard shortcuts
     this.input.keyboard?.on('keydown-S', () => this.toggleSound());
@@ -275,5 +298,21 @@ export default class BootScene extends Phaser.Scene {
       })();
     }
     return runtimeScenesLoadPromise;
+  }
+
+  private fitTextToWidth(text: Phaser.GameObjects.Text, maxWidth: number) {
+    if (maxWidth <= 0) return;
+    text.setScale(1);
+    if (text.width <= maxWidth) return;
+
+    const originalSize = parseInt(text.style.fontSize as string, 10);
+    if (!Number.isFinite(originalSize) || originalSize <= 0) return;
+    let nextSize = originalSize;
+    const minSize = Math.max(9, Math.floor(originalSize * 0.6));
+
+    while (nextSize > minSize && text.width > maxWidth) {
+      nextSize--;
+      text.setFontSize(nextSize);
+    }
   }
 }
