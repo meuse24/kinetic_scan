@@ -1961,3 +1961,25 @@ TODOs for next agent
   - `npm run lint` pass.
   - `npm run build` pass.
   - `npx vitest run` pass (183/183).
+- 2026-02-14: Attract showcase motion + feature-integration pass completed (request: more movement + new features in demo run).
+  - `src/AttractScene.ts` updated with a rotating attract showcase loop and richer movement dynamics.
+  - Added `SkyRaiderManager` to AttractScene so new SkyRaider variants/projectiles now appear during attract demo.
+  - Added attract showcase events with visual overlay + banner wiring:
+    - `MINI EVENT: SOLAR STORM` (wind force)
+    - `MINI EVENT: LOW GRAVITY` (vertical damping)
+    - `MINI EVENT: SWARM RUSH` (swarm bursts)
+    - `WEAPON EVENT: RAPID FIRE` (faster split cadence)
+    - `ADRENALINE RUSH` (matrix-style speed burst)
+    - `RESCUE STREAK ONLINE` (streak pulses + rescue HUD text + burst drops)
+  - Attract combat target path now scales with showcase speed state (higher tempo + wobble during intense phases).
+  - Demo power-up drift updated:
+    - dynamic spawn cadence by active showcase,
+    - max power-up count raised during high-intensity phases,
+    - `SLOW_MOTION` added to live drift type pool.
+  - `getAmbientVisualState()` now reports attract showcase key, active SkyRaider counts, and rescue-streak multiplier for debug/capture state output.
+- Validation:
+  - `npm run lint` passed.
+  - `npm run build` passed.
+  - Playwright client run required elevated execution for browser launch in this environment.
+  - First capture run produced BootScene-only samples (missing start input).
+  - Follow-up rerun with start input was interrupted; user performed manual attract verification and confirmed: "ist perfekt".

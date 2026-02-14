@@ -18,6 +18,7 @@ import type { DifficultyPresetKey } from './Difficulty';
 import { Enemy, EnemyManager } from './EnemyManager';
 import { soundManager } from './SoundManager';
 import { UFO, UFOProjectile } from './UFO';
+import { SkyRaider, SkyRaiderManager, SkyRaiderShot } from './SkyRaider';
 import { PowerUp, PowerUpType } from './PowerUp';
 import { performanceMonitor } from './PerformanceMonitor';
 import { musicManager } from './MusicManager';
@@ -71,6 +72,29 @@ type AttractNebulaLayer = {
   baseAlpha: number;
   alphaWave: number;
   phase: number;
+};
+
+type AttractShowcaseKey =
+  | 'solar_storm'
+  | 'low_gravity'
+  | 'swarm_rush'
+  | 'rapid_fire'
+  | 'adrenaline_rush'
+  | 'rescue_streak';
+
+type AttractShowcaseState = {
+  key: AttractShowcaseKey;
+  ttlMs: number;
+  overlayColor: number;
+  overlayBaseAlpha: number;
+  overlayPulseAlpha: number;
+  windForceX?: number;
+  verticalDamping?: number;
+  splitCadenceMs?: number;
+  powerUpSpawnScale?: number;
+  combatSpeedScale?: number;
+  swarmPulseTimerMs?: number;
+  rescuePulseTimerMs?: number;
 };
 
 const ATTRACT_DECOR_TUNING = {
@@ -127,6 +151,70 @@ const ATTRACT_JUICE_TUNING = {
   },
 } as const;
 
+const ATTRACT_SHOWCASE_TUNING = {
+  triggerDelayMs: [5200, 8600] as const,
+  defaultSplitCadenceMs: 1400,
+  defaultPowerUpSpawnDelayMs: [1300, 2500] as const,
+  solarStorm: {
+    ttlMs: [7600, 9800] as const,
+    overlayColor: 0xffa34a,
+    overlayBaseAlpha: 0.032,
+    overlayPulseAlpha: 0.08,
+    windForceX: [-24, 24] as const,
+    minAbsWind: 12,
+  },
+  lowGravity: {
+    ttlMs: [8400, 10800] as const,
+    overlayColor: 0x74d8ff,
+    overlayBaseAlpha: 0.026,
+    overlayPulseAlpha: 0.072,
+    verticalDamping: 0.976,
+  },
+  swarmRush: {
+    ttlMs: [7600, 9800] as const,
+    overlayColor: 0xff79db,
+    overlayBaseAlpha: 0.03,
+    overlayPulseAlpha: 0.082,
+    swarmPulseMs: [820, 1320] as const,
+    swarmCount: [3, 5] as const,
+  },
+  rapidFire: {
+    ttlMs: [6400, 8800] as const,
+    overlayColor: 0xff5555,
+    overlayBaseAlpha: 0.03,
+    overlayPulseAlpha: 0.08,
+    splitCadenceMs: 560,
+    powerUpSpawnScale: 0.58,
+    combatSpeedScale: 1.24,
+  },
+  adrenalineRush: {
+    ttlMs: [4600, 6200] as const,
+    overlayColor: 0xb784ff,
+    overlayBaseAlpha: 0.034,
+    overlayPulseAlpha: 0.095,
+    splitCadenceMs: 520,
+    powerUpSpawnScale: 0.48,
+    combatSpeedScale: 2.1,
+    windForceX: 9,
+  },
+  rescueStreak: {
+    ttlMs: [5600, 7800] as const,
+    overlayColor: 0x8ef5ff,
+    overlayBaseAlpha: 0.028,
+    overlayPulseAlpha: 0.074,
+    rescuePulseMs: [700, 1080] as const,
+    powerUpSpawnScale: 0.72,
+  },
+  rescueWindowMs: 5600,
+  rescueTiers: [
+    { minRescues: 1, multiplier: 1, color: '#d4fbff' },
+    { minRescues: 2, multiplier: 2, color: '#8ef5ff' },
+    { minRescues: 4, multiplier: 3, color: '#5ae5ff' },
+    { minRescues: 6, multiplier: 4, color: '#ffd36e' },
+    { minRescues: 9, multiplier: 5, color: '#ff8dc2' },
+  ] as const,
+} as const;
+
 export default class AttractScene extends Phaser.Scene {
   private audio!: AudioManager;
   private coinText!: Phaser.GameObjects.Text;
@@ -135,6 +223,7 @@ export default class AttractScene extends Phaser.Scene {
   private settingsText!: Phaser.GameObjects.Text;
   private creditLabel!: Phaser.GameObjects.Text;
   private enemyManager!: EnemyManager;
+  private skyRaiderManager!: SkyRaiderManager;
   private ufo!: UFO;
   private attractCombatTarget!: Phaser.Physics.Arcade.Sprite;
   private attractCombatPhase: number = 0;
@@ -161,6 +250,13 @@ export default class AttractScene extends Phaser.Scene {
   private demoPowerUpSpawnTimer: number = 0;
   private eventBanner!: Phaser.GameObjects.Text;
   private eventBannerTween: Phaser.Tweens.Tween | null = null;
+  private attractShowcaseOverlay!: Phaser.GameObjects.Rectangle;
+  private attractShowcase: AttractShowcaseState | null = null;
+  private lastAttractShowcaseKey: AttractShowcaseKey | null = null;
+  private attractShowcaseTriggerTimerMs: number = 0;
+  private rescueStreakCount: number = 0;
+  private rescueStreakExpireMs: number = 0;
+  private rescueStreakText!: Phaser.GameObjects.Text;
   private difficultyKey: DifficultyPresetKey = getCurrentDifficultyKey();
   private settingsOverlayHost?: SettingsOverlayHost;
   private titleLogoContainer?: Phaser.GameObjects.Container;
@@ -270,10 +366,16 @@ export default class AttractScene extends Phaser.Scene {
     this.ufo = new UFO(this, this.audio, { combatEnabled: true });
     this.ufo.setCombatTarget(this.attractCombatTarget);
     this.ufo.setDepth(6);
+    this.skyRaiderManager = new SkyRaiderManager(this, this.audio);
+    this.skyRaiderManager.setCombatTarget(this.attractCombatTarget);
     const preset = getDifficultyPreset(this.difficultyKey);
     this.audio.setDifficultyMix(this.difficultyKey);
     this.enemyManager.setDifficultyPreset(preset);
     this.ufo.setDifficultyPreset(preset);
+    this.skyRaiderManager.setDifficultyPreset(preset);
+    this.skyRaiderManager.setDifficultyLevel(9);
+    this.skyRaiderManager.setRuntimeIntensity(1.18);
+    this.skyRaiderManager.resetSpawnController(Phaser.Math.Between(2600, 5200));
     this.ufoSpawnTimer = Phaser.Math.Between(20000, 45000);
 
     // Title Logo
@@ -357,10 +459,14 @@ export default class AttractScene extends Phaser.Scene {
 
     this.powerUpPreviewContainer = this.createPowerUpPreview(centerX, GAME_HEIGHT - 130, uiDepth);
     this.createEventBanner(centerX, centerY + 164, uiDepth);
+    this.createShowcaseOverlay(centerX, centerY, uiDepth);
     this.layoutAttractUi();
     this.time.delayedCall(120, () => this.refreshHighScoresFromServerLazy());
     this.attractBlackHoleSpawnTimer = Phaser.Math.Between(4800, 8500);
-    this.demoPowerUpSpawnTimer = Phaser.Math.Between(1200, 2400);
+    this.demoPowerUpSpawnTimer = this.getDemoPowerUpSpawnDelayMs();
+    this.attractShowcaseTriggerTimerMs = this.rollRange(ATTRACT_SHOWCASE_TUNING.triggerDelayMs);
+    this.rescueStreakCount = 0;
+    this.rescueStreakExpireMs = 0;
 
     // Interaction
     this.input.keyboard?.on('keydown-I', () => this.insertCoin());
@@ -441,6 +547,8 @@ export default class AttractScene extends Phaser.Scene {
       this.heartbeatTimer?.remove(false);
       this.heartbeatTimer = null;
       safeDestroyGroup((this.enemyManager as any)?.enemies);
+      this.skyRaiderManager?.setCombatTarget(null);
+      this.skyRaiderManager?.destroy();
       this.ufo.setCombatTarget(null);
       this.ufo.deactivate();
       this.attractCombatTarget?.destroy();
@@ -455,6 +563,9 @@ export default class AttractScene extends Phaser.Scene {
       this.attractWarpGraphics?.destroy();
       this.eventBannerTween?.stop();
       this.eventBannerTween = null;
+      this.attractShowcase = null;
+      this.attractShowcaseOverlay?.destroy();
+      this.rescueStreakText?.destroy();
       this.ambientEmitter.destroy();
       this.ufoTrailEmitter?.destroy();
       this.ufoTrailEmitter = null;
@@ -480,25 +591,31 @@ export default class AttractScene extends Phaser.Scene {
       this.configureBackgroundDecor();
       this.configureNebulaLayers();
     }
+    this.updateAttractShowcase(delta);
     this.enemyManager.update(time, delta);
+    this.skyRaiderManager.update(time, delta);
     this.updateAttractCombatTarget(delta);
+    this.applyAttractShowcaseMotion(delta);
     this.updateBackgroundDecor(delta);
     this.updateNebulaLayers(delta);
     this.updateUFOTrails(delta);
     this.enemyDepthRefreshMs -= delta;
     if (this.enemyDepthRefreshMs <= 0) {
       this.applyEnemyDepth(5);
+      this.applySkyRaiderDepth(6, 7);
       this.enemyDepthRefreshMs = 500;
     }
     this.demoSplitTimer += delta;
-    if (this.demoSplitTimer >= 1400) {
-      this.demoSplitTimer = 0;
+    const splitCadence = this.getActiveDemoSplitCadenceMs();
+    if (this.demoSplitTimer >= splitCadence) {
+      this.demoSplitTimer -= splitCadence;
       this.triggerDemoSplit();
     }
     this.updateDemoPowerUps(delta);
     this.updateAttractBlackHole(delta);
     if (!this.ufo.active) {
-      this.ufoSpawnTimer -= delta;
+      const combatScale = this.getActiveCombatSpeedScale();
+      this.ufoSpawnTimer -= delta * Math.max(1, Math.min(2.2, combatScale));
       if (this.ufoSpawnTimer <= 0) {
         this.ufo.spawn();
         this.announceEvent('UFO CONTACT');
@@ -510,11 +627,26 @@ export default class AttractScene extends Phaser.Scene {
   private updateAttractCombatTarget(delta: number) {
     if (!this.attractCombatTarget?.active) return;
 
-    this.attractCombatPhase += (delta / 1000) * 0.55;
+    const combatScale = this.getActiveCombatSpeedScale();
+    this.attractCombatPhase += (delta / 1000) * 0.55 * combatScale;
     const width = this.scale.width;
     const height = this.scale.height;
-    const nextX = width * 0.5 + Math.sin(this.attractCombatPhase * 1.2) * width * 0.28;
-    const nextY = height * 0.33 + Math.cos(this.attractCombatPhase * 1.7) * height * 0.16;
+    const amplitudeScale = Phaser.Math.Clamp(1 + (combatScale - 1) * 0.18, 1, 1.32);
+    const wobbleScale = Phaser.Math.Clamp((combatScale - 1) * 0.8, 0, 1);
+    const nextX = Phaser.Math.Clamp(
+      width * 0.5 +
+        Math.sin(this.attractCombatPhase * 1.2) * width * 0.28 * amplitudeScale +
+        Math.sin(this.attractCombatPhase * 3.3) * width * 0.035 * wobbleScale,
+      70,
+      width - 70,
+    );
+    const nextY = Phaser.Math.Clamp(
+      height * 0.33 +
+        Math.cos(this.attractCombatPhase * 1.7) * height * 0.16 * amplitudeScale +
+        Math.cos(this.attractCombatPhase * 3.8) * height * 0.028 * wobbleScale,
+      70,
+      height * 0.72,
+    );
     const stepSec = Math.max(delta / 1000, 1 / 120);
     const vx = (nextX - this.attractCombatTargetX) / stepSec;
     const vy = (nextY - this.attractCombatTargetY) / stepSec;
@@ -590,6 +722,7 @@ export default class AttractScene extends Phaser.Scene {
     this.audio.setDifficultyMix(this.difficultyKey);
     this.enemyManager.setDifficultyPreset(preset);
     this.ufo.setDifficultyPreset(preset);
+    this.skyRaiderManager.setDifficultyPreset(preset);
     this.settingsOverlayHost?.refresh();
   }
 
@@ -1239,6 +1372,10 @@ export default class AttractScene extends Phaser.Scene {
       backgroundDecorTier: this.backgroundDecorTier,
       backgroundDecorCount: this.backgroundDecor.length,
       nebulaLayerCount: this.nebulaLayers.length,
+      showcase: this.attractShowcase?.key ?? 'none',
+      activeSkyRaiders: this.skyRaiderManager?.getActiveRaiderCount() ?? 0,
+      activeSkyRaiderShots: this.skyRaiderManager?.getActiveProjectileCount() ?? 0,
+      rescueStreakMultiplier: this.getRescueStreakInfo(this.rescueStreakCount).multiplier,
       gpu: this.gpuName,
     };
   }
@@ -1248,6 +1385,22 @@ export default class AttractScene extends Phaser.Scene {
     if (!children || typeof children.each !== 'function') return;
     children.each((enemy: any) => {
       if (enemy.depth !== depth) enemy.setDepth(depth);
+      return null;
+    });
+  }
+
+  private applySkyRaiderDepth(raiderDepth: number, shotDepth: number) {
+    const raiderChildren = (this.skyRaiderManager?.getRaiders() as any)?.children;
+    if (raiderChildren && typeof raiderChildren.each === 'function') {
+      raiderChildren.each((raider: any) => {
+        if (raider.depth !== raiderDepth) raider.setDepth(raiderDepth);
+        return null;
+      });
+    }
+    const shotChildren = (this.skyRaiderManager?.getProjectiles() as any)?.children;
+    if (!shotChildren || typeof shotChildren.each !== 'function') return;
+    shotChildren.each((shot: any) => {
+      if (shot.depth !== shotDepth) shot.setDepth(shotDepth);
       return null;
     });
   }
@@ -1302,7 +1455,332 @@ export default class AttractScene extends Phaser.Scene {
     });
   }
 
-  private spawnDemoPowerUp() {
+  private createShowcaseOverlay(centerX: number, centerY: number, depth: number) {
+    this.attractShowcaseOverlay = this.add
+      .rectangle(centerX, centerY, GAME_WIDTH, GAME_HEIGHT, 0xffffff, 0)
+      .setDepth(depth - 10);
+    this.rescueStreakText = this.add
+      .text(centerX, centerY + 190, '', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '11px',
+        color: '#8ef5ff',
+        stroke: '#00131d',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5)
+      .setDepth(depth)
+      .setAlpha(0);
+  }
+
+  private getActiveCombatSpeedScale() {
+    return this.attractShowcase?.combatSpeedScale ?? 1;
+  }
+
+  private getActiveDemoSplitCadenceMs() {
+    return Math.max(
+      420,
+      Math.round(
+        this.attractShowcase?.splitCadenceMs ?? ATTRACT_SHOWCASE_TUNING.defaultSplitCadenceMs,
+      ),
+    );
+  }
+
+  private getDemoPowerUpSpawnDelayMs() {
+    const scale = this.attractShowcase?.powerUpSpawnScale ?? 1;
+    const base = this.rollRange(ATTRACT_SHOWCASE_TUNING.defaultPowerUpSpawnDelayMs);
+    return Math.max(420, Math.round(base * scale));
+  }
+
+  private updateAttractShowcase(delta: number) {
+    this.updateRescueStreakHud(delta);
+    if (!this.attractShowcase) {
+      this.attractShowcaseTriggerTimerMs -= delta;
+      this.attractShowcaseOverlay.setAlpha(
+        Math.max(0, this.attractShowcaseOverlay.alpha - delta / 520),
+      );
+      if (this.attractShowcaseTriggerTimerMs <= 0) {
+        this.startAttractShowcase();
+      }
+      return;
+    }
+
+    const state = this.attractShowcase;
+    state.ttlMs -= delta;
+    const pulse = Math.sin(this.time.now * 0.0046) * 0.5 + 0.5;
+    const alpha = state.overlayBaseAlpha + pulse * state.overlayPulseAlpha;
+    this.attractShowcaseOverlay.setAlpha(1);
+    this.attractShowcaseOverlay.setFillStyle(state.overlayColor, alpha);
+
+    if (state.key === 'swarm_rush') {
+      state.swarmPulseTimerMs = (state.swarmPulseTimerMs ?? 0) - delta;
+      if ((state.swarmPulseTimerMs ?? 0) <= 0) {
+        this.spawnAttractSwarmBurst();
+        state.swarmPulseTimerMs = this.rollRange(ATTRACT_SHOWCASE_TUNING.swarmRush.swarmPulseMs);
+      }
+    }
+
+    if (state.key === 'rescue_streak') {
+      state.rescuePulseTimerMs = (state.rescuePulseTimerMs ?? 0) - delta;
+      if ((state.rescuePulseTimerMs ?? 0) <= 0) {
+        this.triggerAttractRescuePulse();
+        state.rescuePulseTimerMs = this.rollRange(
+          ATTRACT_SHOWCASE_TUNING.rescueStreak.rescuePulseMs,
+        );
+      }
+    }
+
+    if (state.ttlMs <= 0) {
+      this.endAttractShowcase();
+    }
+  }
+
+  private startAttractShowcase() {
+    const keys: AttractShowcaseKey[] = [
+      'solar_storm',
+      'low_gravity',
+      'swarm_rush',
+      'rapid_fire',
+      'adrenaline_rush',
+      'rescue_streak',
+    ];
+    const pool =
+      this.lastAttractShowcaseKey === null
+        ? keys
+        : keys.filter((key) => key !== this.lastAttractShowcaseKey);
+    const key = Phaser.Utils.Array.GetRandom(pool.length > 0 ? pool : keys);
+    this.lastAttractShowcaseKey = key;
+
+    if (key === 'solar_storm') {
+      let wind = this.rollFloatRange(ATTRACT_SHOWCASE_TUNING.solarStorm.windForceX);
+      if (Math.abs(wind) < ATTRACT_SHOWCASE_TUNING.solarStorm.minAbsWind) {
+        wind = Math.sign(wind || 1) * ATTRACT_SHOWCASE_TUNING.solarStorm.minAbsWind;
+      }
+      this.attractShowcase = {
+        key,
+        ttlMs: this.rollRange(ATTRACT_SHOWCASE_TUNING.solarStorm.ttlMs),
+        overlayColor: ATTRACT_SHOWCASE_TUNING.solarStorm.overlayColor,
+        overlayBaseAlpha: ATTRACT_SHOWCASE_TUNING.solarStorm.overlayBaseAlpha,
+        overlayPulseAlpha: ATTRACT_SHOWCASE_TUNING.solarStorm.overlayPulseAlpha,
+        windForceX: wind,
+      };
+      this.announceEvent('MINI EVENT: SOLAR STORM');
+    } else if (key === 'low_gravity') {
+      this.attractShowcase = {
+        key,
+        ttlMs: this.rollRange(ATTRACT_SHOWCASE_TUNING.lowGravity.ttlMs),
+        overlayColor: ATTRACT_SHOWCASE_TUNING.lowGravity.overlayColor,
+        overlayBaseAlpha: ATTRACT_SHOWCASE_TUNING.lowGravity.overlayBaseAlpha,
+        overlayPulseAlpha: ATTRACT_SHOWCASE_TUNING.lowGravity.overlayPulseAlpha,
+        verticalDamping: ATTRACT_SHOWCASE_TUNING.lowGravity.verticalDamping,
+      };
+      this.announceEvent('MINI EVENT: LOW GRAVITY');
+    } else if (key === 'swarm_rush') {
+      this.attractShowcase = {
+        key,
+        ttlMs: this.rollRange(ATTRACT_SHOWCASE_TUNING.swarmRush.ttlMs),
+        overlayColor: ATTRACT_SHOWCASE_TUNING.swarmRush.overlayColor,
+        overlayBaseAlpha: ATTRACT_SHOWCASE_TUNING.swarmRush.overlayBaseAlpha,
+        overlayPulseAlpha: ATTRACT_SHOWCASE_TUNING.swarmRush.overlayPulseAlpha,
+        swarmPulseTimerMs: 0,
+      };
+      this.announceEvent('MINI EVENT: SWARM RUSH');
+      this.spawnAttractSwarmBurst();
+    } else if (key === 'rapid_fire') {
+      this.attractShowcase = {
+        key,
+        ttlMs: this.rollRange(ATTRACT_SHOWCASE_TUNING.rapidFire.ttlMs),
+        overlayColor: ATTRACT_SHOWCASE_TUNING.rapidFire.overlayColor,
+        overlayBaseAlpha: ATTRACT_SHOWCASE_TUNING.rapidFire.overlayBaseAlpha,
+        overlayPulseAlpha: ATTRACT_SHOWCASE_TUNING.rapidFire.overlayPulseAlpha,
+        splitCadenceMs: ATTRACT_SHOWCASE_TUNING.rapidFire.splitCadenceMs,
+        powerUpSpawnScale: ATTRACT_SHOWCASE_TUNING.rapidFire.powerUpSpawnScale,
+        combatSpeedScale: ATTRACT_SHOWCASE_TUNING.rapidFire.combatSpeedScale,
+      };
+      this.audio.playWeaponEventActivate();
+      this.announceEvent('WEAPON EVENT: RAPID FIRE');
+    } else if (key === 'adrenaline_rush') {
+      this.attractShowcase = {
+        key,
+        ttlMs: this.rollRange(ATTRACT_SHOWCASE_TUNING.adrenalineRush.ttlMs),
+        overlayColor: ATTRACT_SHOWCASE_TUNING.adrenalineRush.overlayColor,
+        overlayBaseAlpha: ATTRACT_SHOWCASE_TUNING.adrenalineRush.overlayBaseAlpha,
+        overlayPulseAlpha: ATTRACT_SHOWCASE_TUNING.adrenalineRush.overlayPulseAlpha,
+        splitCadenceMs: ATTRACT_SHOWCASE_TUNING.adrenalineRush.splitCadenceMs,
+        powerUpSpawnScale: ATTRACT_SHOWCASE_TUNING.adrenalineRush.powerUpSpawnScale,
+        combatSpeedScale: ATTRACT_SHOWCASE_TUNING.adrenalineRush.combatSpeedScale,
+        windForceX: ATTRACT_SHOWCASE_TUNING.adrenalineRush.windForceX,
+      };
+      this.audio.playAdrenalineReady();
+      this.audio.playMatrixActivation();
+      this.announceEvent('ADRENALINE RUSH');
+      if (!this.ufo.active) {
+        this.ufoSpawnTimer = Math.min(this.ufoSpawnTimer, 1200);
+      }
+    } else {
+      this.attractShowcase = {
+        key,
+        ttlMs: this.rollRange(ATTRACT_SHOWCASE_TUNING.rescueStreak.ttlMs),
+        overlayColor: ATTRACT_SHOWCASE_TUNING.rescueStreak.overlayColor,
+        overlayBaseAlpha: ATTRACT_SHOWCASE_TUNING.rescueStreak.overlayBaseAlpha,
+        overlayPulseAlpha: ATTRACT_SHOWCASE_TUNING.rescueStreak.overlayPulseAlpha,
+        powerUpSpawnScale: ATTRACT_SHOWCASE_TUNING.rescueStreak.powerUpSpawnScale,
+        rescuePulseTimerMs: 0,
+      };
+      this.announceEvent('RESCUE STREAK ONLINE');
+      this.triggerAttractRescuePulse();
+    }
+  }
+
+  private endAttractShowcase() {
+    const completed = this.attractShowcase?.key;
+    this.attractShowcase = null;
+    this.attractShowcaseTriggerTimerMs = this.rollRange(ATTRACT_SHOWCASE_TUNING.triggerDelayMs);
+    if (completed === 'adrenaline_rush') {
+      this.audio.playMatrixDeactivation();
+    }
+  }
+
+  private spawnAttractSwarmBurst() {
+    const count = this.rollRange(ATTRACT_SHOWCASE_TUNING.swarmRush.swarmCount);
+    const swarmId = this.enemyManager.spawnSwarm(
+      count,
+      0.52,
+      Phaser.Math.Between(255, 320),
+      46,
+      24,
+    );
+    if (swarmId > 0) {
+      this.playAttractWarpPulse(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.24, 'soft');
+    }
+  }
+
+  private triggerAttractRescuePulse() {
+    this.rescueStreakCount = Math.min(12, this.rescueStreakCount + 1);
+    this.rescueStreakExpireMs = ATTRACT_SHOWCASE_TUNING.rescueWindowMs;
+    const info = this.getRescueStreakInfo(this.rescueStreakCount);
+    this.rescueStreakText
+      .setText(`RESCUE x${info.multiplier}`)
+      .setColor(info.color)
+      .setScale(1)
+      .setAlpha(1);
+    this.tweens.add({
+      targets: this.rescueStreakText,
+      scaleX: 1.08,
+      scaleY: 1.08,
+      duration: 120,
+      ease: 'Sine.easeOut',
+      yoyo: true,
+    });
+    this.playAttractWarpPulse(this.rescueStreakText.x, this.rescueStreakText.y, 'soft');
+    this.audio.playRescue();
+
+    const rescueBurst = Phaser.Math.Between(1, 2);
+    for (let i = 0; i < rescueBurst; i++) {
+      this.spawnDemoPowerUp({
+        x: Phaser.Math.Between(Math.round(GAME_WIDTH * 0.26), Math.round(GAME_WIDTH * 0.74)),
+        y: Phaser.Math.Between(Math.round(GAME_HEIGHT * 0.2), Math.round(GAME_HEIGHT * 0.42)),
+        vxRange: [-84, 84],
+        vyRange: [24, 90],
+      });
+    }
+  }
+
+  private getRescueStreakInfo(rescueCount: number) {
+    let info: (typeof ATTRACT_SHOWCASE_TUNING.rescueTiers)[number] =
+      ATTRACT_SHOWCASE_TUNING.rescueTiers[0];
+    for (const tier of ATTRACT_SHOWCASE_TUNING.rescueTiers) {
+      if (rescueCount >= tier.minRescues) info = tier;
+    }
+    return info;
+  }
+
+  private updateRescueStreakHud(delta: number) {
+    if (!this.rescueStreakText) return;
+
+    if (this.rescueStreakExpireMs > 0) {
+      this.rescueStreakExpireMs -= delta;
+      const pulse = Math.sin(this.time.now * 0.009) * 0.5 + 0.5;
+      this.rescueStreakText.setAlpha(0.62 + pulse * 0.34);
+      if (this.rescueStreakExpireMs <= 0 && this.attractShowcase?.key !== 'rescue_streak') {
+        this.rescueStreakCount = 0;
+      }
+      return;
+    }
+
+    if (this.rescueStreakText.alpha <= 0) return;
+    this.rescueStreakText.setAlpha(Math.max(0, this.rescueStreakText.alpha - delta / 620));
+    if (this.rescueStreakText.alpha <= 0.02) {
+      this.rescueStreakText.setText('');
+    }
+  }
+
+  private applyAttractShowcaseMotion(delta: number) {
+    const state = this.attractShowcase;
+    if (!state) return;
+    const wind = state.windForceX ?? 0;
+    const verticalDamping = state.verticalDamping ?? 1;
+    if (Math.abs(wind) < 0.01 && verticalDamping >= 0.999) return;
+
+    const forceScale = delta / (1000 / 60);
+    const applyBodyMotion = (body: Phaser.Physics.Arcade.Body | null) => {
+      if (!body) return;
+      if (Math.abs(wind) > 0.01) {
+        body.velocity.x += wind * 0.2 * forceScale;
+      }
+      if (verticalDamping < 0.999 && body.velocity.y > 0) {
+        body.velocity.y *= verticalDamping;
+      }
+    };
+
+    const enemies = this.enemyManager.enemies.getChildren() as Enemy[];
+    for (const enemy of enemies) {
+      if (!enemy.active) continue;
+      applyBodyMotion(enemy.body as Phaser.Physics.Arcade.Body | null);
+    }
+
+    const raiders = this.skyRaiderManager.getRaiders().getChildren() as SkyRaider[];
+    for (const raider of raiders) {
+      if (!raider.active) continue;
+      applyBodyMotion(raider.body as Phaser.Physics.Arcade.Body | null);
+    }
+
+    const raiderShots = this.skyRaiderManager.getProjectiles().getChildren() as SkyRaiderShot[];
+    for (const shot of raiderShots) {
+      if (!shot.active) continue;
+      applyBodyMotion(shot.body as Phaser.Physics.Arcade.Body | null);
+    }
+
+    applyBodyMotion(this.ufo.body as Phaser.Physics.Arcade.Body | null);
+    const ufoShots = this.ufo.getProjectiles()?.getChildren() as UFOProjectile[] | undefined;
+    if (ufoShots) {
+      for (const shot of ufoShots) {
+        if (!shot.active) continue;
+        applyBodyMotion(shot.body as Phaser.Physics.Arcade.Body | null);
+      }
+    }
+
+    for (const item of this.demoPowerUps) {
+      if (Math.abs(wind) > 0.01) {
+        item.vx += wind * 0.06 * forceScale;
+      }
+      if (verticalDamping < 0.999 && item.vy > 0) {
+        item.vy *= verticalDamping;
+      }
+      const speed = Math.hypot(item.vx, item.vy);
+      if (speed > 220) {
+        const scale = 220 / speed;
+        item.vx *= scale;
+        item.vy *= scale;
+      }
+    }
+  }
+
+  private spawnDemoPowerUp(options?: {
+    x?: number;
+    y?: number;
+    vxRange?: readonly [number, number];
+    vyRange?: readonly [number, number];
+  }) {
     const typePool: PowerUpType[] = [
       PowerUpType.BLACK_HOLE,
       PowerUpType.EMP_WAVE,
@@ -1311,12 +1789,15 @@ export default class AttractScene extends Phaser.Scene {
       PowerUpType.CANNON_COOLING,
       PowerUpType.SHIELD_BUNKER,
       PowerUpType.MINE_LAYER,
+      PowerUpType.SLOW_MOTION,
       PowerUpType.TRIPLE_SHOT,
       PowerUpType.SHIELD,
     ];
     const type = Phaser.Utils.Array.GetRandom(typePool);
-    const x = Phaser.Math.Between(80, GAME_WIDTH - 80);
-    const y = -40;
+    const x = options?.x ?? Phaser.Math.Between(80, GAME_WIDTH - 80);
+    const y = options?.y ?? -40;
+    const vxRange = options?.vxRange ?? ([-36, 36] as const);
+    const vyRange = options?.vyRange ?? ([58, 110] as const);
     const icon = this.add.image(x, y, `powerup_${type}`).setDepth(8).setScale(0.95).setAlpha(0.9);
     const label = this.add
       .text(x, y - 24, this.getPowerUpAbbreviation(type), {
@@ -1332,17 +1813,18 @@ export default class AttractScene extends Phaser.Scene {
     this.demoPowerUps.push({
       icon,
       label,
-      vx: Phaser.Math.Between(-36, 36),
-      vy: Phaser.Math.Between(58, 110),
+      vx: Phaser.Math.Between(vxRange[0], vxRange[1]),
+      vy: Phaser.Math.Between(vyRange[0], vyRange[1]),
       spin: Phaser.Math.FloatBetween(-0.025, 0.025),
     });
   }
 
   private updateDemoPowerUps(delta: number) {
     this.demoPowerUpSpawnTimer -= delta;
-    if (this.demoPowerUpSpawnTimer <= 0 && this.demoPowerUps.length < 7) {
+    const maxPowerUps = (this.attractShowcase?.powerUpSpawnScale ?? 1) < 0.7 ? 10 : 7;
+    if (this.demoPowerUpSpawnTimer <= 0 && this.demoPowerUps.length < maxPowerUps) {
       this.spawnDemoPowerUp();
-      this.demoPowerUpSpawnTimer = Phaser.Math.Between(1300, 2500);
+      this.demoPowerUpSpawnTimer = this.getDemoPowerUpSpawnDelayMs();
     }
 
     for (let i = this.demoPowerUps.length - 1; i >= 0; i--) {
@@ -1645,6 +2127,7 @@ export default class AttractScene extends Phaser.Scene {
     // Event banner — 44 %
     if (this.eventBanner) {
       this.eventBanner.setY(slotY(0.44));
+      this.rescueStreakText?.setY(this.eventBanner.y + 28);
     }
 
     // Player buttons — 52 %
