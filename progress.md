@@ -1909,3 +1909,55 @@ TODOs for next agent
   - `npm run test:smoke` pass (8/8, zero console errors)
   - Additional Playwright feature check:
     - long-run capture confirmed active mini event state and screenshot (`tests/screenshots/mini_event_active_check.png`).
+- 2026-02-13: Started targeted fix pass after code review for new SkyRaider variants + weapon events.
+- Implemented gameplay-critical fixes:
+  - `MainScene.update` now early-returns while `isGameOver` to prevent mini/weapon event reactivation during game-over delay.
+  - Weapon events now reset/re-schedule on actual player death in `handlePlayerHitEnemy`.
+  - Added shared asteroid kill helper (`handleAsteroidDestroyedByPlayer`) and reused it in grenade AoE path, so grenade asteroid kills now follow normal split/score/combo/swarm flow.
+  - Added shared UFO damage helper (`applyUfoDamage`) and reused it for grenade AoE so grenade UFO hits now trigger full kill rewards/flow.
+  - Guarded bullet handlers against grenade projectiles.
+- Implemented grenade collision hardening:
+  - `Bullet.fireGrenade()` sets `body.checkCollision.none = true` and resets on fuse/out-of-bounds cleanup.
+  - Added `Bullet.isGrenadeProjectile()` and used it in collision manager and shield-bunker handler.
+- Audio/AI fixes:
+  - Phantom decloak now uses `playPhantomDecloak` SFX.
+  - Bomber cluster attack now uses `playBomberDrop` SFX.
+  - Interceptor spawn now initializes first bezier attack timer (no immediate arc at spawn).
+- Added tests in `src/managers/__tests__/CollisionManager.test.ts` to verify grenade bullets are ignored for enemy/UFO/SkyRaider/shield-bunker collision callbacks.
+- TODO: run vitest + lint/build, then run Playwright skill loop and inspect screenshots/state.
+- Validation after fix implementation:
+  - `npx vitest run src/managers/__tests__/CollisionManager.test.ts` passed (31/31).
+  - `npx vitest run` passed (8 files, 183 tests).
+  - `npm run lint` passed.
+  - `npm run build` passed.
+- develop-web-game Playwright validation:
+  - Used skill client: `$CODEX_HOME/skills/develop-web-game/scripts/web_game_playwright_client.js` against `http://127.0.0.1:4173/?renderer=canvas&capture=1`.
+  - Long-run scenario (`output/web-game/fix-pass-weapon-events`) produced valid artifacts (`shot-0/1.png`, `state-0/1.json`) but timed out before final iteration due non-deterministic `window.advanceTime` fallback pace.
+  - Final quick-pass scenario (`output/web-game/fix-pass-weapon-events-quick`) completed successfully with 2 gameplay captures and matching state JSON; no `errors-*.json` generated.
+  - Manual screenshot inspection confirms gameplay rendering (non-black captures), HUD updates, mini-event overlay behavior, and expected player/enemy/UFO activity.
+- Remaining note:
+  - Automated long-horizon validation (e.g., guaranteed random weapon-event activation during run) remains time-costly until `window.advanceTime` is deterministic.
+- Final verification rerun:
+  - `npm run lint` pass.
+  - `npm run build` pass.
+  - `npx vitest run` pass (183/183).
+- 2026-02-13: Fixed shutdown crash on last-life transition (`Cannot read properties of undefined (reading postFX)`).
+  - Replaced direct `this.cameras.main.postFX.remove(...)` teardown call with safe helper `removeSlowMoColorMatrixFx()` in `MainScene`.
+  - Added guarded postFX capability checks in `applySlowMo` and fallback to overlay path when camera postFX is unavailable.
+  - `npm run lint` pass, `npm run build` pass.
+  - Playwright crash-check run completed without `errors-0.json` in `output/web-game/gameover-crash-check`.
+- 2026-02-14: Implemented ADRENALINE RUSH — graze-based bullet-time system.
+  - New file: `src/systems/AdrenalineSystem.ts` — core system with graze detection (squared-distance, per-entity cooldowns, entity cap of 60/frame), meter management (fill/decay/ready threshold), matrix state machine (activate/drain/deactivate), and self-contained HUD bar (purple fill with glow pulse when ready).
+  - `src/MainSceneTuning.ts`: Added `ADRENALINE_TUNING` constants block (graze zone 20-52px, meter 0-100, +6/+4 per graze, 3.5/s decay, 80 activation threshold, 5.5s matrix duration, 5.5x physics timeScale, 3.2x player speed, 3x score multiplier, pierce enabled).
+  - `src/CRTPipeline.ts`: Added `uMatrixIntensity` uniform to fragment shader — enhanced chromatic aberration (0.0015→0.006), boosted scanlines (0.04→0.07), purple color tint (vec3(0.7,0.6,1.2) mix), plus `setMatrixIntensity()` setter.
+  - `src/AudioManager.ts`: 4 new synth sounds — `playGrazeTick()` (40ms triangle sweep, rate-limited 60ms), `playAdrenalineReady()` (two-note rising arpeggio), `playMatrixActivation()` (bass sine + shimmer sawtooth + noise burst), `playMatrixDeactivation()` (reverse sine sweep + filtered noise).
+  - `src/Player.ts`: Added `externalSpeedMultiplier` property with `setSpeedMultiplier()`, applied to keyboard speed, mouse responsiveness, and mobile responsiveness.
+  - `src/MainScene.ts`: Full integration — system creation with config/callbacks, update loop (speed multiplier + system update each frame), V key input, score multiplier (stacks with perk and combo multipliers), bullet pierce in `handleBulletHitEnemy`/`handleBulletHitUFO`/`handleBulletHitSkyRaider`/`handleBulletHitEliteDrone`, matrix visual callbacks (camera flash/zoom, CRT tween, overlay), reset on death/level transition/player switch, 2P state save/restore (`adrenalineMeter` in PlayerState), shutdown cleanup.
+  - `src/HelpScene.ts`: Added ADRENALINE RUSH section explaining graze mechanic, V key activation, matrix mode effects (slow-mo, pierce, 3x score), and conditions (no graze during ghost/shield).
+  - Graze skip conditions: ghost phase active, shield active, player dead, flow blocked (game over, switching, level transition, spawn protection).
+  - Pierce logic: during matrix mode, bullets pass through enemies/UFOs/SkyRaiders/elite drones instead of being consumed on hit.
+- Validation:
+  - `npx tsc --noEmit` pass.
+  - `npm run lint` pass.
+  - `npm run build` pass.
+  - `npx vitest run` pass (183/183).

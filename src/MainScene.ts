@@ -31,6 +31,7 @@ import {
   SHIELD_BUNKER_TUNING,
   SPAWN_PROTECTION_TUNING,
   WEAPON_EVENT_TUNING,
+  ADRENALINE_TUNING,
   type BackgroundDecorTier,
   type EliteDroneDeactivateReason,
   type IntRange,
@@ -55,6 +56,8 @@ import { MainMilestoneSystem } from './systems/MainMilestoneSystem';
 import { MainMineFieldSystem } from './systems/MainMineFieldSystem';
 import { MainPowerUpNoticeSystem } from './systems/MainPowerUpNoticeSystem';
 import { MainWorldEvents } from './systems/MainWorldEvents';
+import { AdrenalineSystem } from './systems/AdrenalineSystem';
+import CRTPipeline from './CRTPipeline';
 
 interface PlayerState {
   score: number;
@@ -68,6 +71,7 @@ interface PlayerState {
   eliteMagnetPerkLevel: number;
   comboState: ComboState;
   perkState: [string, number][];
+  adrenalineMeter: number;
 }
 
 type ElitePerkType = 'bonus_life' | 'cooling' | 'magnet';
@@ -228,6 +232,8 @@ export default class MainScene extends Phaser.Scene {
   private impactRingTweens: Map<Phaser.GameObjects.Image, Phaser.Tweens.Tween> = new Map();
   private worldEvents!: MainWorldEvents;
   private hazards!: MainHazardsSystem;
+  private adrenalineSystem!: AdrenalineSystem;
+  private matrixOverlay!: Phaser.GameObjects.Rectangle;
   private milestones!: MainMilestoneSystem;
   private mineField!: MainMineFieldSystem;
   private powerUpNotices!: MainPowerUpNoticeSystem;
@@ -389,6 +395,7 @@ export default class MainScene extends Phaser.Scene {
         eliteMagnetPerkLevel: 0,
         comboState: { comboCount: 0, multiplier: 1, lastKillTime: 0 },
         perkState: [],
+        adrenalineMeter: 0,
       });
     }
   }
@@ -432,6 +439,7 @@ export default class MainScene extends Phaser.Scene {
       eliteMagnetPerkLevel: 0,
       comboState: { comboCount: 0, multiplier: 1, lastKillTime: 0 },
       perkState: [],
+      adrenalineMeter: 0,
     };
     this.score = startingState.score;
     this.lives = startingState.lives;
@@ -616,6 +624,37 @@ export default class MainScene extends Phaser.Scene {
       skyRaiderProjectiles: this.skyRaiderManager.getProjectiles(),
     });
 
+    // AdrenalineSystem — graze meter + matrix mode
+    this.matrixOverlay = this.add
+      .rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x3322aa, 0)
+      .setDepth(5);
+    this.adrenalineSystem = new AdrenalineSystem(
+      {
+        scene: this,
+        getPlayer: () => (this.player?.active ? this.player : null),
+        getEnemies: () => this.enemyManager.enemies,
+        getUFO: () => (this.ufo?.active ? this.ufo : null),
+        getUFOProjectiles: () => this.ufo?.getProjectiles() ?? null,
+        getSkyRaiders: () => this.skyRaiderManager.getRaiders(),
+        getSkyRaiderProjectiles: () => this.skyRaiderManager.getProjectiles(),
+        isGhostActive: () => this.powerUpManager?.isActive(PowerUpType.GHOST_PHASE) ?? false,
+        isShieldActive: () => this.player?.getShieldActive() ?? false,
+        isPlayerDead: () => !this.player?.active,
+        isFlowBlocked: () =>
+          this.isGameOver ||
+          this.isSwitching ||
+          this.isLevelTransition ||
+          this.spawnProtectionTimerMs > 0,
+        getPlayerBodyRadius: () => 16,
+      },
+      {
+        onGrazeTick: (gx, gy) => this.onAdrenalineGrazeTick(gx, gy),
+        onMeterReady: () => this.audio.playAdrenalineReady(),
+        onMatrixActivated: () => this.onMatrixActivated(),
+        onMatrixDeactivated: () => this.onMatrixDeactivated(),
+      },
+    );
+
     // Apply CRT Shader Pipeline
     if (
       performanceMonitor.crtEnabled &&
@@ -678,12 +717,7 @@ export default class MainScene extends Phaser.Scene {
       this.weaponEventAnnounceText?.destroy();
       this.damageOverlayTween?.stop();
       this.damageOverlay?.destroy();
-      if (this.slowMoColorMatrixFx) {
-        this.cameras.main.postFX.remove(
-          this.slowMoColorMatrixFx as unknown as Phaser.FX.Controller,
-        );
-        this.slowMoColorMatrixFx = null;
-      }
+      this.removeSlowMoColorMatrixFx();
       this.smokeEmitter?.destroy();
       this.playerTrailEmitter?.destroy();
       this.enemyTrailEmitter?.destroy();
@@ -691,6 +725,8 @@ export default class MainScene extends Phaser.Scene {
       this.clearBackgroundDecor();
       this.clearNebulaLayers();
       this.worldEvents.destroy();
+      this.adrenalineSystem?.destroy();
+      this.matrixOverlay?.destroy();
       this.milestones?.reset();
       this.powerUpNotices?.destroy();
       this.perkText.destroy();
@@ -716,6 +752,12 @@ export default class MainScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
+    if (this.isGameOver) {
+      this.ufo.setCombatTarget(null);
+      this.skyRaiderManager.setCombatTarget(null);
+      this.sceneBackground?.updateIdle(delta);
+      return;
+    }
     if (this.isSwitching || this.isLevelTransition) {
       this.ufo.setCombatTarget(null);
       this.skyRaiderManager.setCombatTarget(null);
@@ -731,7 +773,9 @@ export default class MainScene extends Phaser.Scene {
     this.updateSpawnProtection(delta);
     this.updateGuaranteedSupportDrop(delta);
     this.updateDynamicBulletCap(delta);
+    this.player.setSpeedMultiplier(this.adrenalineSystem.getPlayerSpeedMultiplier());
     this.player.update(time, delta);
+    this.adrenalineSystem.update(delta, time);
     const playerOverheated = this.player.active && this.player.isOverheated();
     if (playerOverheated && !this.wasPlayerOverheated) {
       this.powerUpNotices.showCustom('CANNON OVERHEATED', '#ff8c66');
@@ -937,8 +981,9 @@ export default class MainScene extends Phaser.Scene {
   private applyScoreDelta(points: number, applyMultiplier: boolean) {
     if (points <= 0) return;
     const prevScore = this.score;
+    const adrenalineMul = this.adrenalineSystem?.getScoreMultiplier() ?? 1;
     const adjusted = applyMultiplier
-      ? Math.round(points * this.perkSystem.getScoreMultiplier())
+      ? Math.round(points * this.perkSystem.getScoreMultiplier() * adrenalineMul)
       : Math.round(points);
     if (adjusted <= 0) return;
     this.score += adjusted;
@@ -1411,23 +1456,19 @@ export default class MainScene extends Phaser.Scene {
   }
 
   public onGrenadeExplode(x: number, y: number) {
+    if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
+
     const splashRadius = 80;
     const splashDamage = 2;
 
     // Check enemies (asteroids)
-    const enemies = this.enemyManager.enemies.getChildren() as Phaser.GameObjects.GameObject[];
-    for (const child of enemies) {
-      const enemy = child as any;
+    const enemies = this.enemyManager.enemies.getChildren() as Enemy[];
+    for (const enemy of enemies) {
       if (!enemy.active) continue;
       const dx = enemy.x - x;
       const dy = enemy.y - y;
       if (dx * dx + dy * dy <= splashRadius * splashRadius) {
-        if (typeof enemy.applyDamage === 'function') {
-          enemy.applyDamage(splashDamage);
-        } else {
-          enemy.disableBody?.(true, true);
-        }
-        this.explosionManager.triggerExplosion(enemy.x, enemy.y);
+        this.handleAsteroidDestroyedByPlayer(enemy);
       }
     }
 
@@ -1456,8 +1497,7 @@ export default class MainScene extends Phaser.Scene {
       const dx = this.ufo.x - x;
       const dy = this.ufo.y - y;
       if (dx * dx + dy * dy <= splashRadius * splashRadius) {
-        // Delegate to existing UFO hit handler by simulating bullet hit
-        this.ufo.applyBulletHit(splashDamage);
+        this.applyUfoDamage(this.ufo, splashDamage);
       }
     }
 
@@ -2051,7 +2091,9 @@ export default class MainScene extends Phaser.Scene {
     if (!drone.active || !bullet.active) return;
     const x = drone.x;
     const y = drone.y;
-    bullet.disableBody(true, true);
+    if (!this.adrenalineSystem?.isPierceActive()) {
+      bullet.disableBody(true, true);
+    }
     this.explosionManager.triggerExplosion(x, y);
     this.audio.playExplosion();
     this.triggerHitStop(
@@ -2096,6 +2138,7 @@ export default class MainScene extends Phaser.Scene {
     state.mineDeployCharges = this.mineDeployCharges;
     state.comboState = this.comboManager.saveState();
     state.perkState = this.perkSystem.saveState();
+    state.adrenalineMeter = this.adrenalineSystem?.saveMeter() ?? 0;
     this.syncActivePowerUpsToState(this.powerUpManager.getActivePowerUps());
   }
 
@@ -2110,6 +2153,7 @@ export default class MainScene extends Phaser.Scene {
     this.powerUpManager.loadState(state.activePowerUps);
     this.comboManager.loadState(state.comboState);
     this.perkSystem.loadState(state.perkState);
+    this.adrenalineSystem?.loadMeter(state.adrenalineMeter ?? 0);
     state.mineStockPerkApplied = state.mineStockPerkApplied ?? this.perkSystem.getMineStockStacks();
     this.applyPassivePerksFromActiveState();
     this.powerUpManager.reapplyAll(true);
@@ -2161,6 +2205,7 @@ export default class MainScene extends Phaser.Scene {
     this.scheduleNextMiniEvent(true);
     this.scheduleNextWeaponEvent(true);
     this.resetRescueStreak();
+    this.adrenalineSystem?.reset();
     this.deactivateAllBullets();
     this.deactivateAllEnemies();
     this.clearProximityMines();
@@ -2202,6 +2247,7 @@ export default class MainScene extends Phaser.Scene {
     this.stopSpawnProtectionVisuals();
     this.hitStopTimer?.remove(false);
     this.hitStopTimer = undefined;
+    this.adrenalineSystem?.reset();
     this.physics.world.timeScale = this.getBaselinePhysicsTimeScale();
     this.deactivateAllBullets();
     this.deactivateAllEnemies();
@@ -2869,29 +2915,143 @@ export default class MainScene extends Phaser.Scene {
     if (this.slowMoActive === active) return;
     this.slowMoActive = active;
     this.physics.world.timeScale = active ? 2.0 : 1.0;
-    if (this.useHighEndVFX) {
+    const postFx = (this.cameras?.main as any)?.postFX as
+      | {
+          addColorMatrix?: () => Phaser.FX.ColorMatrix;
+          remove?: (fx: Phaser.FX.Controller) => void;
+        }
+      | undefined;
+    const canUsePostFx =
+      Boolean(postFx) &&
+      typeof postFx?.addColorMatrix === 'function' &&
+      typeof postFx?.remove === 'function';
+
+    if (this.useHighEndVFX && canUsePostFx) {
       if (active) {
         if (!this.slowMoColorMatrixFx) {
-          this.slowMoColorMatrixFx = this.cameras.main.postFX.addColorMatrix();
+          this.slowMoColorMatrixFx = postFx.addColorMatrix!();
         }
         this.slowMoColorMatrixFx.reset();
         this.slowMoColorMatrixFx.night();
         this.slowMoColorMatrixFx.grayscale();
       } else {
-        if (this.slowMoColorMatrixFx) {
-          this.cameras.main.postFX.remove(
-            this.slowMoColorMatrixFx as unknown as Phaser.FX.Controller,
-          );
-          this.slowMoColorMatrixFx = null;
-        }
+        this.removeSlowMoColorMatrixFx();
       }
     } else {
+      this.removeSlowMoColorMatrixFx();
       this.tweens.add({ targets: this.slowMoOverlay, alpha: active ? 0.3 : 0, duration: 500 });
     }
   }
 
+  private removeSlowMoColorMatrixFx() {
+    if (!this.slowMoColorMatrixFx) return;
+    const postFx = (this.cameras?.main as any)?.postFX as
+      | {
+          remove?: (fx: Phaser.FX.Controller) => void;
+        }
+      | undefined;
+    if (postFx && typeof postFx.remove === 'function') {
+      try {
+        postFx.remove(this.slowMoColorMatrixFx as unknown as Phaser.FX.Controller);
+      } catch {
+        // Ignore teardown races when camera/postFX has already been disposed.
+      }
+    }
+    this.slowMoColorMatrixFx = null;
+  }
+
   private getBaselinePhysicsTimeScale() {
+    if (this.adrenalineSystem?.isMatrixActive()) {
+      return ADRENALINE_TUNING.matrixPhysicsTimeScale;
+    }
     return this.slowMoActive ? 2.0 : 1.0;
+  }
+
+  private tryActivateMatrix() {
+    if (this.isGameOver || this.isSwitching || this.isLevelTransition) return;
+    if (this.scene.isPaused('MainScene') || !this.scene.isActive('MainScene')) return;
+    this.adrenalineSystem?.tryActivate();
+  }
+
+  private onAdrenalineGrazeTick(grazeX: number, grazeY: number) {
+    this.audio.playGrazeTick();
+    if (!performanceMonitor.reducedParticles && this.playerTrailEmitter) {
+      for (let i = 0; i < 3; i++) {
+        this.playerTrailEmitter.emitParticleAt(
+          grazeX + Phaser.Math.Between(-6, 6),
+          grazeY + Phaser.Math.Between(-6, 6),
+        );
+      }
+    }
+  }
+
+  private onMatrixActivated() {
+    this.audio.playMatrixActivation();
+    this.physics.world.timeScale = ADRENALINE_TUNING.matrixPhysicsTimeScale;
+
+    // Camera flash + zoom pulse
+    this.cameras.main.flash(180, 60, 40, 180);
+    this.tweens.add({
+      targets: this.cameras.main,
+      zoom: 1.04,
+      duration: 120,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+    });
+
+    // Matrix overlay fade in
+    this.tweens.add({
+      targets: this.matrixOverlay,
+      alpha: 0.12,
+      duration: 200,
+    });
+
+    // CRT matrix intensity
+    this.tweenCRTMatrixIntensity(1, 250);
+  }
+
+  private onMatrixDeactivated() {
+    this.audio.playMatrixDeactivation();
+    // Restore physics timeScale (respect active slow-mo power-up)
+    this.physics.world.timeScale = this.slowMoActive ? 2.0 : 1.0;
+    this.player?.setSpeedMultiplier(1);
+
+    // Matrix overlay snap back
+    this.tweens.add({
+      targets: this.matrixOverlay,
+      alpha: 0,
+      duration: 150,
+    });
+
+    // CRT matrix intensity
+    this.tweenCRTMatrixIntensity(0, 200);
+
+    // Camera zoom restore
+    this.tweens.add({
+      targets: this.cameras.main,
+      zoom: 1.0,
+      duration: 200,
+      ease: 'Quad.easeOut',
+    });
+  }
+
+  private tweenCRTMatrixIntensity(target: number, duration: number) {
+    const pipeline = this.getCRTPipeline();
+    if (!pipeline) return;
+    const state = { value: target === 1 ? 0 : 1 };
+    this.tweens.add({
+      targets: state,
+      value: target,
+      duration,
+      onUpdate: () => pipeline.setMatrixIntensity(state.value),
+    });
+  }
+
+  private getCRTPipeline(): CRTPipeline | null {
+    if (!(this.game.renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer)) return null;
+    const pipelines = this.cameras.main.getPostPipeline('CRTPipeline');
+    if (Array.isArray(pipelines)) return (pipelines[0] as CRTPipeline) ?? null;
+    return (pipelines as CRTPipeline) ?? null;
   }
 
   private applyImpactShake(durationMs: number, intensity: number) {
@@ -3046,6 +3206,7 @@ export default class MainScene extends Phaser.Scene {
 
   private handleBulletHitShieldBunker(bullet: Bullet, _bunker: Phaser.Physics.Arcade.Sprite) {
     if (!bullet?.active) return;
+    if (bullet.isGrenadeProjectile()) return;
     bullet.disableBody(true, true);
   }
 
@@ -3299,7 +3460,9 @@ export default class MainScene extends Phaser.Scene {
   private handleBulletHitSkyRaider(bullet: Bullet, raider: SkyRaider) {
     if (!bullet?.active || !raider?.active) return;
 
-    bullet.disableBody(true, true);
+    if (!this.adrenalineSystem?.isPierceActive()) {
+      bullet.disableBody(true, true);
+    }
     const x = raider.x;
     const y = raider.y;
     const variant = raider.getVariant();
@@ -3346,14 +3509,23 @@ export default class MainScene extends Phaser.Scene {
 
   private handleBulletHitUFO(bullet: Bullet, ufo: UFO) {
     if (!ufo.active || !bullet.active) return;
+    if (bullet.isGrenadeProjectile()) return;
+
+    if (!this.adrenalineSystem?.isPierceActive()) {
+      bullet.disableBody(true, true);
+      bullet.setActive(false);
+      bullet.setVisible(false);
+    }
+    this.applyUfoDamage(ufo, 1);
+  }
+
+  private applyUfoDamage(ufo: UFO, damage: number) {
+    if (!ufo.active) return;
 
     const ufoX = ufo.x;
     const ufoY = ufo.y;
     const variant = ufo.getVariant();
     const bossPhase = ufo.getBossPhase?.() ?? 0;
-    bullet.disableBody(true, true);
-    bullet.setActive(false);
-    bullet.setVisible(false);
 
     if (variant === 'scout') {
       // Scout should always pop instantly on hit to avoid stale/frozen visual states.
@@ -3375,7 +3547,7 @@ export default class MainScene extends Phaser.Scene {
       return;
     }
 
-    const hitResult = ufo.applyBulletHit(1);
+    const hitResult = ufo.applyBulletHit(damage);
     if (!hitResult.destroyed) {
       ufo.ensureCombatReady();
       this.explosionManager.triggerExplosion(ufoX, ufoY);
@@ -3529,27 +3701,34 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private handleBulletHitEnemy(bullet: Bullet, enemy: Enemy) {
-    if (bullet.active && enemy.active) {
-      const x = enemy.x;
-      const y = enemy.y;
-      const points = Math.floor(100 / enemy.scaleX);
-      const wasSwarm = enemy.swarmId > 0;
+    if (!bullet.active || !enemy.active) return;
+    if (bullet.isGrenadeProjectile()) return;
+    if (!this.adrenalineSystem?.isPierceActive()) {
       bullet.disableBody(true, true);
-      this.powerUpDirector.onAsteroidDestroyed(enemy.x, enemy.y);
-      this.enemyManager.splitAsteroid(enemy.x, enemy.y, enemy.scaleX);
-      enemy.disableBody(true, true);
-      this.registerAsteroidKillForLevel();
-      if (enemy.scaleX >= JUICE_TUNING.largeAsteroidMinScale) {
-        this.triggerHitStop(
-          JUICE_TUNING.largeAsteroidHitStopMs,
-          JUICE_TUNING.largeAsteroidHitStopScale,
-          JUICE_TUNING.hitStopCooldownMs,
-        );
-        this.applyImpactShake(80, 0.003);
-      }
-      this.enqueuePendingEnemyHit(x, y, points, 'bullet');
-      if (wasSwarm) this.onSwarmEnemyKilled(enemy, x, y);
     }
+    this.handleAsteroidDestroyedByPlayer(enemy);
+  }
+
+  private handleAsteroidDestroyedByPlayer(enemy: Enemy) {
+    if (!enemy.active) return;
+    const x = enemy.x;
+    const y = enemy.y;
+    const points = Math.floor(100 / enemy.scaleX);
+    const wasSwarm = enemy.swarmId > 0;
+    this.powerUpDirector.onAsteroidDestroyed(enemy.x, enemy.y);
+    this.enemyManager.splitAsteroid(enemy.x, enemy.y, enemy.scaleX);
+    enemy.disableBody(true, true);
+    this.registerAsteroidKillForLevel();
+    if (enemy.scaleX >= JUICE_TUNING.largeAsteroidMinScale) {
+      this.triggerHitStop(
+        JUICE_TUNING.largeAsteroidHitStopMs,
+        JUICE_TUNING.largeAsteroidHitStopScale,
+        JUICE_TUNING.hitStopCooldownMs,
+      );
+      this.applyImpactShake(80, 0.003);
+    }
+    this.enqueuePendingEnemyHit(x, y, points, 'bullet');
+    if (wasSwarm) this.onSwarmEnemyKilled(enemy, x, y);
   }
 
   public canSpawnBullet() {
@@ -3753,6 +3932,8 @@ export default class MainScene extends Phaser.Scene {
     }
     enemy.disableBody(true, true);
     this.lives -= 1;
+    this.stopWeaponEvent(true);
+    this.scheduleNextWeaponEvent(true);
     if (this.playerStates[this.activePlayerIndex]) {
       this.playerStates[this.activePlayerIndex].lives = this.lives;
     }
@@ -3770,6 +3951,7 @@ export default class MainScene extends Phaser.Scene {
     this.powerUpDirector.resetDamageFreeTime();
     this.comboManager.reset();
     this.resetRescueStreak();
+    this.adrenalineSystem?.reset();
     statsManager.onDeath();
 
     if (this.playerCount === 1) {
@@ -4090,6 +4272,7 @@ export default class MainScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-D', () => this.toggleDebugOverlay());
     this.input.keyboard?.on('keydown-B', () => this.triggerShieldBunkerTest());
     this.input.keyboard?.on('keydown-M', () => this.tryDeployMineFieldFromInput());
+    this.input.keyboard?.on('keydown-V', () => this.tryActivateMatrix());
     this.mineDeployPointerHandler = (pointer, currentlyOver) =>
       this.handleMineDeployPointerDown(pointer, currentlyOver);
     this.input.on('pointerdown', this.mineDeployPointerHandler);

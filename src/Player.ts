@@ -215,7 +215,10 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
     this.setAlpha(1);
     this.enableBody(true, x, y, true, true);
     const body = this.body as Phaser.Physics.Arcade.Body;
-    if (body) body.setGravityY(0);
+    if (body) {
+      body.setGravityY(0);
+      body.checkCollision.none = false;
+    }
     this.rotation = angle + Math.PI / 2;
     const speed = 600;
     this.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
@@ -235,7 +238,14 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
     this.rotation = 0;
     this.setVelocity(Phaser.Math.Between(-30, 30), -320);
     const body = this.body as Phaser.Physics.Arcade.Body;
-    if (body) body.setGravityY(180);
+    if (body) {
+      body.setGravityY(180);
+      body.checkCollision.none = true;
+    }
+  }
+
+  public isGrenadeProjectile() {
+    return this.isGrenade;
   }
 
   preUpdate(time: number, delta: number) {
@@ -251,7 +261,10 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
           sceneAny.onGrenadeExplode(this.x, this.y);
         }
         const body = this.body as Phaser.Physics.Arcade.Body;
-        if (body) body.setGravityY(0);
+        if (body) {
+          body.setGravityY(0);
+          body.checkCollision.none = false;
+        }
         this.disableBody(true, true);
         return;
       }
@@ -270,7 +283,10 @@ export class Bullet extends Phaser.Physics.Arcade.Sprite {
     const pad = 150;
     if (this.y < -pad || this.y > h + pad || this.x < -pad || this.x > w + pad) {
       const body = this.body as Phaser.Physics.Arcade.Body;
-      if (this.isGrenade && body) body.setGravityY(0);
+      if (this.isGrenade && body) {
+        body.setGravityY(0);
+        body.checkCollision.none = false;
+      }
       this.disableBody(true, true);
     }
   }
@@ -355,6 +371,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   private activeWeaponMode: 'normal' | 'double_fire' | 'rapid_fire' | 'grenade_launcher' = 'normal';
   private weaponFireRateMultiplier: number = 1;
   private weaponHeatMultiplier: number = 1;
+  private externalSpeedMultiplier: number = 1;
   private firedThisFrame: boolean = false;
   private muzzleFlashes!: Phaser.GameObjects.Group;
   private spaceKey?: Phaser.Input.Keyboard.Key;
@@ -680,6 +697,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     return this.activeWeaponMode;
   }
 
+  public setSpeedMultiplier(multiplier: number) {
+    this.externalSpeedMultiplier = Math.max(1, multiplier);
+  }
+
   private handlePointerDown(pointer: Phaser.Input.Pointer) {
     this.pointerHeld = true;
     this.isDragging = true;
@@ -854,7 +875,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         // Desktop: Smooth lerp follow — velocity proportional to distance
         const dx = pointer.x - this.x;
         const dy = pointer.y - this.y;
-        const responsiveness = 12;
+        const responsiveness = 12 * this.externalSpeedMultiplier;
         this.setVelocityX(dx * responsiveness);
         this.setVelocityY(dy * responsiveness);
       } else {
@@ -866,15 +887,16 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         const dx = targetX - this.x;
         const dy = targetY - this.y;
 
-        const mobileResponsiveness = 20;
+        const mobileResponsiveness = 20 * this.externalSpeedMultiplier;
         this.setVelocityX(dx * mobileResponsiveness);
         this.setVelocityY(dy * mobileResponsiveness);
       }
     } else if (this.cursors) {
-      if (this.cursors.left.isDown) this.setVelocityX(-speed);
-      else if (this.cursors.right.isDown) this.setVelocityX(speed);
-      if (this.cursors.up.isDown) this.setVelocityY(-speed);
-      else if (this.cursors.down.isDown) this.setVelocityY(speed);
+      const scaledSpeed = speed * this.externalSpeedMultiplier;
+      if (this.cursors.left.isDown) this.setVelocityX(-scaledSpeed);
+      else if (this.cursors.right.isDown) this.setVelocityX(scaledSpeed);
+      if (this.cursors.up.isDown) this.setVelocityY(-scaledSpeed);
+      else if (this.cursors.down.isDown) this.setVelocityY(scaledSpeed);
     }
     if (this.y < this.minBoundY) {
       this.y = this.minBoundY;

@@ -418,6 +418,31 @@ export const MILESTONE_TUNING = {
   shakeDurationMs: 250,
 } as const;
 
+export const ADRENALINE_TUNING = {
+  grazeInnerRadius: 20,
+  grazeOuterRadius: 52,
+  meterMax: 100,
+  meterPerGraze: 6,
+  meterCloseBonus: 4,
+  meterCloseBonusRadius: 32,
+  meterDecayPerSec: 3.5,
+  meterDecayGraceMs: 800,
+  activationThreshold: 80,
+  matrixDurationMs: 5500,
+  matrixPhysicsTimeScale: 5.5,
+  matrixPlayerSpeedMultiplier: 3.2,
+  matrixScoreMultiplier: 3,
+  pierceEnabled: true,
+  hudBarWidth: 120,
+  hudBarHeight: 8,
+  hudBarYOffset: 16,
+  hudGlowPulseThreshold: 0.75,
+  grazeCooldownMs: 120,
+  grazeCooldownPruneMs: 500,
+  maxEntityChecksPerFrame: 60,
+  grazeTickRateLimitMs: 60,
+} as const;
+
 export const pickEliteDroneSpawnDelayRange = (reason: EliteDroneDeactivateReason): IntRange => {
   if (reason === 'reset') return ELITE_DRONE_TUNING.resetSpawnDelayMs;
   if (reason === 'expired') return ELITE_DRONE_TUNING.expiredSpawnDelayMs;

@@ -364,6 +364,17 @@ export default class HelpScene extends Phaser.Scene {
       'DYNAMIC MINI-EVENTS: During runs, random timed events (for example SOLAR STORM, LOW GRAVITY, SWARM RUSH) temporarily change battlefield flow and pressure.',
     );
 
+    addHeader('ADRENALINE RUSH');
+    addParagraph(
+      'Fly dangerously close to enemies and projectiles without getting hit to fill the ADRENALINE meter (purple bar below heat). The closer you graze, the faster it fills.',
+    );
+    addParagraph(
+      'When the meter reaches 80%, press V (desktop) to activate MATRIX MODE: time slows dramatically while your ship retains near-normal speed, bullets pierce through enemies, and all scores multiply 3x.',
+    );
+    addParagraph(
+      'Matrix mode lasts 5.5 seconds and drains the meter to zero. Grazing does not fill the meter during ghost phase or while shield is active.',
+    );
+
     addHeader('SCORING');
     addParagraph(
       'Large asteroids split into smaller fragments. Smaller targets score more points, so clean-up pays.',
