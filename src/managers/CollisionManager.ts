@@ -82,6 +82,12 @@ export class CollisionManager {
     this.callbacks = callbacks;
   }
 
+  private isGrenadeBullet(bullet: Bullet | null | undefined): boolean {
+    if (!bullet) return false;
+    const maybeGrenade = bullet as Bullet & { isGrenadeProjectile?: () => boolean };
+    return Boolean(maybeGrenade.isGrenadeProjectile?.());
+  }
+
   /**
    * Register all collision handlers
    */
@@ -256,6 +262,7 @@ export class CollisionManager {
     const enemy = groups.enemies.contains(obj1) ? (obj1 as Enemy) : (obj2 as Enemy);
 
     if (!bullet?.active || !enemy?.active) return;
+    if (this.isGrenadeBullet(bullet)) return;
 
     this.callbacks.onBulletHitEnemy(bullet, enemy);
   }
@@ -266,6 +273,7 @@ export class CollisionManager {
     const ufo = groups.ufo;
 
     if (!bullet?.active || !ufo?.active) return;
+    if (this.isGrenadeBullet(bullet)) return;
 
     this.callbacks.onBulletHitUFO(bullet, ufo);
   }
@@ -286,6 +294,7 @@ export class CollisionManager {
     const raider = groups.skyRaiders.contains(obj1) ? (obj1 as SkyRaider) : (obj2 as SkyRaider);
 
     if (!bullet?.active || !raider?.active) return;
+    if (this.isGrenadeBullet(bullet)) return;
 
     this.callbacks.onBulletHitSkyRaider(bullet, raider);
   }
@@ -295,6 +304,7 @@ export class CollisionManager {
     const bunker = obj2 as Phaser.Physics.Arcade.Sprite;
 
     if (!bullet?.active || !bunker?.active) return;
+    if (this.isGrenadeBullet(bullet)) return;
 
     this.callbacks.onBulletHitShieldBunker(bullet, bunker);
   }

@@ -1,0 +1,11 @@
+{
+  "attempt": 1,
+  "spawned": true,
+  "rescued": false,
+  "scoreBeforeSpawn": 387,
+  "scoreAtDeactivate": 387,
+  "finalScore": 387,
+  "finalLives": 1,
+  "reason": "deactivated_without_score_bonus",
+  "consoleErrors": 0
+}

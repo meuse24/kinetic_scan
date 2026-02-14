@@ -1,0 +1,151 @@
+{
+  "mode": "gameplay",
+  "activeScenes": [
+    "MainScene",
+    "BezelScene"
+  ],
+  "coordinateSystem": {
+    "origin": "top-left",
+    "xAxis": "right",
+    "yAxis": "down"
+  },
+  "captureMode": "canvas",
+  "fps": 61,
+  "viewport": {
+    "width": 1422,
+    "height": 1000
+  },
+  "player": {
+    "x": 199,
+    "y": 813,
+    "heat": 0,
+    "overheated": false
+  },
+  "score": 325,
+  "lives": 0,
+  "difficulty": {
+    "preset": "normal",
+    "presetLabel": "NORMAL",
+    "level": 1,
+    "progressionScore": 325,
+    "nextLevelScore": 6800,
+    "scoreToBoss": 6475,
+    "bossPending": false,
+    "bossEnergy": 0,
+    "bossEnergyMax": 0,
+    "transition": {
+      "active": false,
+      "countdown": ""
+    },
+    "minLevelDurationMs": 60000,
+    "levelTimeRemainingMs": 0,
+    "perks": {
+      "lifeBonus": 0,
+      "coolingLevel": 0,
+      "magnetLevel": 0
+    },
+    "worldEvents": {
+      "wormholeActive": false,
+      "eliteDroneActive": false,
+      "astronautActive": false,
+      "topRaidersActive": 0,
+      "topRaiderShotsActive": 0,
+      "shieldBunkerActive": false,
+      "shieldBunkerCount": 0,
+      "mineDeployCharges": 2,
+      "activeMines": 0,
+      "backgroundDecorTier": "off",
+      "backgroundDecorCount": 0,
+      "nebulaLayerCount": 0
+    },
+    "spawnProtectionMs": 0,
+    "levelOpening": {
+      "elapsedMs": 11499,
+      "startScore": 0,
+      "supportDropGranted": true,
+      "supportDropInMs": 0
+    }
+  },
+  "enemies": [
+    {
+      "x": 314,
+      "y": 23,
+      "scale": 1.9500688259642853
+    },
+    {
+      "x": 426,
+      "y": 630,
+      "scale": 1.9172789252200109
+    },
+    {
+      "x": 818,
+      "y": -76,
+      "scale": 1.074410028447348
+    },
+    {
+      "x": 471,
+      "y": 215,
+      "scale": 1.7780539593213487
+    },
+    {
+      "x": 1363,
+      "y": -546,
+      "scale": 0.5726017686546403
+    },
+    {
+      "x": 1463,
+      "y": -445,
+      "scale": 0.8238689062844868
+    },
+    {
+      "x": 607,
+      "y": -577,
+      "scale": 0.8238689062844868
+    }
+  ],
+  "bulletStats": {
+    "active": 3,
+    "cap": 46
+  },
+  "ufo": {
+    "active": false,
+    "x": -100,
+    "y": -100,
+    "variant": "scout",
+    "health": 1,
+    "maxHealth": 1,
+    "bossPhase": 0,
+    "shots": 0
+  },
+  "skyRaiders": [],
+  "skyRaiderStats": {
+    "active": 0,
+    "shots": 0
+  },
+  "collisionPressure": {
+    "pendingHits": 0,
+    "queuedTotal": 3,
+    "queuedBulletTotal": 3,
+    "queuedEmpTotal": 0,
+    "flushedTotal": 3,
+    "coalescedFlushes": 3,
+    "directFlushes": 0,
+    "explosionEmitsTotal": 3,
+    "sfxBurstsTotal": 3,
+    "clusterDropsTotal": 0,
+    "pendingQueuePeak": 1,
+    "lastFlushHits": 1,
+    "lastFlushClusters": 1,
+    "lastFlushExplosionEmits": 1,
+    "lastFlushSfxBursts": 1,
+    "lastFlushClusterDrops": 0,
+    "lastFlushCoalesced": true,
+    "lastFlushSourceMix": "bullet"
+  },
+  "powerUps": [],
+  "shieldBunkers": [],
+  "combo": {
+    "count": 0,
+    "multiplier": 1
+  }
+}

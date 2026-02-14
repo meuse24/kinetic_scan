@@ -41,7 +41,13 @@
       "Bash(wc:*)",
       "Bash(done)",
       "Bash(npm install:*)",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "WebFetch(domain:franzeus.medium.com)",
+      "WebFetch(domain:blog.ourcade.co)",
+      "WebFetch(domain:docs.phaser.io)",
+      "Bash(npx vitest run)",
+      "Bash(git status:*)",
+      "Bash(gh auth status:*)"
     ]
   }
 }

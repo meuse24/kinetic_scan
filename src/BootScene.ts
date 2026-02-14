@@ -32,38 +32,41 @@ export default class BootScene extends Phaser.Scene {
   }
 
   create() {
-    const centerX = GAME_WIDTH / 2;
-    const centerY = GAME_HEIGHT / 2;
+    const cx = GAME_WIDTH / 2;
     const fontFamily = '"Press Start 2P"';
+
+    // Scale factor: 1.0 at GAME_HEIGHT=1000, scales proportionally
+    const s = GAME_HEIGHT / 1000;
+    const slotY = (fraction: number) => GAME_HEIGHT * fraction;
 
     // Title
     this.add
-      .text(centerX, centerY - 180, 'MEUSE24', {
+      .text(cx, slotY(0.12), 'MEUSE24', {
         fontFamily: '"Chakra Petch"',
-        fontSize: '48px',
+        fontSize: `${Math.round(64 * s)}px`,
         color: 'rgba(0,0,0,0)',
         stroke: '#ffffff',
-        strokeThickness: 3,
-        letterSpacing: 10,
+        strokeThickness: Math.round(4 * s),
+        letterSpacing: Math.round(14 * s),
       })
       .setOrigin(0.5);
 
     this.add
-      .text(centerX, centerY - 120, 'KINETIC-SCAN', {
+      .text(cx, slotY(0.22), 'KINETIC-SCAN', {
         fontFamily: '"Chakra Petch"',
-        fontSize: '36px',
+        fontSize: `${Math.round(48 * s)}px`,
         color: 'rgba(0,0,0,0)',
         stroke: '#ffffff',
-        strokeThickness: 2,
-        letterSpacing: 8,
+        strokeThickness: Math.round(3 * s),
+        letterSpacing: Math.round(10 * s),
       })
       .setOrigin(0.5);
 
     // Sound toggle
     this.soundText = this.add
-      .text(centerX, centerY - 20, this.getSoundLabel(), {
+      .text(cx, slotY(0.38), this.getSoundLabel(), {
         fontFamily,
-        fontSize: '20px',
+        fontSize: `${Math.round(24 * s)}px`,
         color: soundManager.isMuted() ? '#ff6666' : '#00ff00',
       })
       .setOrigin(0.5)
@@ -72,9 +75,9 @@ export default class BootScene extends Phaser.Scene {
 
     // START button
     this.startText = this.add
-      .text(centerX, centerY + 120, '[ START (ENTER/SPACE) ]', {
+      .text(cx, slotY(0.52), '[ START (ENTER/SPACE) ]', {
         fontFamily,
-        fontSize: '20px',
+        fontSize: `${Math.round(28 * s)}px`,
         color: '#ffff00',
       })
       .setOrigin(0.5)
@@ -83,9 +86,9 @@ export default class BootScene extends Phaser.Scene {
 
     // SHARE button
     this.shareText = this.add
-      .text(centerX, centerY + 170, '[ SHARE MISSION ]', {
+      .text(cx, slotY(0.62), '[ SHARE MISSION ]', {
         fontFamily,
-        fontSize: '14px',
+        fontSize: `${Math.round(20 * s)}px`,
         color: '#00ffff',
       })
       .setOrigin(0.5)
@@ -102,44 +105,41 @@ export default class BootScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    // Startup / app-management guidance
+    // Startup hint
     this.add
-      .text(
-        centerX,
-        GAME_HEIGHT - 176,
-        IS_TOUCH ? 'TAP START TO PLAY' : 'PRESS ENTER OR CLICK START',
-        {
-          fontFamily,
-          fontSize: '16px',
-          color: '#8b93a5',
-        },
-      )
+      .text(cx, slotY(0.73), IS_TOUCH ? 'TAP START TO PLAY' : 'PRESS ENTER OR CLICK START', {
+        fontFamily,
+        fontSize: `${Math.round(18 * s)}px`,
+        color: '#8b93a5',
+      })
       .setOrigin(0.5);
 
-    const guideTopY = GAME_HEIGHT - 112;
+    // Install / uninstall guidance
+    const guideBoxH = Math.round(140 * s);
+    const guideCenterY = slotY(0.88);
     this.add
-      .rectangle(centerX, guideTopY + 38, Math.min(980, GAME_WIDTH - 28), 118, 0x091422, 0.78)
+      .rectangle(cx, guideCenterY, Math.min(980, GAME_WIDTH - 28), guideBoxH, 0x091422, 0.78)
       .setStrokeStyle(1, 0x2f415a, 0.9);
     this.add
-      .text(centerX, guideTopY, 'INSTALL / UNINSTALL APP', {
+      .text(cx, guideCenterY - guideBoxH * 0.3, 'INSTALL / UNINSTALL APP', {
         fontFamily,
-        fontSize: '18px',
+        fontSize: `${Math.round(22 * s)}px`,
         color: '#ffdf99',
       })
       .setOrigin(0.5);
     this.add
       .text(
-        centerX,
-        guideTopY + 38,
+        cx,
+        guideCenterY + guideBoxH * 0.1,
         IS_TOUCH
           ? 'INSTALL: SHARE OR BROWSER MENU -> ADD TO HOME SCREEN\nUNINSTALL: PRESS-HOLD APP ICON -> REMOVE APP'
           : 'INSTALL: ADDRESS-BAR INSTALL ICON OR BROWSER MENU -> INSTALL APP\nUNINSTALL: OS APP SETTINGS OR BROWSER APP-MANAGER -> REMOVE',
         {
           fontFamily,
-          fontSize: '12px',
+          fontSize: `${Math.round(14 * s)}px`,
           color: '#b6c0d3',
           align: 'center',
-          lineSpacing: 6,
+          lineSpacing: Math.round(8 * s),
         },
       )
       .setOrigin(0.5);

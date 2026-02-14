@@ -41,7 +41,13 @@ describe('CollisionManager', () => {
     };
 
     // Create mock game objects
-    mockBullet = { active: true, x: 100, y: 100, disableBody: vi.fn() };
+    mockBullet = {
+      active: true,
+      x: 100,
+      y: 100,
+      disableBody: vi.fn(),
+      isGrenadeProjectile: vi.fn(() => false),
+    };
     mockEnemy = { active: true, x: 200, y: 200, disableBody: vi.fn(), scaleX: 1 };
     mockUFO = { active: true, x: 300, y: 300 };
     mockPlayer = { active: true, x: 50, y: 50 };
@@ -275,6 +281,62 @@ describe('CollisionManager', () => {
       handler(mockPlayer, mockEnemy);
 
       expect(mockCallbacks.onPlayerHitEnemy).not.toHaveBeenCalled();
+    });
+
+    it('should ignore bullet collisions against enemies for grenade projectiles', () => {
+      collisionManager.registerCollisions(mockGroups);
+      mockBullet.isGrenadeProjectile.mockReturnValue(true);
+
+      const bulletEnemyCall = mockScene.physics.add.overlap.mock.calls.find(
+        (call) => call[0] === mockGroups.bullets && call[1] === mockGroups.enemies,
+      );
+      const handler = bulletEnemyCall[2];
+
+      handler(mockBullet, mockEnemy);
+
+      expect(mockCallbacks.onBulletHitEnemy).not.toHaveBeenCalled();
+    });
+
+    it('should ignore bullet collisions against UFO for grenade projectiles', () => {
+      collisionManager.registerCollisions(mockGroups);
+      mockBullet.isGrenadeProjectile.mockReturnValue(true);
+
+      const bulletUFOCall = mockScene.physics.add.overlap.mock.calls.find(
+        (call) => call[0] === mockGroups.bullets && call[1] === mockGroups.ufo,
+      );
+      const handler = bulletUFOCall[2];
+
+      handler(mockBullet, mockUFO);
+
+      expect(mockCallbacks.onBulletHitUFO).not.toHaveBeenCalled();
+    });
+
+    it('should ignore bullet collisions against sky raiders for grenade projectiles', () => {
+      collisionManager.registerCollisions(mockGroups);
+      mockBullet.isGrenadeProjectile.mockReturnValue(true);
+
+      const bulletSkyRaiderCall = mockScene.physics.add.overlap.mock.calls.find(
+        (call) => call[0] === mockGroups.bullets && call[1] === mockGroups.skyRaiders,
+      );
+      const handler = bulletSkyRaiderCall[2];
+
+      handler(mockBullet, mockSkyRaider);
+
+      expect(mockCallbacks.onBulletHitSkyRaider).not.toHaveBeenCalled();
+    });
+
+    it('should ignore bullet collisions against shield bunkers for grenade projectiles', () => {
+      collisionManager.registerCollisions(mockGroups);
+      mockBullet.isGrenadeProjectile.mockReturnValue(true);
+
+      const bulletBunkerCall = mockScene.physics.add.collider.mock.calls.find(
+        (call) => call[0] === mockGroups.bullets && call[1] === mockGroups.shieldBunkers,
+      );
+      const handler = bulletBunkerCall[2];
+
+      handler(mockBullet, mockShieldBunker);
+
+      expect(mockCallbacks.onBulletHitShieldBunker).not.toHaveBeenCalled();
     });
   });
 

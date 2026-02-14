@@ -1,0 +1,365 @@
+╭──────────────────────────────────────────────────────────────────────────╮
+│ Plan to implement                                                        │
+│                                                                          │
+│ Plan: 3 Neue SkyRaider-Varianten + 3 Neue Waffenarten                    │
+│                                                                          │
+│ Context                                                                  │
+│                                                                          │
+│ Das Spiel hat aktuell 2 SkyRaider-Varianten (stalker, lancer) und ein    │
+│ einziges Waffensystem (normal/triple shot). Um Gameplay-Tiefe und        │
+│ visuelle Abwechslung zu steigern, werden 3 neue SkyRaider-Varianten mit  │
+│ einzigartigen AI-Strategien und 3 neue Kanonenarten hinzugefügt, die     │
+│ durch zufällige Events getriggert werden. Alle Effekte respektieren das  │
+│ bestehende PerformanceMonitor-Budget.                                    │
+│                                                                          │
+│ ---                                                                      │
+│ PHASE 1: SkyRaider-Varianten — Typen, Texturen, Tuning                   │
+│                                                                          │
+│ 1.1 Type-Erweiterung (src/SkyRaider.ts:5)                                │
+│                                                                          │
+│ export type SkyRaiderVariant = 'stalker' | 'lancer' | 'phantom' |        │
+│ 'bomber' | 'interceptor';                                                │
+│                                                                          │
+│ 1.2 Drei neue Varianten — Design                                         │
+│                                                                          │
+│ Eigenschaft: Farbe                                                       │
+│ Phantom (Stealth): Violett #b366ff                                       │
+│ Bomber (Area Denial): Dunkelrot/Orange #ff6633                           │
+│ Interceptor (Formation): Grün/Teal #33ffaa                               │
+│ ────────────────────────────────────────                                 │
+│ Eigenschaft: Silhouette                                                  │
+│ Phantom (Stealth): Schmale Raute, durchscheinend                         │
+│ Bomber (Area Denial): Breiter Hexagon, schwer                            │
+│ Interceptor (Formation): Delta-Flügel, schlanke Spitze                   │
+│ ────────────────────────────────────────                                 │
+│ Eigenschaft: Body Size                                                   │
+│ Phantom (Stealth): 38×22                                                 │
+│ Bomber (Area Denial): 50×28                                              │
+│ Interceptor (Formation): 36×22                                           │
+│ ────────────────────────────────────────                                 │
+│ Eigenschaft: HP (Level 1→max)                                            │
+│ Phantom (Stealth): 1→3 (÷7)                                              │
+│ Bomber (Area Denial): 3→7 (÷5)                                           │
+│ Interceptor (Formation): 1→3 (÷8)                                        │
+│ ────────────────────────────────────────                                 │
+│ Eigenschaft: Lifetime Base                                               │
+│ Phantom (Stealth): 8500ms                                                │
+│ Bomber (Area Denial): 10000ms                                            │
+│ Interceptor (Formation): 7800ms                                          │
+│ ────────────────────────────────────────                                 │
+│ Eigenschaft: Enter Target Y                                              │
+│ Phantom (Stealth): 80–30% Höhe                                           │
+│ Bomber (Area Denial): 70–22% Höhe                                        │
+│ Interceptor (Formation): 90–32% Höhe                                     │
+│ ────────────────────────────────────────                                 │
+│ Eigenschaft: Score                                                       │
+│ Phantom (Stealth): 380 + level×30                                        │
+│ Bomber (Area Denial): 500 + level×40                                     │
+│ Interceptor (Formation): 320 + level×26                                  │
+│ ────────────────────────────────────────                                 │
+│ Eigenschaft: Verfügbar ab                                                │
+│ Phantom (Stealth): Level 4                                               │
+│ Bomber (Area Denial): Level 6                                            │
+│ Interceptor (Formation): Level 8                                         │
+│                                                                          │
+│ 1.3 Prozedurale Texturen (je ~60-70 Zeilen Canvas2D)                     │
+│                                                                          │
+│ Drei neue draw*Texture()-Funktionen nach bestehendem Muster              │
+│ (createCanvasTexture, 64×64):                                            │
+│ - Phantom: Diamant-Rumpf, violetter Gradient #5a2d8a→#1a0a30,            │
+│ geisterhafter Cockpit-Glow                                               │
+│ - Bomber: Breiter Hex-Rumpf, rot-oranger Gradient #8f3a2a→#2a0c08, 2     │
+│ Bomben-Schächte unten                                                    │
+│ - Interceptor: Spitzer Delta-Flügel, teal Gradient #2a6f5a→#0a1f18,      │
+│ schlankes Cockpit                                                        │
+│                                                                          │
+│ 1.4 Tuning-Konstanten (src/MainSceneTuning.ts)                           │
+│                                                                          │
+│ Neuer Block SKY_RAIDER_VARIANT_TUNING mit                                │
+│ phantom/bomber/interceptor-spezifischen Werten (Cloak-Alpha,             │
+│ Cluster-Count, Formation-Spacing, Bezier-Dauer etc.)                     │
+│                                                                          │
+│ 1.5 Pool-Erweiterung (src/SkyRaider.ts:761)                              │
+│                                                                          │
+│ maxSize: 8 → 12 (für Interceptor-Paare), Cap-Check ebenfalls anpassen.   │
+│                                                                          │
+│ ---                                                                      │
+│ PHASE 2: Neue AI-Verhaltensweisen (src/SkyRaider.ts)                     │
+│                                                                          │
+│ 2.1 Phantom — Stealth/Ambush                                             │
+│                                                                          │
+│ - Cloak: Startet mit alpha=0.2, unsichtbar für Spieler                   │
+│ - Bewegung: Catmull-Rom-Spline durch 5 Zufallspunkte im Spielfeld,       │
+│ erneuert alle ~3.2s. Glatter, unvorhersagbarer Pfad.                     │
+│ - Angriff: Bei nextShotAt + Ziel in 300px Reichweite → Decloak (alpha    │
+│ tween 0.2→1.0, 400ms) → einzelner hochpräziser Schuss (kleine Streuung,  │
+│ 1.3x Geschwindigkeit) → nach 1.2s Recloak                                │
+│ - Neue Felder: cloakAlpha, isCloaked, recloakAt, splinePoints[],         │
+│ splineProgress, splineRefreshAt                                          │
+│ - Catmull-Rom Helper: Private Methode mit Standard 0.5-Tension-Matrix    │
+│                                                                          │
+│ 2.2 Bomber — Schwerer Gebietskontrolleur                                 │
+│                                                                          │
+│ - Bewegung: Langsame horizontale Sinuswellen-Patrouille bei              │
+│ enterTargetY, kein Dive-Verhalten                                        │
+│ - Angriff: fireClusterBomb() statt fireShot() — feuert 3-5 Projektile    │
+│ gleichzeitig als Fächer (spread ±0.35 rad), zielend auf                  │
+│ Spieler-X-Region. Langsamere Feuerrate (1.5x Intervall).                 │
+│ - Shot-Tint: Bomber-Shots orange getönt (0xffaa66), 1.3x Skalierung      │
+│                                                                          │
+│ 2.3 Interceptor — Formations-Paar                                        │
+│                                                                          │
+│ - Spawn: spawnRaider() erstellt ZWEI Raiders wenn Variant='interceptor'  │
+│ (braucht 2 freie Slots)                                                  │
+│ - Neue Felder: formationPartner, formationSide (-1/1),                   │
+│ bezierStart/Control/End, bezierProgress, bezierActive                    │
+│ - Bewegung: Beide halten formationSpacing (80px) Abstand, Center-X       │
+│ trackt Spieler mit Dämpfung (lerp 0.04)                                  │
+│ - Bezier-Arcs: Alle 2-3s initiiert ein Ship einen Bogen-Angriff          │
+│ (quadratische Bezier-Kurve von aktueller Position, Kontrollpunkt         │
+│ seitlich, Endpunkt Richtung Spieler). Dauer 1.8s.                        │
+│ - Burst-Fire: 3 Schüsse mit 80ms Abstand während Bogen-Mitte (Progress   │
+│ 0.3-0.7)                                                                 │
+│                                                                          │
+│ 2.4 State-Machine-Update                                                 │
+│                                                                          │
+│ preUpdate() in engage-State: Dispatch auf neue updatePhantomEngage(),    │
+│ updateBomberEngage(), updateInterceptorEngage().                         │
+│                                                                          │
+│ spawn(): Texture, Body-Size, HP, Lifetime, Enter-Target-Y nach           │
+│ Variant-Lookup-Tabelle.                                                  │
+│                                                                          │
+│ pickVariant(): Level-gated Wahrscheinlichkeiten:                         │
+│ - Phantom: ab L4, 0.05 + (level-4)*0.03, max 0.25                        │
+│ - Bomber: ab L6, 0.04 + (level-6)*0.025, max 0.20                        │
+│ - Interceptor: ab L8, 0.03 + (level-8)*0.02, max 0.18                    │
+│ - Rest: stalker/lancer wie bisher                                        │
+│                                                                          │
+│ tryShoot(): Phantom→Einzelschuss wenn decloaked,                         │
+│ Bomber→fireClusterBomb(), Interceptor→Burst 3×80ms                       │
+│                                                                          │
+│ ---                                                                      │
+│ PHASE 3: Waffen-Event-System                                             │
+│                                                                          │
+│ 3.1 Konzept                                                              │
+│                                                                          │
+│ Neuer Zufalls-Event-Typ neben den bestehenden Mini-Events (SOLAR STORM   │
+│ etc.). Timer-basiert (Intervall 25-40s), wählt zufällig eine von 3       │
+│ Waffen, die für begrenzte Zeit aktiv ist.                                │
+│                                                                          │
+│ 3.2 Drei Waffenarten                                                     │
+│                                                                          │
+│ ┌───────────────┬──────────────┬──────────────────┬───────────────────── │
+│ ─┐                                                                       │
+│ │  Eigenschaft  │ Double Fire  │    Rapid Fire    │   Grenade Launcher   │
+│  │                                                                       │
+│ ├───────────────┼──────────────┼──────────────────┼───────────────────── │
+│ ─┤                                                                       │
+│ │ Label         │ DOUBLE FIRE  │ RAPID FIRE       │ GRENADE LAUNCHER     │
+│  │                                                                       │
+│ ├───────────────┼──────────────┼──────────────────┼───────────────────── │
+│ ─┤                                                                       │
+│ │ Dauer         │ 12s          │ 10s              │ 8s                   │
+│  │                                                                       │
+│ ├───────────────┼──────────────┼──────────────────┼───────────────────── │
+│ ─┤                                                                       │
+│ │               │ 0.85×        │ 0.33× (3×        │                      │
+│  │                                                                       │
+│ │ Feuerrate     │ (leicht      │ schneller)       │ 3.0× (3× langsamer)  │
+│  │                                                                       │
+│ │               │ schneller)   │                  │                      │
+│  │                                                                       │
+│ ├───────────────┼──────────────┼──────────────────┼───────────────────── │
+│ ─┤                                                                       │
+│ │ Heat/Shot     │ 1.1×         │ 0.5×             │ 2.0×                 │
+│  │                                                                       │
+│ ├───────────────┼──────────────┼──────────────────┼───────────────────── │
+│ ─┤                                                                       │
+│ │               │ 2 parallele  │ Schnellfeuer mit │ Arcing-Projektil mit │
+│  │                                                                       │
+│ │ Beschreibung  │ Kugeln       │  ±3° Streuung,   │  Gravitation,        │
+│  │                                                                       │
+│ │               │ (±12px)      │ kleinere Kugeln  │ Splash-Explosion     │
+│  │                                                                       │
+│ ├───────────────┼──────────────┼──────────────────┼───────────────────── │
+│ ─┤                                                                       │
+│ │ Overlay-Farbe │ 0xffaa33     │ 0xff3333         │ 0x33ff66             │
+│  │                                                                       │
+│ └───────────────┴──────────────┴──────────────────┴───────────────────── │
+│ ─┘                                                                       │
+│                                                                          │
+│ 3.3 Tuning (src/MainSceneTuning.ts)                                      │
+│                                                                          │
+│ Neuer WEAPON_EVENT_TUNING-Block nach MINI_EVENT_TUNING-Muster mit        │
+│ initialDelayMs, intervalMs, announceDurationMs und                       │
+│ per-Waffen-Konfiguration.                                                │
+│                                                                          │
+│ 3.4 Player-Integration (src/Player.ts)                                   │
+│                                                                          │
+│ Neue Felder + Methoden:                                                  │
+│ private activeWeaponMode: 'normal' | 'double_fire' | 'rapid_fire' |      │
+│ 'grenade_launcher' = 'normal';                                           │
+│ private weaponFireRateMultiplier = 1;                                    │
+│ private weaponHeatMultiplier = 1;                                        │
+│ public setWeaponMode(mode, fireRateMul, heatMul) { ... }                 │
+│ public resetWeaponMode() { ... }                                         │
+│                                                                          │
+│ Änderung in fireBullet() (Zeile 821):                                    │
+│ - normal: wie bisher                                                     │
+│ - double_fire: trySpawnBullet(x-12, y-25, angle) + trySpawnBullet(x+12,  │
+│ y-25, angle)                                                             │
+│ - rapid_fire: trySpawnBullet(x, y-25, angle + random(±0.05))             │
+│ - grenade_launcher: trySpawnGrenade(x, y) — neues Projektil              │
+│                                                                          │
+│ Änderung in applyHeat(): this.heatPerShot * this.weaponHeatMultiplier    │
+│ Änderung in Feuerrate-Berechnung: interval *                             │
+│ this.weaponFireRateMultiplier                                            │
+│                                                                          │
+│ 3.5 Granaten-Projektil (src/Player.ts)                                   │
+│                                                                          │
+│ Erweiterung der Bullet-Klasse um:                                        │
+│ - isGrenade Flag, fuseTimeMs, fuseStartTime                              │
+│ - In fire(): optionaler Granaten-Modus mit eigenem Texture               │
+│ (bullet_grenade, 24×24), body.gravity.y = 180                            │
+│ - In preUpdate(): Fuse-Timer-Check → bei Ablauf                          │
+│ scene.onGrenadeExplode(x, y) aufrufen und deaktivieren                   │
+│ - Neue Textur: Oval, olivgrün mit orangem Zünder-Punkt                   │
+│                                                                          │
+│ 3.6 Granaten-Splash (src/MainScene.ts)                                   │
+│                                                                          │
+│ onGrenadeExplode(x, y):                                                  │
+│ - Distanz-Check gegen alle aktiven Enemies/SkyRaiders/UFO in             │
+│ splashRadius (80px)                                                      │
+│ - splashDamage=2 auf jeden getroffenen Gegner                            │
+│ - Explosion-FX + Impact-Ring + Camera-Shake                              │
+│ - Kein neuer Collision-Handler nötig — manueller AoE-Check               │
+│                                                                          │
+│ 3.7 Event-Lifecycle (src/MainScene.ts)                                   │
+│                                                                          │
+│ Neue Methoden nach Mini-Event-Muster:                                    │
+│ - scheduleNextWeaponEvent(initial) — Timer setzen                        │
+│ - pickNextWeaponEventKey() — zufällig, kein Repeat                       │
+│ - activateWeaponEvent() — player.setWeaponMode(), Announce-Text, SFX,    │
+│ HUD                                                                      │
+│ - stopWeaponEvent() — player.resetWeaponMode(), HUD clear                │
+│ - updateWeaponEvents(delta) — Countdown, Aufruf im update()              │
+│                                                                          │
+│ Stacking: Weapon Events stacken mit Power-Ups (Triple Shot + Double Fire │
+│  = 6 Kugeln, Triple + Rapid = 3 schnelle Kugeln mit Streuung).           │
+│                                                                          │
+│ ---                                                                      │
+│ PHASE 4: Visuelle Effekte                                                │
+│                                                                          │
+│ 4.1 Neue Bullet-Texturen (src/Player.ts)                                 │
+│                                                                          │
+│ - bullet_double: Wie bullet_wireframe aber blau-orange Dual-Gradient     │
+│ - bullet_rapid: Kleiner (14×24), heller Tracer-Look, gelb-weiß           │
+│ - bullet_grenade: 24×24, oval, olivgrün mit orangem Zünder               │
+│                                                                          │
+│ 4.2 SkyRaider Destruction FX (src/MainScene.ts:3110-3118)                │
+│                                                                          │
+│ Lookup-Tabelle statt if/else:                                            │
+│ const fxMap: Record<SkyRaiderVariant, {color: number, startR: number,    │
+│ endR: number, shake: number}> = {                                        │
+│   stalker:     { color: 0x95f7ff, startR: 16, endR: 82,  shake: 0.0046   │
+│ },                                                                       │
+│   lancer:      { color: 0xff9be8, startR: 20, endR: 104, shake: 0.0062   │
+│ },                                                                       │
+│   phantom:     { color: 0xb366ff, startR: 18, endR: 94,  shake: 0.0054   │
+│ },                                                                       │
+│   bomber:      { color: 0xff6633, startR: 24, endR: 120, shake: 0.0072   │
+│ },                                                                       │
+│   interceptor: { color: 0x33ffaa, startR: 16, endR: 82,  shake: 0.0046   │
+│ },                                                                       │
+│ };                                                                       │
+│                                                                          │
+│ 4.3 Phantom-Cloak-Effekt                                                 │
+│                                                                          │
+│ Alpha-Tween über scene.tweens.add() für smooth Decloak/Recloak. Im       │
+│ reduced-FX-Modus: instant setAlpha().                                    │
+│                                                                          │
+│ 4.4 Weapon-Event-Announce                                                │
+│                                                                          │
+│ Zentrierter Text-Scale-In mit Fade, identisch zu Mini-Event-Announce.    │
+│ Kamera-Flash in Weapon-Overlay-Farbe.                                    │
+│                                                                          │
+│ 4.5 Grenade Smoke-Trail                                                  │
+│                                                                          │
+│ Optional (FX-Budget-gated): Kleiner Smoke-Particle-Emit hinter Granate   │
+│ mittels bestehendem explosion_smoke_particle-Emitter mit                 │
+│ emitParticleAt().                                                        │
+│                                                                          │
+│ 4.6 Performance-Budget                                                   │
+│                                                                          │
+│ - Alle Partikel-Emits via explosionManager.emitCount() skaliert          │
+│ - Phantom-Tween: instant bei reducedParticles                            │
+│ - Bomber-Cluster: -1 Fragment bei getFxBudgetScale < 0.7                 │
+│ - Grenade-Explosion: scaleFxCount() für Partikel                         │
+│                                                                          │
+│ ---                                                                      │
+│ PHASE 5: Audio & HUD                                                     │
+│                                                                          │
+│ 5.1 Neue SFX (src/AudioManager.ts)                                       │
+│                                                                          │
+│ 4 neue Methoden nach Guard-Clause + connectWithPan()-Muster:             │
+│ - playPhantomDecloak(pan) — Whoosh, Frequenz-Sweep 2kHz→500Hz, 200ms     │
+│ - playBomberDrop(pan) — Tiefer Thud, 200Hz→80Hz, 300ms                   │
+│ - playGrenadeExplode(pan) — Tiefere Explosions-Variante, längerer        │
+│ Sustain                                                                  │
+│ - playWeaponEventActivate() — 3-Ton aufsteigender Synth-Arpeggio         │
+│                                                                          │
+│ 5.2 HUD Weapon-Indicator (src/managers/HUDManager.ts)                    │
+│                                                                          │
+│ - Neue Felder in HUDState: weaponEventActive, weaponEventLabel,          │
+│ weaponEventTimeLeftMs, weaponEventColor                                  │
+│ - Neues weaponEventText in HUDComponents                                 │
+│ - Anzeige: Weapon-Name + Countdown-Timer, farbig, oberer Bereich neben   │
+│ Mini-Event-Status                                                        │
+│ - Change-Detection wie bestehende HUD-Elemente                           │
+│                                                                          │
+│ 5.3 Score-Lookup-Tabelle (src/MainScene.ts:3105-3106)                    │
+│                                                                          │
+│ Ersetze hardcoded stalker/lancer Score-Berechnung durch Lookup:          │
+│ const RAIDER_SCORE: Record<SkyRaiderVariant, {base: number, perLevel:    │
+│ number}> = {                                                             │
+│   stalker: {base: 280, perLevel: 22}, lancer: {base: 420, perLevel: 34}, │
+│   phantom: {base: 380, perLevel: 30}, bomber: {base: 500, perLevel: 40}, │
+│   interceptor: {base: 320, perLevel: 26},                                │
+│ };                                                                       │
+│                                                                          │
+│ ---                                                                      │
+│ Dateien und geschätzte Änderungen                                        │
+│                                                                          │
+│ ┌────────────────────────────┬────────────────────┬─────────────────┐    │
+│ │           Datei            │ Zeilen hinzugefügt │ Zeilen geändert │    │
+│ ├────────────────────────────┼────────────────────┼─────────────────┤    │
+│ │ src/SkyRaider.ts           │ ~500               │ ~80             │    │
+│ ├────────────────────────────┼────────────────────┼─────────────────┤    │
+│ │ src/Player.ts              │ ~120               │ ~40             │    │
+│ ├────────────────────────────┼────────────────────┼─────────────────┤    │
+│ │ src/MainSceneTuning.ts     │ ~80                │ 0               │    │
+│ ├────────────────────────────┼────────────────────┼─────────────────┤    │
+│ │ src/MainScene.ts           │ ~200               │ ~60             │    │
+│ ├────────────────────────────┼────────────────────┼─────────────────┤    │
+│ │ src/managers/HUDManager.ts │ ~40                │ ~10             │    │
+│ ├────────────────────────────┼────────────────────┼─────────────────┤    │
+│ │ src/AudioManager.ts        │ ~80                │ 0               │    │
+│ ├────────────────────────────┼────────────────────┼─────────────────┤    │
+│ │ src/ExplosionManager.ts    │ ~20                │ ~5              │    │
+│ ├────────────────────────────┼────────────────────┼─────────────────┤    │
+│ │ Gesamt                     │ ~1040              │ ~195            │    │
+│ └────────────────────────────┴────────────────────┴─────────────────┘    │
+│                                                                          │
+│ Verifikation                                                             │
+│                                                                          │
+│ 1. Type-Check: npx tsc --noEmit nach jeder Phase                         │
+│ 2. Visuell: Dev-Server (npm run dev), jede Variante per Debug-Spawn      │
+│ testen                                                                   │
+│ 3. AI: Phantom-Cloak-Zyklus, Bomber-Cluster-Fächer,                      │
+│ Interceptor-Paar-Formation manuell beobachten                            │
+│ 4. Waffen: Jedes Event manuell triggern, Stacking mit Triple Shot        │
+│ verifizieren                                                             │
+│ 5. Grenaden-Splash: AoE-Damage gegen Asteroiden-Gruppe testen            │
+│ 6. Performance: PerformanceMonitor-Overlay aktiv, FPS >55 bei            │
+│ Max-Entities (3 Raiders + Weapon Event + Asteroiden)                     │
+│ 7. Lint: npm run lint am Ende  

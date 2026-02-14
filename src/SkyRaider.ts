@@ -848,6 +848,12 @@ export class SkyRaider extends Phaser.Physics.Arcade.Sprite {
     }
     this.bezierActive = false;
     this.burstShotsRemaining = 0;
+    this.nextBezierAt =
+      this.scene.time.now +
+      Phaser.Math.Between(
+        SKY_RAIDER_VARIANT_TUNING.interceptor.bezierIntervalMs[0],
+        SKY_RAIDER_VARIANT_TUNING.interceptor.bezierIntervalMs[1],
+      );
     this.formationPartner = null;
   }
 
@@ -1032,7 +1038,7 @@ export class SkyRaider extends Phaser.Physics.Arcade.Sprite {
     shot.fire(this.x, this.y, Math.cos(aimAngle) * speed, Math.sin(aimAngle) * speed, this.variant);
 
     const pan = Phaser.Math.Clamp((this.x / Math.max(1, this.scene.scale.width)) * 2 - 1, -1, 1);
-    this.audioManager.playUFOShoot('scout', pan);
+    this.audioManager.playBomberDrop(pan);
   }
 
   private tryShoot(time: number) {
@@ -1191,7 +1197,7 @@ export class SkyRaider extends Phaser.Physics.Arcade.Sprite {
           -1,
           1,
         );
-        this.audioManager.playUFOShoot('scout', pan);
+        this.audioManager.playPhantomDecloak(pan);
       }
     }
   }
